@@ -160,20 +160,21 @@ elif [ -f "./${BIN_NAME}" ]; then
     BINARY="./${BIN_NAME}"
     info "Using binary in current directory: ${BINARY}"
 else
-    # Download from server
+    # Download from GitHub releases
     BINARY="${INSTALL_DIR}/${BIN_NAME}"
-    DOWNLOAD_URL="${SERVER}/api/agent/binary?os=${OS}&arch=${ARCH}&version=${VERSION}"
+    SUFFIX=""
+    DOWNLOAD_URL="https://github.com/WelcomeToTheWeb/OurWay/releases/download/v${VERSION}/ourway-agent-${OS}-${ARCH}${SUFFIX}"
     
-    info "Downloading agent binary..."
+    info "Downloading agent binary from GitHub releases..."
     info "URL: ${DOWNLOAD_URL}"
     
     if command -v curl >/dev/null 2>&1; then
         if ! curl -fsSL -o "${BINARY}" "${DOWNLOAD_URL}"; then
-            error "Failed to download binary. Check server URL: ${SERVER}"
+            error "Failed to download binary. Check version: ${VERSION}"
         fi
     elif command -v wget >/dev/null 2>&1; then
         if ! wget -q -O "${BINARY}" "${DOWNLOAD_URL}"; then
-            error "Failed to download binary. Check server URL: ${SERVER}"
+            error "Failed to download binary. Check version: ${VERSION}"
         fi
     else
         error "Neither curl nor wget found. Install one of them."

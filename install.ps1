@@ -35,8 +35,8 @@ Write-Host ""
 $binaryPath = Join-Path $InstallDir "ourway-agent.exe"
 
 # Download binary
-Write-Info "Downloading agent binary..."
-$url = "$Server/api/agent/binary?os=windows&arch=$arch&version=$Version"
+Write-Info "Downloading agent binary from GitHub releases..."
+$url = "https://github.com/WelcomeToTheWeb/OurWay/releases/download/v$Version/ourway-agent-windows-$arch.exe"
 Write-Info "URL: $url"
 
 try {
@@ -48,7 +48,7 @@ try {
         Write-Info "Using binary in current directory"
         $binaryPath = "./ourway-agent.exe"
     } else {
-        # Download from server
+        # Download from GitHub releases
         if (!(Test-Path $InstallDir)) {
             New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
         }
