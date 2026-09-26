@@ -125,22 +125,23 @@ if (-not $SkipService) {
             Write-Info "Service already exists, updating..."
             Stop-Service -Name "OurWayAgent" -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
-            sc.exe delete OurWayAgent | Out-Null
+            Remove-Service -Name "OurWayAgent" -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 2
         }
         
-        $binPath = "`"$binaryPath`" --server $Server --key $Key"
-        Write-Info "Service command: $binPath"
-        sc.exe create OurWayAgent binPath=$binPath start=auto | Out-Null
+        $display = "OurWay Agent"
+        $description = "OurWay RMM monitoring agent"
+        New-Service -Name "OurWayAgent" -DisplayName $display -BinaryPathName "`"$binaryPath`" --server $Server --key $Key" -StartupType Automatic -Description $description | Out-Null
+        Write-Ok "Windows service installed"
         
         Start-Service -Name "OurWayAgent"
-        Start-Sleep -Seconds 2
+        Start-Sleep -Seconds 3
         
         $status = Get-Service -Name "OurWayAgent"
         if ($status.Status -eq "Running") {
-            Write-Ok "Windows service installed and started"
+            Write-Ok "Service is running"
         } else {
-            Write-Warn "Service installed but not running. Check: sc.exe query OurWayAgent"
+            Write-Warn "Service status: $($status.Status). Check Event Viewer for errors."
         }
     } catch {
         Write-Warn "Failed to install as service: $_"
