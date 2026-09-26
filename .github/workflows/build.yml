@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: welcome-to-the-web
+  IMAGE_PREFIX: welcome-to-the-web/ourway
 
 jobs:
   # Build agent binaries for all platforms
@@ -24,7 +24,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-          cache: true
 
       - name: Build agents
         run: |
@@ -82,32 +81,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create server package
-        run: |
-          curl -s -X POST \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/user/packages \
-            -d '{"name":"ourway/ourway-server","package_type":"container","visibility":"private"}'
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ourway/ourway-server
-          tags: |
-            type=semver,pattern={{version}}
-            type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
-
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/Dockerfile.server
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server:${{ github.sha }}
           build-args: |
             VERSION=${{ github.sha }}
             GIT_COMMIT=${{ github.sha }}
@@ -133,32 +115,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create web package
-        run: |
-          curl -s -X POST \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/user/packages \
-            -d '{"name":"ourway/ourway-web","package_type":"container","visibility":"private"}'
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ourway/ourway-web
-          tags: |
-            type=semver,pattern={{version}}
-            type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
-
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/Dockerfile.web
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:${{ github.sha }}
 
   # Create GitHub release on tags
   release:
