@@ -24,6 +24,16 @@ func NewAuthHandler(store *store.Store, jwtAuth *auth.JWTAuth) *AuthHandler {
 	return &AuthHandler{store: store, jwtAuth: jwtAuth}
 }
 
+// Status returns whether any users exist (for first-run registration detection).
+func (h *AuthHandler) Status(c *gin.Context) {
+	count, err := h.store.Users.Count()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check user count"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"has_users": count > 0})
+}
+
 // Register handles user registration.
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {

@@ -69,6 +69,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 	// Auth routes (no auth required)
 	authGroup := r.Group("/api/auth")
 	{
+		authGroup.GET("/status", authHandler.Status)
 		authGroup.POST("/login", authHandler.Login)
 		authGroup.POST("/register", authHandler.Register)
 

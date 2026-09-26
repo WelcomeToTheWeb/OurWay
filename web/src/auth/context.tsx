@@ -60,6 +60,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('ourway_roles', JSON.stringify(data.roles));
   }, []);
 
+  const register = useCallback(async (username: string, email: string, password: string) => {
+    await client.post('/auth/register', { username, email, password });
+    // Auto-login after registration
+    await login(username, password);
+  }, [login]);
+
   const logout = useCallback(() => {
     setAccessToken(null);
     setRefreshToken(null);
@@ -120,6 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshToken,
         isAuthenticated,
         login,
+        register,
         logout,
         refresh,
         setToken,

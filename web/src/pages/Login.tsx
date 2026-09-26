@@ -3,17 +3,20 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MonitorSmartphone } from 'lucide-react';
 import { useAuth } from '../auth/context';
 import { listSSOProviders, authorizeProvider, type SSOProvider } from '../api/sso';
+import { getAuthStatus } from '../api/auth';
 
 export function Login() {
-  const { login, isAuthenticated, setToken } = useAuth();
+  const { login, register, isAuthenticated, setToken } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<SSOProvider[]>([]);
   const [providersLoading, setProvidersLoading] = useState(true);
+  const [hasUsers, setHasUsers] = useState<boolean | null>(null);
 
   // Handle SSO callback token
   useEffect(() => {
@@ -28,6 +31,13 @@ export function Login() {
     navigate('/');
     return null;
   }
+
+  // Check if users exist (first-run detection)
+  useEffect(() => {
+    getAuthStatus()
+      .then((status) => setHasUsers(status.has_users))
+      .catch(() => setHasUsers(true));
+  }, []);
 
   // Load SSO providers
   useEffect(() => {
@@ -45,7 +55,7 @@ export function Login() {
     };
   }, []);
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleLogin(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
@@ -59,8 +69,33 @@ export function Login() {
     }
   }
 
+  async function handleRegister(e: FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      await register(username, email, password);
+      navigate('/');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function handleSSO(provider: SSOProvider) {
     window.location.href = authorizeProvider(provider.name);
+  }
+
+  // Loading state while checking for existing users
+  if (hasUsers === null) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-bg">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent">
+          <MonitorSmartphone className="h-7 w-7 text-text-primary" />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -76,71 +111,130 @@ export function Login() {
           </div>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="flex flex-col gap-4 rounded-2xl border border-bg-border bg-bg-card p-6"
-        >
-          {error && (
-            <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
-              {error}
-            </p>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-text-secondary">Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-              placeholder="Enter your username"
-              required
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-text-secondary">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-              placeholder="Enter your password"
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
+        {hasUsers ? (
+          /* Login form */
+          <form
+            onSubmit={handleLogin}
+            className="flex flex-col gap-4 rounded-2xl border border-bg-border bg-bg-card p-6"
           >
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
+            {error && (
+              <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
+                {error}
+              </p>
+            )}
 
-          {/* SSO Buttons */}
-          {!providersLoading && providers.length > 0 && (
-            <div className="flex flex-col gap-3 pt-2">
-              <div className="relative flex items-center">
-                <div className="flex-1 border-t border-bg-border" />
-                <span className="px-3 text-xs text-text-muted">or sign in with</span>
-                <div className="flex-1 border-t border-bg-border" />
-              </div>
-
-              {providers.map((p) => (
-                <button
-                  key={p.name}
-                  type="button"
-                  onClick={() => handleSSO(p)}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-bg-border bg-bg px-4 py-2.5 text-sm text-text-primary transition-colors hover:bg-slate-800"
-                >
-                  <ProviderIcon provider={p.name} />
-                  Sign in with {providerDisplayName(p.name)}
-                </button>
-              ))}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-text-secondary">Username</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                placeholder="Enter your username"
+                required
+              />
             </div>
-          )}
-        </form>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-text-secondary">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                placeholder="Enter your password"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
+            >
+              {loading ? 'Signing in...' : 'Sign in'}
+            </button>
+
+            {/* SSO Buttons */}
+            {!providersLoading && providers.length > 0 && (
+              <div className="flex flex-col gap-3 pt-2">
+                <div className="relative flex items-center">
+                  <div className="flex-1 border-t border-bg-border" />
+                  <span className="px-3 text-xs text-text-muted">or sign in with</span>
+                  <div className="flex-1 border-t border-bg-border" />
+                </div>
+
+                {providers.map((p) => (
+                  <button
+                    key={p.name}
+                    type="button"
+                    onClick={() => handleSSO(p)}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-bg-border bg-bg px-4 py-2.5 text-sm text-text-primary transition-colors hover:bg-slate-800"
+                  >
+                    <ProviderIcon provider={p.name} />
+                    Sign in with {providerDisplayName(p.name)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </form>
+        ) : (
+          /* Registration form (first run) */
+          <form
+            onSubmit={handleRegister}
+            className="flex flex-col gap-4 rounded-2xl border border-bg-border bg-bg-card p-6"
+          >
+            {error && (
+              <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
+                {error}
+              </p>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-text-secondary">Username</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                placeholder="Enter your username"
+                required
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-text-secondary">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                placeholder="Enter your email"
+                required
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-text-secondary">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                placeholder="Enter your password"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
+            >
+              {loading ? 'Creating account...' : 'Get started'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

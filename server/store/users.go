@@ -66,6 +66,15 @@ func (s *UserStore) ListAll() ([]models.User, error) {
 	return users, nil
 }
 
+// Count returns the total number of users.
+func (s *UserStore) Count() (int64, error) {
+	var count int64
+	if err := s.db.Model(&models.User{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // Delete removes a user by ID.
 func (s *UserStore) Delete(id string) error {
 	result := s.db.Delete(&models.User{}, "id = ?", id)
