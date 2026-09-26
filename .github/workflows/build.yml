@@ -42,11 +42,8 @@ jobs:
             fi
             echo "Building agent for $os/$arch..."
             GOOS=$os GOARCH=$arch go build -C agent \
-              -ldflags "-s -w \
-                -X main.Version=$VERSION \
-                -X main.BuildTime=$BUILD_TIME \
-                -X main.GitCommit=$GIT_COMMIT" \
-              -o ../dist/agents/ourway-agent-${os}-${arch}${suffix} .
+              -ldflags "-s -w -X main.Version=$VERSION -X 'main.BuildTime=$BUILD_TIME' -X main.GitCommit=$GIT_COMMIT" \
+              -o "../dist/agents/ourway-agent-${os}-${arch}${suffix}" .
           done
 
           echo "Built agents:"

@@ -11,31 +11,31 @@ mkdir -p dist/agents
 # Build Linux amd64
 echo "Building Linux amd64 agent..."
 GOOS=linux GOARCH=amd64 go build -C agent \
-    -ldflags "-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
+    -ldflags "-s -w -X main.Version=${VERSION} -X 'main.BuildTime=${BUILD_TIME}' -X main.GitCommit=${GIT_COMMIT}" \
     -o ../dist/agents/ourway-agent-linux-amd64 .
 
 # Build Linux arm64
 echo "Building Linux arm64 agent..."
 GOOS=linux GOARCH=arm64 go build -C agent \
-    -ldflags "-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
+    -ldflags "-s -w -X main.Version=${VERSION} -X 'main.BuildTime=${BUILD_TIME}' -X main.GitCommit=${GIT_COMMIT}" \
     -o ../dist/agents/ourway-agent-linux-arm64 .
 
 # Build macOS amd64
 echo "Building macOS amd64 agent..."
 GOOS=darwin GOARCH=amd64 go build -C agent \
-    -ldflags "-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
+    -ldflags "-s -w -X main.Version=${VERSION} -X 'main.BuildTime=${BUILD_TIME}' -X main.GitCommit=${GIT_COMMIT}" \
     -o ../dist/agents/ourway-agent-darwin-amd64 .
 
 # Build macOS arm64
 echo "Building macOS arm64 agent..."
 GOOS=darwin GOARCH=arm64 go build -C agent \
-    -ldflags "-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
+    -ldflags "-s -w -X main.Version=${VERSION} -X 'main.BuildTime=${BUILD_TIME}' -X main.GitCommit=${GIT_COMMIT}" \
     -o ../dist/agents/ourway-agent-darwin-arm64 .
 
 # Build Windows amd64
 echo "Building Windows amd64 agent..."
 GOOS=windows GOARCH=amd64 go build -C agent \
-    -ldflags "-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
+    -ldflags "-s -w -X main.Version=${VERSION} -X 'main.BuildTime=${BUILD_TIME}' -X main.GitCommit=${GIT_COMMIT}" \
     -o ../dist/agents/ourway-agent-windows-amd64.exe .
 
 # Build installer CLI for all platforms
