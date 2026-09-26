@@ -88,13 +88,13 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/user/packages \
-            -d '{"name":"ourway-server","package_type":"container","visibility":"private"}'
+            -d '{"name":"ourway/ourway-server","package_type":"container","visibility":"private"}'
 
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ourway-server
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ourway/ourway-server
           tags: |
             type=semver,pattern={{version}}
             type=sha,prefix=
@@ -139,13 +139,13 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/user/packages \
-            -d '{"name":"ourway-web","package_type":"container","visibility":"private"}'
+            -d '{"name":"ourway/ourway-web","package_type":"container","visibility":"private"}'
 
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ourway-web
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ourway/ourway-web
           tags: |
             type=semver,pattern={{version}}
             type=sha,prefix=
