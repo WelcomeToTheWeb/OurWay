@@ -82,6 +82,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create server package
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user/packages \
+            -d '{"name":"ourway-server","package_type":"container","visibility":"private"}'
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -124,6 +132,14 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create web package
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user/packages \
+            -d '{"name":"ourway-web","package_type":"container","visibility":"private"}'
 
       - name: Extract metadata
         id: meta
