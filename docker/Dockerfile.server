@@ -27,11 +27,30 @@ RUN go mod download
 
 # Copy source code
 COPY server/ ./
+COPY agent/ ../agent/
 
 # Build the server binary with version info embedded
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
     -o /app/server_bin .
+
+# Build agent binaries for all platforms (for agent download endpoint)
+RUN mkdir -p /app/dist/agents \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -C ../agent \
+        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -o /app/dist/agents/ourway-agent-linux-amd64 . \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -C ../agent \
+        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -o /app/dist/agents/ourway-agent-linux-arm64 . \
+    && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -C ../agent \
+        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -o /app/dist/agents/ourway-agent-darwin-amd64 . \
+    && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -C ../agent \
+        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -o /app/dist/agents/ourway-agent-darwin-arm64 . \
+    && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C ../agent \
+        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -o /app/dist/agents/ourway-agent-windows-amd64.exe .
 
 # Stage 2: Minimal production image
 FROM alpine:3.20
@@ -56,6 +75,9 @@ RUN mkdir -p /app/data \
 # Copy the built binary from the builder stage
 COPY --from=builder /app/server_bin /app/server
 
+# Copy agent binaries for the download endpoint
+COPY --from=builder /app/dist/agents /app/dist/agents
+RUN chown -R ourway:ourway /app/dist
 
 # Switch to non-root user
 USER ourway:ourway

@@ -136,7 +136,7 @@ curl -sL https://ourway.example.com/install.sh | bash -s -- --server wss://ourwa
 
 ```powershell
 # From PowerShell (run as administrator)
-.\install.ps1 -Server "wss://ourway.example.com" -Register
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Server "wss://ourway.example.com" -Register
 ```
 
 ### Docker
