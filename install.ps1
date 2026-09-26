@@ -1,13 +1,14 @@
 # OurWay Agent Installer for Windows
-# Usage: .\install.ps1 -Server "wss://yourserver.com" -Key "YOUR_DEVICE_KEY"
-# Or from the web:
-# Invoke-WebRequest -Uri "https://ourway.example.com/install.ps1" -UseBasicParsing | Invoke-Expression
+# Usage: .\install.ps1 -Server "wss://yourserver.com" -Register
+# Or: .\install.ps1 -Server "wss://yourserver.com" -Key "YOUR_DEVICE_KEY"
 
 param(
     [string]$Server = "http://localhost:8081",
     [string]$Key = "",
     [string]$InstallDir = "C:\Program Files\OurWay\Agent",
-    [string]$Version = "1.0.0"
+    [string]$Version = "1.0.0",
+    [switch]$Register,
+    [switch]$SkipService
 )
 
 function Write-Info { param($msg) Write-Host "[info] $msg" -ForegroundColor Cyan }
@@ -31,27 +32,63 @@ Write-Info "Server: $Server"
 if ($Key) { Write-Info "Device Key: $Key" }
 Write-Host ""
 
+# Auto-register device if no key provided and -Register is set
+if (-not $Key -and $Register) {
+    Write-Info "Registering device with server..."
+    
+    $hostname = $env:COMPUTERNAME
+    $publicIP = ""
+    try {
+        $publicIP = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 5 -UseBasicParsing).ToString()
+    } catch { }
+    
+    $payload = @{
+        name = $hostname
+        hostname = $hostname
+        os = "windows"
+        arch = $arch
+        agent_version = $Version
+    }
+    if ($publicIP) { $payload["public_ip"] = $publicIP }
+    
+    try {
+        $response = Invoke-RestMethod -Uri "$Server/api/agent/register" -Method POST -Body ($payload | ConvertTo-Json) -ContentType "application/json" -UseBasicParsing
+        if ($response.device_key) {
+            $Key = $response.device_key
+            Write-Ok "Device registered! Key: $Key"
+        } else {
+            Write-Warn "Device registered but could not extract key."
+        }
+    } catch {
+        Write-Warn "Failed to register device: $_"
+        Write-Warn "You can manually set the key with -Key option"
+    }
+    Write-Host ""
+}
+
+# Create install directory
+if (!(Test-Path $InstallDir)) {
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+}
+
 # Determine binary path
 $binaryPath = Join-Path $InstallDir "ourway-agent.exe"
+$localBinaryFound = $false
 
-# Download binary
 Write-Info "Downloading agent binary from GitHub releases..."
 $url = "https://github.com/WelcomeToTheWeb/OurWay/releases/download/v$Version/ourway-agent-windows-$arch.exe"
 Write-Info "URL: $url"
 
 try {
-    # Try local binary first (for development)
     if (Test-Path "./dist/agents/ourway-agent-windows-$arch.exe") {
-        Write-Info "Using local binary"
-        $binaryPath = "./dist/agents/ourway-agent-windows-$arch.exe"
+        Write-Info "Using local binary: ./dist/agents/ourway-agent-windows-$arch.exe"
+        Copy-Item "./dist/agents/ourway-agent-windows-$arch.exe" $binaryPath -Force
+        $localBinaryFound = $true
     } elseif (Test-Path "./ourway-agent.exe") {
-        Write-Info "Using binary in current directory"
-        $binaryPath = "./ourway-agent.exe"
+        Write-Info "Using binary in current directory: ./ourway-agent.exe"
+        Copy-Item "./ourway-agent.exe" $binaryPath -Force
+        $localBinaryFound = $true
     } else {
-        # Download from GitHub releases
-        if (!(Test-Path $InstallDir)) {
-            New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-        }
         Invoke-WebRequest -Uri $url -OutFile $binaryPath -UseBasicParsing
         Write-Ok "Binary downloaded to $binaryPath"
     }
@@ -78,29 +115,37 @@ $config | ConvertTo-Json | Set-Content -Path $configFile -Encoding UTF8
 Write-Ok "Configuration written to $configFile"
 
 # Install as Windows service
-Write-Host ""
-Write-Info "Installing as Windows service..."
-
-try {
-    # Stop existing service if running
-    $svc = Get-Service -Name "OurWayAgent" -ErrorAction SilentlyContinue
-    if ($svc) {
-        Write-Info "Service already exists, updating..."
-        Stop-Service -Name "OurWayAgent" -Force -ErrorAction SilentlyContinue
-        sc.exe delete OurWayAgent | Out-Null
+if (-not $SkipService) {
+    Write-Host ""
+    Write-Info "Installing as Windows service..."
+    
+    try {
+        $svc = Get-Service -Name "OurWayAgent" -ErrorAction SilentlyContinue
+        if ($svc) {
+            Write-Info "Service already exists, updating..."
+            Stop-Service -Name "OurWayAgent" -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            sc.exe delete OurWayAgent | Out-Null
+            Start-Sleep -Seconds 2
+        }
+        
+        $binPath = "`"$binaryPath`" --server $Server --key $Key"
+        Write-Info "Service command: $binPath"
+        sc.exe create OurWayAgent binPath=$binPath start=auto | Out-Null
+        
+        Start-Service -Name "OurWayAgent"
         Start-Sleep -Seconds 2
+        
+        $status = Get-Service -Name "OurWayAgent"
+        if ($status.Status -eq "Running") {
+            Write-Ok "Windows service installed and started"
+        } else {
+            Write-Warn "Service installed but not running. Check: sc.exe query OurWayAgent"
+        }
+    } catch {
+        Write-Warn "Failed to install as service: $_"
+        Write-Warn "Try running PowerShell as Administrator"
     }
-    
-    # Create service
-    $cmd = "sc.exe create OurWayAgent binPath=`"$binaryPath --server $Server --key $Key`" start=auto"
-    Invoke-Expression $cmd | Out-Null
-    
-    # Start service
-    Start-Service -Name "OurWayAgent"
-    
-    Write-Ok "Windows service installed and started"
-} catch {
-    Write-Warn "Failed to install as service (run as administrator?): $_"
 }
 
 Write-Host ""
@@ -109,11 +154,15 @@ Write-Ok "OurWay Agent installed successfully!"
 Write-Host "======================================"
 Write-Host ""
 Write-Host "  Binary:   $binaryPath"
-Write-Host "  Config:   $configDir"
+Write-Host "  Config:   $configFile"
 Write-Host "  Server:   $Server"
+if ($Key) { Write-Host "  Key:      $Key" }
 Write-Host ""
-Write-Host "Service status: Get-Service OurWayAgent"
-Write-Host "Logs: sc.exe query OurWayAgent"
+
+if (-not $SkipService) {
+    Write-Host "Check service: Get-Service OurWayAgent"
+    Write-Host "View logs: sc.exe query OurWayAgent"
+}
 Write-Host ""
 Write-Host "To uninstall:"
 Write-Host "  sc.exe stop OurWayAgent"
