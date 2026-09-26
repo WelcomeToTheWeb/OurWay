@@ -56,8 +56,6 @@ RUN mkdir -p /app/data \
 # Copy the built binary from the builder stage
 COPY --from=builder /app/server_bin /app/server
 
-# Copy migrations or additional data if needed
-COPY --from=builder /app/server/migrations /app/migrations 2>/dev/null || true
 
 # Switch to non-root user
 USER ourway:ourway
