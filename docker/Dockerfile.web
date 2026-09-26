@@ -38,9 +38,6 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY install.sh /usr/share/nginx/html/
 COPY install.ps1 /usr/share/nginx/html/
 
-# Create non-root user
-RUN addgroup -S nginx && adduser -S -G nginx nginx
-
 # Set ownership of nginx directories
 RUN chown -R nginx:nginx /usr/share/nginx/html \
     && chown -R nginx:nginx /var/cache/nginx \
