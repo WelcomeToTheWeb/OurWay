@@ -27,7 +27,7 @@ services:
         max-file: "3"
 
   server:
-    image: ghcr.io/welcome-to-the-web/ourway/server:latest
+    image: ghcr.io/welcometotheweb/ourway/server:latest
     container_name: ourway-server
     restart: unless-stopped
     depends_on:
@@ -56,7 +56,7 @@ services:
         max-file: "3"
 
   web:
-    image: ghcr.io/welcome-to-the-web/ourway/web:latest
+    image: ghcr.io/welcometotheweb/ourway/web:latest
     container_name: ourway-web
     restart: unless-stopped
     depends_on:
