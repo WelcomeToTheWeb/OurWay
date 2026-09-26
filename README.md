@@ -103,13 +103,24 @@ ourway/
 
 ## Quick Start
 
+### From pre-built images (no clone required)
+
 ```bash
-# Clone and set up
-git clone <repo-url>
-cd ourway
+curl -sL https://raw.githubusercontent.com/WelcomeToTheWeb/OurWay/main/docker-compose.prod.yml -o docker-compose.yml
+docker compose up -d
+
+# Open web UI
+open http://localhost:3000
+```
+
+### From source
+
+```bash
+git clone https://github.com/WelcomeToTheWeb/OurWay.git
+cd OurWay
 
 # Run with Docker Compose
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # Open web UI
 open http://localhost:3000
