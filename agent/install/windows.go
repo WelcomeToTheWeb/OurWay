@@ -1,0 +1,67 @@
+//go:build windows
+
+package install
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
+
+	"ourway/agent/config"
+)
+
+const serviceName = "OurWayAgent"
+
+// Install creates a Windows service using sc.exe.
+func Install(cfg *config.Config) error {
+	// Determine executable path
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("get executable path: %w", err)
+	}
+
+	// Create the service
+	if err := runCommand("sc.exe", "create", serviceName,
+		"binPath=", fmt.Sprintf(`"%s" --server %s --key %s`, exe, cfg.ServerURL, cfg.DeviceKey),
+		"start=", "auto",
+		"display=", "OurWay Agent"); err != nil {
+		return fmt.Errorf("create service: %w", err)
+	}
+	fmt.Println("Service created")
+
+	// Start the service
+	if err := runCommand("sc.exe", "start", serviceName); err != nil {
+		fmt.Printf("Warning: could not start service: %v\n", err)
+	} else {
+		fmt.Println("Service started")
+	}
+
+	return nil
+}
+
+// Uninstall removes the Windows service.
+func Uninstall() error {
+	runCommand("sc.exe", "stop", serviceName)
+	runCommand("sc.exe", "delete", serviceName)
+	fmt.Println("Service uninstalled")
+	return nil
+}
+
+// IsInstalled checks if the Windows service exists.
+func IsInstalled() (bool, error) {
+	output, err := exec.Command("sc.exe", "query", serviceName).Output()
+	if err != nil {
+		return false, nil
+	}
+	return len(output) > 0, nil
+}
+
+func runCommand(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+var _ = runtime.GOOS

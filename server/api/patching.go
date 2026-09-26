@@ -1,0 +1,221 @@
+package api
+
+import (
+	"errors"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+
+	"ourway/server/models"
+	"ourway/server/patching"
+	"ourway/server/store"
+)
+
+// PatchHandler handles patch management API endpoints.
+type PatchHandler struct {
+	store      *store.Store
+	scanner    *patching.Scanner
+	deployer   *patching.Deployer
+	rollbacker *patching.RollbackManager
+}
+
+// NewPatchHandler creates a new patch handler.
+func NewPatchHandler(store *store.Store, scanner *patching.Scanner, deployer *patching.Deployer, rollbacker *patching.RollbackManager) *PatchHandler {
+	return &PatchHandler{
+		store:      store,
+		scanner:    scanner,
+		deployer:   deployer,
+		rollbacker: rollbacker,
+	}
+}
+
+// ListUpdates returns software updates for a device.
+// GET /api/devices/:id/updates
+func (h *PatchHandler) ListUpdates(c *gin.Context) {
+	deviceID := c.Param("id")
+
+	updates, err := h.store.SoftwareUpdates.ListByDevice(deviceID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to list updates"})
+		return
+	}
+
+	c.JSON(200, gin.H{"updates": updates})
+}
+
+// ScanDevice triggers an update scan on a device.
+// POST /api/devices/:id/updates/scan
+func (h *PatchHandler) ScanDevice(c *gin.Context) {
+	deviceID := c.Param("id")
+
+	// Verify device exists
+	if _, err := h.store.Devices.GetByID(deviceID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(404, gin.H{"error": "device not found"})
+			return
+		}
+		c.JSON(500, gin.H{"error": "failed to get device"})
+		return
+	}
+
+	// Trigger scan (async)
+	go h.scanner.ScanDevices(c.Request.Context())
+
+	c.JSON(200, gin.H{"status": "scan_started"})
+}
+
+// ListPolicies returns all patch policies.
+// GET /api/patch/policies
+func (h *PatchHandler) ListPolicies(c *gin.Context) {
+	policies, err := h.store.PatchPolicies.ListAll()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to list policies"})
+		return
+	}
+
+	c.JSON(200, gin.H{"policies": policies})
+}
+
+// CreatePolicy creates a new patch policy.
+// POST /api/patch/policies
+func (h *PatchHandler) CreatePolicy(c *gin.Context) {
+	var req struct {
+		Name             string `json:"name" binding:"required"`
+		Scope            string `json:"scope"`
+		ScopeValue       string `json:"scope_value"`
+		Schedule         string `json:"schedule"`
+		AutoReboot       bool   `json:"auto_reboot"`
+		ApprovalRequired bool   `json:"approval_required"`
+		MaxDevicesPerBatch int `json:"max_devices_per_batch"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	scope := req.Scope
+	if scope == "" {
+		scope = "all"
+	}
+	schedule := req.Schedule
+	if schedule == "" {
+		schedule = "weekly"
+	}
+	maxBatch := req.MaxDevicesPerBatch
+	if maxBatch == 0 {
+		maxBatch = 10
+	}
+
+	policy := &models.PatchPolicy{
+		ID:                 uuid.New().String(),
+		Name:               req.Name,
+		Scope:              scope,
+		ScopeValue:         req.ScopeValue,
+		Schedule:           schedule,
+		AutoReboot:         req.AutoReboot,
+		ApprovalRequired:   req.ApprovalRequired,
+		MaxDevicesPerBatch: maxBatch,
+	}
+
+	if err := h.store.PatchPolicies.Create(policy); err != nil {
+		c.JSON(500, gin.H{"error": "failed to create policy"})
+		return
+	}
+
+	c.JSON(201, gin.H{"policy": policy})
+}
+
+// ListDeployments returns all patch deployments.
+// GET /api/patch/deployments
+func (h *PatchHandler) ListDeployments(c *gin.Context) {
+	deployments, err := h.store.PatchDeployments.ListAll()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to list deployments"})
+		return
+	}
+
+	c.JSON(200, gin.H{"deployments": deployments})
+}
+
+// DeployNow triggers an immediate deployment.
+// POST /api/patch/deploy
+func (h *PatchHandler) DeployNow(c *gin.Context) {
+	var req struct {
+		DeviceIDs []string `json:"device_ids"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	// If no device IDs, deploy to all devices with approved updates
+	if len(req.DeviceIDs) == 0 {
+		updates, err := h.store.SoftwareUpdates.ListByStatus("approved")
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed to list updates"})
+			return
+		}
+
+		// Get unique device IDs from updates
+		deviceSet := make(map[string]bool)
+		for _, update := range updates {
+			deviceSet[update.DeviceID] = true
+		}
+
+		req.DeviceIDs = make([]string, 0, len(deviceSet))
+		for deviceID := range deviceSet {
+			req.DeviceIDs = append(req.DeviceIDs, deviceID)
+		}
+	}
+
+	deploymentID, err := h.deployer.DeployToDevices(c.Request.Context(), req.DeviceIDs)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"deployment_id": deploymentID, "status": "deploying"})
+}
+
+// RollbackDeployment triggers a rollback for a completed/failed deployment.
+// POST /api/patch/deployments/:id/rollback
+func (h *PatchHandler) RollbackDeployment(c *gin.Context) {
+	deploymentID := c.Param("id")
+
+	var req struct {
+		DeviceIDs []string `json:"device_ids"`
+	}
+
+	// Bind is optional - if no body or no device_ids, rollback to all devices
+	c.ShouldBindJSON(&req)
+
+	// Verify deployment exists
+	deployment, err := h.store.PatchDeployments.GetByID(deploymentID)
+	if err != nil || deployment == nil {
+		c.JSON(404, gin.H{"error": "deployment not found"})
+		return
+	}
+
+	// If no specific devices requested, get all devices
+	if len(req.DeviceIDs) == 0 {
+		devices, err := h.store.Devices.ListAll()
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed to list devices"})
+			return
+		}
+		req.DeviceIDs = make([]string, 0, len(devices))
+		for _, device := range devices {
+			req.DeviceIDs = append(req.DeviceIDs, device.ID)
+		}
+	}
+
+	if err := h.rollbacker.RollbackDeployment(deploymentID, req.DeviceIDs); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"status": "rollback_initiated", "deployment_id": deploymentID, "devices": len(req.DeviceIDs)})
+}

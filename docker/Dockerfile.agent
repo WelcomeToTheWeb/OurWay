@@ -1,0 +1,50 @@
+# OurWay RMM Agent - Linux Docker Image
+#
+# Build: docker build -f docker/Dockerfile.agent -t ourway/agent:latest .
+# Run:   docker run -d --name ourway-agent \
+#          -e OURWAY_SERVER=wss://ourway.example.com \
+#          -e OURWAY_DEVICE_KEY=YOUR_KEY \
+#          ourway/agent:latest
+#
+# This image is intended for running the OurWay agent inside a container.
+# It connects to the OurWay server over WebSocket and reports metrics.
+
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Copy agent source
+COPY agent/ ./
+
+# Download dependencies
+RUN go mod download
+
+# Build static binary
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ourway-agent .
+
+# Final image
+FROM alpine:latest
+
+# Create non-root user
+RUN addgroup -S ourway && adduser -S -G ourway ourway
+
+# Install curl for healthcheck
+RUN apk add --no-cache curl && rm -rf /var/cache/apk
+
+# Copy agent binary
+COPY --from=builder /app/ourway-agent /usr/local/bin/ourway-agent
+
+# Run as non-root user
+USER ourway
+
+# Default environment (overridden at runtime)
+ENV OURWAY_SERVER="" \
+    OURWAY_DEVICE_KEY="" \
+    OURWAY_HEARTBEAT="15s" \
+    OURWAY_METRICS_INTERVAL="60s"
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -s http://localhost:8081/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/ourway-agent"]

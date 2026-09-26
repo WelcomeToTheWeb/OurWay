@@ -1,0 +1,29 @@
+# OurWay Agent - macOS builds (arm64 and amd64)
+# Build with: docker buildx build --platform linux/amd64 -f docker/Dockerfile.agent-darwin .
+# Then: docker create --name ourway-agent-darwin <image> && docker cp ourway-agent-darwin:/agents/ .
+
+FROM golang:1.26-alpine AS builder
+
+ARG VERSION=1.0.0
+ARG GIT_COMMIT=unknown
+
+WORKDIR /app
+
+COPY agent/go.mod agent/go.sum ./agent/
+WORKDIR /app/agent
+RUN go mod download
+
+COPY agent/ ./
+
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+    -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+    -o /app/build/ourway-agent-darwin-arm64 . && \
+    CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+    -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+    -o /app/build/ourway-agent-darwin-amd64 .
+
+FROM alpine:3.20
+
+COPY --from=builder /app/build/ /agents/
+
+CMD ["sh", "-c", "echo 'macOS agent binaries built in /agents/' && ls -la /agents/"]

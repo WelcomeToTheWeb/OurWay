@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp"
+      }
+    }
+  },
+  "providers": {
+    "webaiprovider": {
+      "models": {
+        "WebAI": {
+          "limit": {
+            "context": 110000
+          },
+          "settings": {
+            "reasoningEffort": "xhigh"
+          }
+        }
+      }
+    }
+  }
+}
