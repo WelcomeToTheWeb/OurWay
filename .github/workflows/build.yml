@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ourway
+  IMAGE_PREFIX: welcome-to-the-web/ourway
 
 jobs:
   # Build agent binaries for all platforms
