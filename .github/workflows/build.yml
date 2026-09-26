@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: welcome-to-the-web/ourway
+  IMAGE_PREFIX: welcome-to-the-web
 
 jobs:
   # Build agent binaries for all platforms
@@ -86,7 +86,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ourway-server
           tags: |
             type=semver,pattern={{version}}
             type=sha,prefix=
@@ -129,7 +129,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ourway-web
           tags: |
             type=semver,pattern={{version}}
             type=sha,prefix=
