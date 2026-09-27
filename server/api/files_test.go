@@ -28,6 +28,11 @@ func setupFileTest(t *testing.T) (*httptest.Server, *store.Store, string, *files
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
+	// In-memory SQLite is per-connection: pin the pool to a single connection
+	// so migrations and queries share the same database.
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
 
 	st, err := store.NewWithDB(db)
 	if err != nil {

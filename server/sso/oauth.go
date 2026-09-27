@@ -105,7 +105,6 @@ func (h *OAuthHandler) GetUserInfo(provider *models.SSOProvider, accessToken str
 	// Normalize fields based on provider type
 	switch provider.Type {
 	case "google":
-		info.Email = info.Email
 		if info.Name == "" {
 			info.Name = info.Email
 		}

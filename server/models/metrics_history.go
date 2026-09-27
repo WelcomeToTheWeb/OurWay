@@ -9,7 +9,7 @@ import (
 type MetricHistory struct {
 	ID        uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	DeviceID  string    `gorm:"type:uuid;not null;index:idx_metric_device_time,priority:1" json:"device_id"`
-	Timestamp time.Time `gorm:"not null;index:idx_metric_device_time,priority:2;default:now()" json:"timestamp"`
+	Timestamp time.Time `gorm:"not null;index:idx_metric_device_time,priority:2;default:CURRENT_TIMESTAMP" json:"timestamp"`
 	CPU       float64   `json:"cpu"`
 	RAM       float64   `json:"ram"`
 	RAMUsed   uint64    `json:"ram_used"`

@@ -32,6 +32,11 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *auth.JWTAuth)
 	if err != nil {
 		t.Fatalf("failed to open in-memory SQLite: %v", err)
 	}
+	// In-memory SQLite is per-connection: pin the pool to a single connection
+	// so migrations and queries share the same database.
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
 
 	st, err := store.NewWithDB(db)
 	if err != nil {
@@ -42,7 +47,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *auth.JWTAuth)
 	hub := ws.NewHub()
 	engine := alerts.NewEngine(st.Alerts)
 
-	router := SetupRouter(st, jwtAuth, hub, engine)
+	router := SetupRouter(st, jwtAuth, hub, engine, "http://localhost:3000")
 	ts := httptest.NewServer(router)
 
 	t.Cleanup(func() {
