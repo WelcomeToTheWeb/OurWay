@@ -6,13 +6,33 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"nhooyr.io/websocket"
 
 	"ourway/server/auth"
+	"ourway/server/models"
 	"ourway/server/store"
 )
+
+// toFloat safely converts interface{} to float64
+func toFloat(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case uint64:
+		return float64(val)
+	default:
+		return 0
+	}
+}
 
 // Client is a registered WebSocket client.
 type Client struct {
@@ -357,8 +377,73 @@ func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Stor
 			log.Printf("ws: heartbeat update failed: %v", err)
 		}
 	case "metrics":
-		// Broadcast metrics to all users
-		h.BroadcastMessage("metrics", msg.Payload)
+		// Extract and save metrics to database
+		if payloadMap, ok := msg.Payload.(map[string]interface{}); ok {
+			if dk, ok := payloadMap["device_key"].(string); ok && dk != "" {
+				dev, err := store.Devices.GetByKey(dk)
+				if err == nil {
+					if dataVal, ok := payloadMap["data"].(map[string]interface{}); ok {
+						mh := &models.MetricHistory{
+							DeviceID:  dev.ID,
+							Timestamp: time.Now(),
+						}
+						if v, ok := dataVal["cpu"].(float64); ok {
+							mh.CPU = v
+						}
+						if v, ok := dataVal["ram"].(float64); ok {
+							mh.RAM = v
+						}
+						if v, ok := dataVal["ram_used"].(float64); ok {
+							mh.RAMUsed = uint64(v)
+						}
+						if v, ok := dataVal["ram_total"].(float64); ok {
+							mh.RAMTotal = uint64(v)
+						}
+						if v, ok := dataVal["uptime"].(float64); ok {
+							mh.Uptime = uint64(v)
+						}
+						// Calculate disk usage from disks array
+						if disks, ok := dataVal["disks"].([]interface{}); ok && len(disks) > 0 {
+							var totalDisk, usedDisk float64
+							for _, d := range disks {
+								if dm, ok := d.(map[string]interface{}); ok {
+									totalDisk += toFloat(dm["total"])
+									usedDisk += toFloat(dm["used"])
+								}
+							}
+							mh.DiskTotal = uint64(totalDisk)
+							mh.DiskUsed = uint64(usedDisk)
+							if totalDisk > 0 {
+								mh.DiskUsage = (usedDisk / totalDisk) * 100
+							}
+						}
+						// Network totals
+						if net, ok := dataVal["network"].(map[string]interface{}); ok {
+							var netIn, netOut float64
+							for _, ni := range net {
+								if nm, ok := ni.(map[string]interface{}); ok {
+									netIn += toFloat(nm["bytes_recv"])
+									netOut += toFloat(nm["bytes_sent"])
+								}
+							}
+							mh.NetIn = uint64(netIn)
+							mh.NetOut = uint64(netOut)
+						}
+						if procs, ok := dataVal["top_processes"].([]interface{}); ok {
+							mh.Processes = len(procs)
+						}
+						if store.MetricHistory != nil {
+							if err := store.MetricHistory.Insert(mh); err != nil {
+								log.Printf("ws: failed to save metrics: %v", err)
+							}
+						}
+					}
+					_ = store.Devices.UpdateLastSeen(dev.ID)
+				}
+			}
+			// Broadcast to all connected users
+			h.BroadcastMessage("metrics", msg.Payload)
+		}
 	case "status":
 		h.BroadcastMessage("status", msg.Payload)
 	}

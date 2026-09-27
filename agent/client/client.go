@@ -241,10 +241,12 @@ func (c *Client) sendMetrics(ctx context.Context, conn *websocket.Conn) {
 
 	msg := map[string]interface{}{
 		"type":       "metrics",
-		"device_key": c.deviceKey,
-		"hostname":   hostname,
-		"timestamp":  time.Now().Unix(),
-		"data":       data,
+		"payload": map[string]interface{}{
+			"device_key": c.deviceKey,
+			"hostname":   hostname,
+			"timestamp":  time.Now().Unix(),
+			"data":       data,
+		},
 	}
 
 	if err := wsjson.Write(ctx, conn, msg); err != nil {
