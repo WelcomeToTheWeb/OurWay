@@ -46,6 +46,7 @@ services:
       DATABASE_URL: "postgresql://ourway:ourway@postgres:5432/ourway?sslmode=disable"
       JWT_SECRET: ${JWT_SECRET:-ourway-secret-key-change-me}
       WS_PATH: "/ws"
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
       TZ: UTC
     ports:
       - "8080:8080"

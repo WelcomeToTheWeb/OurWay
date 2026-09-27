@@ -2,6 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import type { Metrics } from '../types/device';
 import { useMetricsStore } from '../stores/metrics';
 
+// Raw message as sent by the server: {type, payload}
+interface RawWSMessage {
+  type: string;
+  payload?: {
+    device_id?: string;
+    device?: string;
+    metrics?: Metrics;
+    status?: 'online' | 'offline';
+    alert_id?: string;
+    [key: string]: unknown;
+  };
+}
+
 export type WSMessage =
   | { type: 'metrics'; device_id: string; device?: string; metrics: Metrics }
   | { type: 'status'; device_id: string; status: 'online' | 'offline' }
@@ -9,6 +22,32 @@ export type WSMessage =
   | { type: 'alert'; alert_id: string; device_id: string }
   | { type: 'connected' }
   | { type: 'error'; message: string };
+
+// Flatten server's {type, payload} envelope into the WSMessage shape the UI expects
+function flatten(raw: RawWSMessage): WSMessage | null {
+  const p = raw.payload || {};
+  switch (raw.type) {
+    case 'metrics':
+      if (p.device_id && p.metrics) return { type: 'metrics', device_id: p.device_id, device: p.device, metrics: p.metrics };
+      break;
+    case 'status':
+      if (p.device_id && p.status) return { type: 'status', device_id: p.device_id, status: p.status };
+      break;
+    case 'heartbeat':
+      if (p.device_id) return { type: 'heartbeat', device_id: p.device_id, device: p.device };
+      break;
+    case 'alert':
+      if (p.alert_id && p.device_id) return { type: 'alert', alert_id: p.alert_id, device_id: p.device_id };
+      break;
+    case 'connected':
+      return { type: 'connected' };
+    case 'error':
+      return { type: 'error', message: String(p.message || 'unknown error') };
+    default:
+      return null;
+  }
+  return null;
+}
 
 export function useWebSocket(token: string | null) {
   const [connected, setConnected] = useState(false);
@@ -38,7 +77,9 @@ export function useWebSocket(token: string | null) {
 
       ws.onmessage = (event) => {
         try {
-          const msg: WSMessage = JSON.parse(event.data);
+          const raw: RawWSMessage = JSON.parse(event.data);
+          const msg = flatten(raw);
+          if (!msg) return;
           switch (msg.type) {
             case 'metrics':
               setLastMetrics(msg.metrics);

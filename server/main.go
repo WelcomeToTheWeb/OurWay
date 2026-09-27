@@ -89,7 +89,7 @@ func main() {
 	defer retentionManager.Stop()
 
 	// Setup API routes
-	router := api.SetupRouter(st, jwtAuth, hub, alertEngine)
+	router := api.SetupRouter(st, jwtAuth, hub, alertEngine, cfg.WebURL)
 
 	// Register WebSocket endpoint
 	router.GET(cfg.WSPath, func(c *gin.Context) {

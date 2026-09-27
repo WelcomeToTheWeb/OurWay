@@ -16,7 +16,7 @@ type Device struct {
 	LastSeen     time.Time `json:"last_seen"`
 	PublicIP     string    `json:"public_ip"`
 	PrivateIP    string    `json:"private_ip"`
-	DeviceKey    string    `gorm:"uniqueIndex;not null" json:"-"`
+	DeviceKey    string    `gorm:"uniqueIndex;not null" json:"device_key"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

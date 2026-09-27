@@ -159,9 +159,11 @@ func (c *Client) connect(ctx context.Context) error {
 
 		case <-heartbeatTimer.C:
 			msg := map[string]interface{}{
-				"type":      "heartbeat",
-				"device_key": c.deviceKey,
-				"timestamp": time.Now().Unix(),
+				"type": "heartbeat",
+				"payload": map[string]interface{}{
+					"device_key": c.deviceKey,
+					"timestamp":  time.Now().Unix(),
+				},
 			}
 			if err := wsjson.Write(ctx, conn, msg); err != nil {
 				return fmt.Errorf("send heartbeat: %w", err)

@@ -21,7 +21,7 @@ import (
 )
 
 // SetupRouter configures and returns the Gin router with all routes.
-func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine *alerts.Engine) *gin.Engine {
+func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine *alerts.Engine, webURL string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
@@ -51,7 +51,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 	fileHandler := NewFileHandler(store, fileService)
 	agentFileHandler := NewAgentFileHandler(store, fileService)
 	agentPatchHandler := NewAgentPatchHandler(store, deployer)
-	ssoHandler := NewSSOHandler(store, jwtAuth, "http://localhost:3000")
+	ssoHandler := NewSSOHandler(store, jwtAuth, webURL)
 	apiKeyHandler := CreateAPIKeyHandler(store, jwtAuth)
 	webhookDispatcher := webhooks.NewDispatcher(store)
 	webhookHandler := NewWebhookHandler(store, webhookDispatcher)

@@ -12,6 +12,7 @@ type Config struct {
 	WSPath      string
 	RedisURL    string
 	RedisEnabled bool
+	WebURL      string
 }
 
 // Load reads configuration from environment variables, applying defaults.
@@ -26,6 +27,7 @@ func Load() *Config {
 		WSPath:       getEnv("WS_PATH", "/ws"),
 		RedisURL:     redisURL,
 		RedisEnabled: redisEnabled,
+		WebURL:       getEnv("WEB_URL", "http://localhost:3000"),
 	}
 }
 
