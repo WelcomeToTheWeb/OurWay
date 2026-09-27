@@ -120,19 +120,26 @@ if (-not $SkipService) {
     Write-Info "Installing as Windows service..."
     
     try {
-        $svc = Get-Service -Name "OurWayAgent" -ErrorAction SilentlyContinue
-        if ($svc) {
-            Write-Info "Service already exists, updating..."
-            Stop-Service -Name "OurWayAgent" -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-            Remove-Service -Name "OurWayAgent" -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 2
-        }
+        $logFile = Join-Path $InstallDir "agent.log"
+        $binPath = "`"$binaryPath`" --server $Server --key $Key --log-file $logFile"
+        Write-Info "Service command: $binPath"
         
-        $display = "OurWay Agent"
-        $description = "OurWay RMM monitoring agent"
-        New-Service -Name "OurWayAgent" -DisplayName $display -BinaryPathName "`"$binaryPath`" --server $Server --key $Key" -StartupType Automatic -Description $description | Out-Null
-        Write-Ok "Windows service installed"
+        # Stop and remove existing service
+        Stop-Service -Name "OurWayAgent" -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+        $scDelete = sc.exe delete OurWayAgent 2>&1
+        Write-Info "sc.exe delete: $scDelete"
+        Start-Sleep -Seconds 2
+        
+        # Create service using sc.exe for reliable quoting
+        $scCreate = "sc.exe create OurWayAgent binPath=\"`"$binaryPath`" --server $Server --key $Key --log-file $logFile\" start=auto"
+        Write-Info "Running: $scCreate"
+        $scResult = Invoke-Expression $scCreate
+        Write-Info "sc.exe create: $scResult"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "sc.exe create failed (exit $LASTEXITCODE)"
+        }
+        Start-Sleep -Seconds 2
         
         Start-Service -Name "OurWayAgent"
         Start-Sleep -Seconds 3
@@ -140,8 +147,10 @@ if (-not $SkipService) {
         $status = Get-Service -Name "OurWayAgent"
         if ($status.Status -eq "Running") {
             Write-Ok "Service is running"
+            Write-Info "Logs: $logFile"
         } else {
-            Write-Warn "Service status: $($status.Status). Check Event Viewer for errors."
+            Write-Warn "Service status: $($status.Status). Check Event Viewer."
+            Write-Info "Logs: $logFile"
         }
     } catch {
         Write-Warn "Failed to install as service: $_"
@@ -166,6 +175,6 @@ if (-not $SkipService) {
 }
 Write-Host ""
 Write-Host "To uninstall:"
-Write-Host "  sc.exe stop OurWayAgent"
+Write-Host "  Stop-Service OurWayAgent"
 Write-Host "  sc.exe delete OurWayAgent"
 Write-Host "  Remove-Item -Recurse -Force $InstallDir"
