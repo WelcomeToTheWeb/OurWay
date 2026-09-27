@@ -9,6 +9,11 @@ export const getDeviceUpdates = (deviceId: string) =>
 export const scanDeviceForUpdates = (deviceId: string) =>
   client.post(`/devices/${deviceId}/updates/scan`).then((r) => r.data);
 
+export const approveUpdate = (updateId: string) =>
+  client
+    .post<{ update: SoftwareUpdate }>(`/updates/${updateId}/approve`)
+    .then((r) => r.data.update);
+
 export const listPolicies = () =>
   client
     .get<{ policies: PatchPolicy[] }>('/patch/policies')

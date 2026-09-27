@@ -72,7 +72,10 @@ func (g *Gateway) CreatePeerConnection(sessionID, deviceID, userID string) (*Ses
 		})
 
 		ch.OnMessage(func(msg webrtc.DataChannelMessage) {
-			// Handle incoming data (screen frames from agent, input acks, etc.)
+			// TODO(frames): relay screen frames arriving over this data
+			// channel to the session's users (hub.BroadcastMessage
+			// "session_frame"). Until the agent streams over WebRTC, frames
+			// arrive via POST /api/sessions/:id/frame instead.
 			_ = msg
 		})
 	})
@@ -110,6 +113,16 @@ func (g *Gateway) CreateOffer(sessionID string) (string, error) {
 	state.DataCh = ch
 	state.mu.Unlock()
 
+	// Register the ICE gathering callback before setting the local
+	// description so the "complete" state cannot be missed.
+	gathered := make(chan struct{})
+	var gatherOnce sync.Once
+	state.PC.OnICEGatheringStateChange(func(state webrtc.ICEGathererState) {
+		if state == webrtc.ICEGathererStateComplete {
+			gatherOnce.Do(func() { close(gathered) })
+		}
+	})
+
 	offer, err := state.PC.CreateOffer(nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create offer: %w", err)
@@ -119,14 +132,21 @@ func (g *Gateway) CreateOffer(sessionID string) (string, error) {
 		return "", fmt.Errorf("failed to set local description: %w", err)
 	}
 
-	// Wait for ICE gathering to complete
-	state.PC.OnICEGatheringStateChange(func(state webrtc.ICEGathererState) {
-		if state == webrtc.ICEGathererStateComplete {
-			log.Printf("sessions: %s ICE gathering complete", sessionID)
-		}
-	})
+	// Wait (bounded) for ICE gathering to complete so the returned offer
+	// already embeds our candidates.
+	select {
+	case <-gathered:
+	case <-time.After(3 * time.Second):
+		// TODO(trickle-ICE): forward candidates that arrive after this 3s
+		// window to the browser (e.g. pc.OnICECandidate -> WS
+		// "ice_candidate" event on the session's user connection, consumed
+		// via pc.addIceCandidate). Until then, late candidates are dropped
+		// and the data channel may never open.
+		log.Printf("sessions: %s ICE gathering did not complete within 3s; offer may be missing candidates", sessionID)
+	}
 
-	offerJSON, err := json.Marshal(offer)
+	// Re-read the local description: it now contains the gathered candidates.
+	offerJSON, err := json.Marshal(state.PC.LocalDescription())
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal offer: %w", err)
 	}

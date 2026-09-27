@@ -138,6 +138,51 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
+// Refresh exchanges a valid refresh token for a new access token.
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	claims, err := h.jwtAuth.ValidateRefreshToken(req.RefreshToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+		return
+	}
+
+	user, err := h.store.Users.GetByID(claims.UserID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Load current roles so role changes are reflected in the new token
+	roles, err := h.store.UserRoles.GetUserRoles(user.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load roles"})
+		return
+	}
+
+	roleNames := make([]string, len(roles))
+	for i, r := range roles {
+		roleNames[i] = r.Name
+	}
+
+	accessToken, err := h.jwtAuth.GenerateToken(user.ID, user.Username, roleNames)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"access_token": accessToken,
+	})
+}
+
 // GetProfile returns the current user's profile and roles.
 func (h *AuthHandler) GetProfile(c *gin.Context) {
 	userID, _ := c.Get("user_id")

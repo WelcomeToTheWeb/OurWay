@@ -12,6 +12,7 @@ type Claims struct {
 	UserID   string   `json:"user_id"`
 	Username string   `json:"username"`
 	Roles    []string `json:"roles"`
+	Type     string   `json:"type"` // "access" or "refresh"
 	jwt.RegisteredClaims
 }
 
@@ -31,6 +32,7 @@ func (j *JWTAuth) GenerateToken(userID, username string, roles []string) (string
 		UserID:   userID,
 		Username: username,
 		Roles:    roles,
+		Type:     "access",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -47,6 +49,7 @@ func (j *JWTAuth) GenerateRefreshToken(userID, username string, roles []string) 
 		UserID:   userID,
 		Username: username,
 		Roles:    roles,
+		Type:     "refresh",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -57,8 +60,9 @@ func (j *JWTAuth) GenerateRefreshToken(userID, username string, roles []string) 
 	return token.SignedString(j.secret)
 }
 
-// ValidateToken parses and validates a JWT token, returning its claims.
-func (j *JWTAuth) ValidateToken(tokenString string) (*Claims, error) {
+// parseToken parses and validates a JWT token (signature and expiry),
+// returning its claims. It does not check the token type.
+func (j *JWTAuth) parseToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
@@ -71,6 +75,32 @@ func (j *JWTAuth) ValidateToken(tokenString string) (*Claims, error) {
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
 		return nil, errors.New("invalid token")
+	}
+	return claims, nil
+}
+
+// ValidateToken parses and validates a JWT access token, returning its claims.
+// Refresh tokens are rejected so they cannot be used for API authentication.
+// Tokens issued before the type claim existed (empty type) are accepted.
+func (j *JWTAuth) ValidateToken(tokenString string) (*Claims, error) {
+	claims, err := j.parseToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if claims.Type == "refresh" {
+		return nil, errors.New("token is a refresh token, not an access token")
+	}
+	return claims, nil
+}
+
+// ValidateRefreshToken parses and validates a JWT refresh token, returning its claims.
+func (j *JWTAuth) ValidateRefreshToken(tokenString string) (*Claims, error) {
+	claims, err := j.parseToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if claims.Type != "refresh" {
+		return nil, errors.New("token is not a refresh token")
 	}
 	return claims, nil
 }

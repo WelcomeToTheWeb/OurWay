@@ -107,6 +107,13 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
+// readResult carries one inbound WebSocket read from the background reader.
+type readResult struct {
+	msgType websocket.MessageType
+	data    []byte
+	err     error
+}
+
 func (c *Client) connect(ctx context.Context) error {
 	// Ensure the URL has a path
 	serverURL := c.serverURL
@@ -152,6 +159,24 @@ func (c *Client) connect(ctx context.Context) error {
 	// Track streaming mode
 	currentInterval := c.metricsSec
 
+	// Read incoming messages in a goroutine so the select below can always
+	// service the heartbeat and metrics timers; a blocking conn.Read in the
+	// select's default branch would starve them.
+	readCh := make(chan readResult, 16)
+	go func() {
+		for {
+			msgType, data, err := conn.Read(ctx)
+			select {
+			case readCh <- readResult{msgType: msgType, data: data, err: err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -176,22 +201,14 @@ func (c *Client) connect(ctx context.Context) error {
 			}
 			metricsTimer.Reset(currentInterval)
 
-		default:
-			// Read message from server (non-blocking with short timeout)
-			select {
-			case <-time.After(100 * time.Millisecond):
-				continue
-			default:
+		case r := <-readCh:
+			if r.err != nil {
+				return fmt.Errorf("read message: %w", r.err)
 			}
 
-			msgType, data, err := conn.Read(ctx)
-			if err != nil {
-				return fmt.Errorf("read message: %w", err)
-			}
-
-			if msgType == websocket.MessageText {
+			if r.msgType == websocket.MessageText {
 				var msgData map[string]interface{}
-				if err := json.Unmarshal(data, &msgData); err == nil {
+				if err := json.Unmarshal(r.data, &msgData); err == nil {
 					msgTypeName, _ := msgData["type"].(string)
 
 					switch msgTypeName {

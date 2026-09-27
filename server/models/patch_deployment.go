@@ -9,6 +9,7 @@ type PatchDeployment struct {
 	ID             string     `gorm:"type:uuid;primaryKey" json:"id"`
 	PolicyID       string     `gorm:"type:uuid;not null;index" json:"policy_id"`
 	Status         string     `gorm:"not null;default:pending" json:"status"` // pending, running, completed, failed
+	DeviceIDs      []string   `gorm:"type:text;serializer:json" json:"device_ids"`
 	DevicesTotal   int        `json:"devices_total"`
 	DevicesSuccess int        `json:"devices_success"`
 	DevicesFailed  int        `json:"devices_failed"`

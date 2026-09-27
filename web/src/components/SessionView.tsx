@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { X, MousePointer2, Keyboard, Monitor, Settings } from 'lucide-react';
-import { submitAnswer, addICECandidate, sendInput, endSession } from '../api/sessions';
+import { submitAnswer, addICECandidate, sendInput, endSession, setQuality as setSessionQuality } from '../api/sessions';
 import type { Session } from '../api/sessions';
+import { useAuth } from '../auth/context';
 
 interface SessionViewProps {
   session: Session;
@@ -12,14 +13,16 @@ interface SessionViewProps {
 type SessionMode = 'view' | 'control';
 
 export function SessionView({ session, offer, onClose }: SessionViewProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { accessToken } = useAuth();
+  const frameRef = useRef<HTMLImageElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dataChRef = useRef<RTCDataChannel | null>(null);
   const [status, setStatus] = useState<'connecting' | 'active' | 'ended'>('connecting');
   const [mode, setMode] = useState<SessionMode>('view');
-  const [quality, setQuality] = useState(80);
+  const [quality, setQualityValue] = useState(80);
   const [showSettings, setShowSettings] = useState(false);
+  const [frame, setFrame] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Parse the offer and set up WebRTC connection
@@ -79,23 +82,12 @@ export function SessionView({ session, offer, onClose }: SessionViewProps) {
         dataCh.onmessage = (event) => {
           // Handle screen frames from device
           if (event.data instanceof ArrayBuffer) {
-            // Process binary frame data (JPEG)
+            // Render data-channel frames through the same <img> path used
+            // for WS frames (single source of truth for the video).
             const blob = new Blob([event.data], { type: 'image/jpeg' });
-            const url = URL.createObjectURL(blob);
-            const img = new Image();
-            img.onload = () => {
-              const canvas = canvasRef.current;
-              if (canvas) {
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(img, 0, 0);
-                }
-              }
-              URL.revokeObjectURL(url);
-            };
-            img.src = url;
+            const reader = new FileReader();
+            reader.onload = () => setFrame(reader.result as string);
+            reader.readAsDataURL(blob);
           } else {
             // Handle JSON messages
             try {
@@ -139,21 +131,52 @@ export function SessionView({ session, offer, onClose }: SessionViewProps) {
     };
   }, [session.id, offer]);
 
-  // Send mouse events
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (mode !== 'control' || status !== 'active' || !canvasRef.current) return;
+  // Receive screen frames over the reliable user WebSocket: the server
+  // relays agent frames as "session_frame" events (base64 JPEG). The
+  // WebRTC data channel path is not complete yet, so WS is the source of
+  // truth for the video.
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
 
-    const rect = canvasRef.current.getBoundingClientRect();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(accessToken)}`;
+    const ws = new WebSocket(url);
+
+    ws.onmessage = (event) => {
+      if (cancelled) return;
+      try {
+        const raw = JSON.parse(event.data) as { type: string; payload?: { session_id?: string; data?: string } };
+        if (raw.type === 'session_frame' && raw.payload?.session_id === session.id && raw.payload?.data) {
+          setFrame(`data:image/jpeg;base64,${raw.payload.data}`);
+          setStatus('active');
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    };
+
+    return () => {
+      cancelled = true;
+      ws.close();
+    };
+  }, [accessToken, session.id]);
+
+  // Send mouse events
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
+    if (mode !== 'control' || status !== 'active' || !frameRef.current) return;
+
+    const rect = frameRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
 
     sendInput(session.id, 'mouse', { event: 'move', x, y }).catch(console.error);
   }, [mode, status, session.id]);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (mode !== 'control' || status !== 'active' || !canvasRef.current) return;
+  const handleClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
+    if (mode !== 'control' || status !== 'active' || !frameRef.current) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
+    const rect = frameRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     const button = e.button === 2 ? 'right' : 'left';
@@ -161,7 +184,7 @@ export function SessionView({ session, offer, onClose }: SessionViewProps) {
     sendInput(session.id, 'mouse', { event: 'click', x, y, button }).catch(console.error);
   }, [mode, status, session.id]);
 
-  const handleScroll = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+  const handleScroll = useCallback((e: React.WheelEvent<HTMLImageElement>) => {
     if (mode !== 'control' || status !== 'active') return;
     e.preventDefault();
     sendInput(session.id, 'mouse', { event: 'scroll', delta: e.deltaY }).catch(console.error);
@@ -191,7 +214,7 @@ export function SessionView({ session, offer, onClose }: SessionViewProps) {
   // Focus capture for keyboard events
   useEffect(() => {
     if (mode === 'control' && status === 'active') {
-      canvasRef.current?.focus();
+      frameRef.current?.focus();
     }
   }, [mode, status]);
 
@@ -251,7 +274,13 @@ export function SessionView({ session, offer, onClose }: SessionViewProps) {
             min={1}
             max={100}
             value={quality}
-            onChange={(e) => setQuality(Number(e.target.value))}
+            onChange={(e) => {
+              const q = Number(e.target.value);
+              setQualityValue(q);
+              // Tell the server, which forwards the quality to the agent's
+              // capture loop (JPEG quality).
+              setSessionQuality(session.id, q).catch(console.error);
+            }}
             className="flex-1"
           />
           <span className="text-gray-300 text-sm w-8">{quality}%</span>
@@ -267,20 +296,25 @@ export function SessionView({ session, offer, onClose }: SessionViewProps) {
 
       {/* Main content */}
       <div className="flex-1 p-4 flex items-center justify-center relative">
-        <canvas
-          ref={canvasRef}
-          tabIndex={mode === 'control' ? 0 : -1}
-          className="max-w-full max-h-full rounded shadow-lg cursor-crosshair outline-none"
-          onMouseMove={handleMouseMove}
-          onMouseDown={handleClick}
-          onWheel={handleScroll}
-          onKeyDown={handleKeyDown}
-          onKeyUp={handleKeyUp}
-          onContextMenu={(e) => e.preventDefault()}
-        />
-        {status === 'connecting' && (
+        {frame ? (
+          <img
+            ref={frameRef}
+            src={frame}
+            alt="Remote session"
+            tabIndex={mode === 'control' ? 0 : -1}
+            className="max-w-full max-h-full rounded shadow-lg cursor-crosshair outline-none"
+            onMouseMove={handleMouseMove}
+            onMouseDown={handleClick}
+            onWheel={handleScroll}
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+            onContextMenu={(e) => e.preventDefault()}
+          />
+        ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded">
-            <div className="text-text-primary text-lg">Connecting to device...</div>
+            <div className="text-text-primary text-lg">
+              {status === 'connecting' ? 'Connecting to device...' : 'Waiting for first frame...'}
+            </div>
           </div>
         )}
       </div>

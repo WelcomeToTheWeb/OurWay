@@ -12,6 +12,7 @@ import (
 	"nhooyr.io/websocket"
 
 	"ourway/server/auth"
+	"ourway/server/events"
 	"ourway/server/models"
 	"ourway/server/store"
 )
@@ -63,6 +64,7 @@ type Hub struct {
 	broadcast  chan []byte
 	mu         sync.RWMutex
 	redis      *RedisPubSub // Optional Redis pub/sub for distributed broadcasting
+	reaperOnce sync.Once
 }
 
 // NewHub creates a new WebSocket hub.
@@ -326,9 +328,24 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		SendCh:    make(chan []byte, 100),
 	}
 
+	// Ensure the stale-device reaper is running (no-op after the first start)
+	if clientType == "device" {
+		h.startReaper(store)
+	}
+
 	h.register <- client
 	defer func() {
 		h.unregister <- client
+		if clientType == "device" && deviceKey != "" {
+			// The device's client is going away: mark it offline so presence
+			// reflects reality (the next heartbeat can then fire device_online).
+			if dev, err := store.Devices.GetByKey(deviceKey); err == nil {
+				dev.Status = "offline"
+				if err := store.Devices.Update(dev); err != nil {
+					log.Printf("ws: failed to mark device offline: %v", err)
+				}
+			}
+		}
 		conn.Close(websocket.StatusNormalClosure, "closing")
 	}()
 
@@ -366,6 +383,41 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	}
 }
 
+// startReaper launches a single background goroutine that marks devices
+// offline when their last_seen is older than ~3x the agent heartbeat interval.
+func (h *Hub) startReaper(store *store.Store) {
+	h.reaperOnce.Do(func() {
+		go func() {
+			const reaperInterval = 30 * time.Second
+			const staleAfter = 45 * time.Second // ~3x the 15s agent heartbeat
+			ticker := time.NewTicker(reaperInterval)
+			defer ticker.Stop()
+			for range ticker.C {
+				devices, err := store.Devices.ListAll()
+				if err != nil {
+					continue
+				}
+				cutoff := time.Now().Add(-staleAfter)
+				for i := range devices {
+					d := &devices[i]
+					if d.Status == "online" && d.LastSeen.Before(cutoff) {
+						d.Status = "offline"
+						if err := store.Devices.Update(d); err != nil {
+							log.Printf("ws: failed to mark stale device offline: %v", err)
+							continue
+						}
+						log.Printf("ws: device %s marked offline (stale last_seen)", d.ID)
+						events.Publish("device_offline", map[string]interface{}{
+							"device_id": d.ID,
+							"name":      d.Name,
+						})
+					}
+				}
+			}
+		}()
+	})
+}
+
 func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Store, deviceKey string) {
 	switch msg.Type {
 	case "heartbeat":
@@ -373,8 +425,15 @@ func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Stor
 		if err != nil {
 			return
 		}
+		wasOffline := dev.Status == "offline"
 		if err := store.Devices.UpdateLastSeen(dev.ID); err != nil {
 			log.Printf("ws: heartbeat update failed: %v", err)
+		}
+		if wasOffline {
+			events.Publish("device_online", map[string]interface{}{
+				"device_id": dev.ID,
+				"name":      dev.Name,
+			})
 		}
 	case "metrics":
 		// Extract and save metrics to database
@@ -437,12 +496,30 @@ func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Stor
 								log.Printf("ws: failed to save metrics: %v", err)
 							}
 						}
+
+						// Broadcast in the REST shape ({device_id, device, metrics})
+						// the web client's flatten() expects, not the raw agent payload
+						h.BroadcastMessage("metrics", map[string]interface{}{
+							"device_id": dev.ID,
+							"device":    dev.Name,
+							"metrics": map[string]interface{}{
+								"cpu":        mh.CPU,
+								"ram":        mh.RAM,
+								"ram_used":   mh.RAMUsed,
+								"ram_total":  mh.RAMTotal,
+								"disk_usage": mh.DiskUsage,
+								"disk_used":  mh.DiskUsed,
+								"disk_total": mh.DiskTotal,
+								"net_in":     mh.NetIn,
+								"net_out":    mh.NetOut,
+								"uptime":     mh.Uptime,
+								"processes":  mh.Processes,
+							},
+						})
 					}
 					_ = store.Devices.UpdateLastSeen(dev.ID)
 				}
 			}
-			// Broadcast to all connected users
-			h.BroadcastMessage("metrics", msg.Payload)
 		}
 	case "status":
 		h.BroadcastMessage("status", msg.Payload)

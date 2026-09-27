@@ -1,12 +1,14 @@
 package api
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"ourway/server/files"
+	"ourway/server/models"
 	"ourway/server/store"
 )
 
@@ -47,8 +49,29 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	transferID, err := h.service.UploadFile(file.Filename, data)
-	if err != nil {
+	// Store the bytes under a new transfer ID and create the transfer row
+	// so that PushFile can find it (it looks transfers up by this ID).
+	transferID := uuid.New().String()
+	if _, err := h.service.StoreFile(transferID, data); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	// The model has no dedicated uploader column: record the uploading user
+	// in DeviceID (a real UUID) until a push assigns an actual device.
+	uploader := c.GetString("user_id")
+	if uploader == "" {
+		uploader = "00000000-0000-0000-0000-000000000000"
+	}
+	transfer := &models.FileTransfer{
+		ID:        transferID,
+		DeviceID:  uploader,
+		Filename:  file.Filename,
+		SizeBytes: file.Size,
+		Status:    "pending",
+		Direction: "push",
+	}
+	if err := h.service.CreateTransfer(transfer); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -133,13 +156,39 @@ func (h *FileHandler) PullFile(c *gin.Context) {
 	c.JSON(200, gin.H{"transfer_id": transfer.ID, "status": "pull_initiated"})
 }
 
+// authorizeAgentDevice validates the X-Device-Key header and returns the
+// registered device, following the pattern of the other /api/agent/* handlers.
+func (h *AgentFileHandler) authorizeAgentDevice(c *gin.Context) *models.Device {
+	deviceKey := c.GetHeader("X-Device-Key")
+	if deviceKey == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing device key"})
+		return nil
+	}
+	device, err := h.store.Devices.GetByKey(deviceKey)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid device key"})
+		return nil
+	}
+	return device
+}
+
 // DownloadForAgent serves a file to the agent.
-// GET /api/files/:transfer_id/download
-func (h *FileHandler) DownloadForAgent(c *gin.Context) {
+// GET /api/agent/files/:transfer_id/download
+func (h *AgentFileHandler) DownloadForAgent(c *gin.Context) {
+	device := h.authorizeAgentDevice(c)
+	if device == nil {
+		return
+	}
+
 	transferID := c.Param("transfer_id")
 
-	// Verify transfer exists
-	if _, err := h.service.GetTransfer(transferID); err != nil {
+	// Verify transfer exists and belongs to this device
+	transfer, err := h.service.GetTransfer(transferID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "transfer not found"})
+		return
+	}
+	if transfer.DeviceID != device.ID {
 		c.JSON(404, gin.H{"error": "transfer not found"})
 		return
 	}
@@ -155,9 +204,23 @@ func (h *FileHandler) DownloadForAgent(c *gin.Context) {
 }
 
 // UploadFromAgent handles file upload from agent (for pull transfers).
-// POST /api/files/:transfer_id/upload
-func (h *FileHandler) UploadFromAgent(c *gin.Context) {
+// POST /api/agent/files/:transfer_id/upload
+func (h *AgentFileHandler) UploadFromAgent(c *gin.Context) {
+	device := h.authorizeAgentDevice(c)
+	if device == nil {
+		return
+	}
+
 	transferID := c.Param("transfer_id")
+
+	// Verify transfer exists and belongs to this device
+	if transfer, err := h.service.GetTransfer(transferID); err != nil {
+		c.JSON(404, gin.H{"error": "transfer not found"})
+		return
+	} else if transfer.DeviceID != device.ID {
+		c.JSON(404, gin.H{"error": "transfer not found"})
+		return
+	}
 
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -178,8 +241,8 @@ func (h *FileHandler) UploadFromAgent(c *gin.Context) {
 		return
 	}
 
-	// Store the file
-	if _, err := h.service.UploadFile(transferID, data); err != nil {
+	// Store the file under the transfer ID the agent was told about
+	if _, err := h.service.StoreFile(transferID, data); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}

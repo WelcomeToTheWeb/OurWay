@@ -72,6 +72,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		authGroup.GET("/status", authHandler.Status)
 		authGroup.POST("/login", authHandler.Login)
 		authGroup.POST("/register", authHandler.Register)
+		authGroup.POST("/refresh", authHandler.Refresh)
 
 		// SSO routes
 		authGroup.GET("/sso/providers", ssoHandler.ListProviders)
@@ -88,6 +89,8 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		agentGroup.POST("/updates", agentPatchHandler.ReportUpdate)
 		agentGroup.POST("/deployments/result", agentPatchHandler.ReportDeploymentResult)
 		agentGroup.POST("/files/status", agentFileHandler.ReportStatus)
+		agentGroup.GET("/files/:transfer_id/download", agentFileHandler.DownloadForAgent)
+		agentGroup.POST("/files/:transfer_id/upload", agentFileHandler.UploadFromAgent)
 		
 		// Agent binary download (no auth)
 		agentGroup.GET("/binary", func(c *gin.Context) {
@@ -157,11 +160,18 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		protected.POST("/sessions/:id/answer", sessionHandler.SubmitAnswer)
 		protected.POST("/sessions/:id/ice", sessionHandler.AddICECandidate)
 		protected.POST("/sessions/:id/input", sessionHandler.SendInput)
+		protected.POST("/sessions/:id/quality", sessionHandler.SetQuality)
 		protected.DELETE("/sessions/:id", sessionHandler.EndSession)
+
+		// Agent-facing session frame upload: the agent authenticates with the
+		// X-Device-Key header (no JWT), so this route is registered outside the
+		// protected group, following the /api/agent/* auth pattern.
+		r.POST("/api/sessions/:id/frame", sessionHandler.ReportFrame)
 
 		// Patch management routes
 		protected.GET("/devices/:id/updates", patchHandler.ListUpdates)
 		protected.POST("/devices/:id/updates/scan", patchHandler.ScanDevice)
+		protected.POST("/updates/:id/approve", RequireAnyRole("admin", "manager"), patchHandler.ApproveUpdate)
 		protected.POST("/devices/:id/reboot", RequireAnyRole("admin", "manager", "technician"), rebootHandler.RebootDevice)
 		protected.GET("/patch/policies", patchHandler.ListPolicies)
 		protected.POST("/patch/policies", RequireRole("admin"), patchHandler.CreatePolicy)
@@ -173,8 +183,6 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		protected.POST("/files/upload", fileHandler.UploadFile)
 		protected.POST("/files/push", fileHandler.PushFile)
 		protected.POST("/files/pull", fileHandler.PullFile)
-		protected.GET("/files/:transfer_id/download", fileHandler.DownloadForAgent)
-		protected.POST("/files/:transfer_id/upload", fileHandler.UploadFromAgent)
 		protected.GET("/files/transfers", fileHandler.ListTransfers)
 		protected.GET("/files/transfers/:id", fileHandler.GetTransfer)
 		protected.GET("/files/:transfer_id/file", fileHandler.DownloadFile)

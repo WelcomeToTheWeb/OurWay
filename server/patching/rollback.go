@@ -18,15 +18,17 @@ func NewRollbackManager(store *store.Store, hub *ws.Hub) *RollbackManager {
 	return &RollbackManager{store: store, hub: hub}
 }
 
-// RollbackDeployment rolls back a deployment on failed devices.
-func (r *RollbackManager) RollbackDeployment(deploymentID string, deviceIDs []string) error {
+// RollbackDeployment rolls back a deployment on the given devices.
+// It returns "rollback_initiated" when rollback commands were sent, or
+// "no_action" when the deployment is not in a rollback-eligible state.
+func (r *RollbackManager) RollbackDeployment(deploymentID string, deviceIDs []string) (string, error) {
 	deployment, err := r.store.PatchDeployments.GetByID(deploymentID)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if deployment.Status != "failed" && deployment.Status != "completed" {
-		return nil
+		return "no_action", nil
 	}
 
 	// Send rollback command to each device
@@ -46,5 +48,5 @@ func (r *RollbackManager) RollbackDeployment(deploymentID string, deviceIDs []st
 	}
 
 	log.Printf("rollback: rollback initiated for deployment %s on %d devices", deploymentID, len(deviceIDs))
-	return nil
+	return "rollback_initiated", nil
 }

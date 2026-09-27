@@ -34,14 +34,24 @@ func NewService(store *store.Store, hub *ws.Hub, dir string) *Service {
 	}
 }
 
-// UploadFile stores an uploaded file on the server.
+// UploadFile stores an uploaded file on the server under a new transfer ID.
 func (s *Service) UploadFile(filename string, data []byte) (string, error) {
 	transferID := uuid.New().String()
+	return s.StoreFile(transferID, data)
+}
+
+// StoreFile stores file bytes under the given transfer ID.
+func (s *Service) StoreFile(transferID string, data []byte) (string, error) {
 	dest := filepath.Join(s.dir, transferID)
 	if err := os.WriteFile(dest, data, 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
-	return transferID, nil
+	return dest, nil
+}
+
+// CreateTransfer stores a file transfer record.
+func (s *Service) CreateTransfer(transfer *models.FileTransfer) error {
+	return s.store.FileTransfers.Create(transfer)
 }
 
 // GetFile returns the path to an uploaded file.
@@ -54,7 +64,28 @@ func (s *Service) GetFile(transferID string) (string, error) {
 }
 
 // PushFile initiates a file push to a device.
-func (s *Service) PushFile(ctx context.Context, transferID string, deviceID string, destination string, filename string, size int64) (*models.FileTransfer, error) {
+func (s *Service) PushFile(ctx context.Context, sourceID string, deviceID string, destination string, filename string, size int64) (*models.FileTransfer, error) {
+	// The hub keys device clients by "device:"+device_key, so look up the
+	// device to send by its key, not its UUID.
+	device, err := s.store.Devices.GetByID(deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("device not found: %w", err)
+	}
+
+	// One transfer row per device with a distinct ID (the source row is
+	// shared). Copy the stored bytes under the new ID so the agent can
+	// download the file by this transfer ID.
+	transferID := uuid.New().String()
+	if srcPath, err := s.GetFile(sourceID); err == nil {
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read stored file: %w", err)
+		}
+		if _, err := s.StoreFile(transferID, data); err != nil {
+			return nil, err
+		}
+	}
+
 	transfer := &models.FileTransfer{
 		ID:          transferID,
 		DeviceID:    deviceID,
@@ -70,7 +101,7 @@ func (s *Service) PushFile(ctx context.Context, transferID string, deviceID stri
 	}
 
 	// Send command to agent via WebSocket
-	s.hub.SendToDevice(deviceID, "file_push", map[string]interface{}{
+	s.hub.SendToDevice(device.DeviceKey, "file_push", map[string]interface{}{
 		"transfer_id": transferID,
 		"filename":    filename,
 		"destination": destination,
@@ -83,6 +114,11 @@ func (s *Service) PushFile(ctx context.Context, transferID string, deviceID stri
 // PullFile initiates a file pull from a device.
 func (s *Service) PullFile(ctx context.Context, deviceID string, sourcePath string) (*models.FileTransfer, error) {
 	transferID := uuid.New().String()
+
+	device, err := s.store.Devices.GetByID(deviceID)
+	if err != nil {
+		return nil, fmt.Errorf("device not found: %w", err)
+	}
 
 	transfer := &models.FileTransfer{
 		ID:         transferID,
@@ -97,8 +133,8 @@ func (s *Service) PullFile(ctx context.Context, deviceID string, sourcePath stri
 		return nil, fmt.Errorf("failed to create transfer record: %w", err)
 	}
 
-	// Send command to agent via WebSocket
-	s.hub.SendToDevice(deviceID, "file_pull", map[string]interface{}{
+	// Send command to agent via WebSocket (hub keys clients by device key)
+	s.hub.SendToDevice(device.DeviceKey, "file_pull", map[string]interface{}{
 		"transfer_id": transferID,
 		"source_path": sourcePath,
 		"filename":    filepath.Base(sourcePath),

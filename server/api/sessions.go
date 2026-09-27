@@ -1,8 +1,10 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 
 	"github.com/gin-gonic/gin"
@@ -91,6 +93,20 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 		}
 	}
 
+	// Tell the device to start capturing: the agent's capture loop only
+	// runs after it receives "session_start" on its WS connection. The
+	// server URL is included so the agent knows where to upload frames.
+	serverURL := "http://" + c.Request.Host
+	if c.Request.TLS != nil {
+		serverURL = "https://" + c.Request.Host
+	}
+	if err := h.hub.SendToDevice(device.DeviceKey, "session_start", gin.H{
+		"session_id": session.ID,
+		"server_url": serverURL,
+	}); err != nil {
+		log.Printf("sessions: failed to notify device of session start: %v", err)
+	}
+
 	events.Publish("session_started", map[string]interface{}{
 		"session_id": session.ID,
 		"device_id":  deviceID,
@@ -173,6 +189,17 @@ func (h *SessionHandler) EndSession(c *gin.Context) {
 		return
 	}
 
+	// Tell the device to stop capturing.
+	if session, err := h.store.Sessions.GetByID(sessionID); err == nil {
+		if device, err := h.store.Devices.GetByID(session.DeviceID); err == nil {
+			if err := h.hub.SendToDevice(device.DeviceKey, "session_end", gin.H{
+				"session_id": sessionID,
+			}); err != nil {
+				log.Printf("sessions: failed to notify device of session end: %v", err)
+			}
+		}
+	}
+
 	c.JSON(200, gin.H{"status": "ended"})
 }
 
@@ -216,4 +243,93 @@ func (h *SessionHandler) SendInput(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"status": "sent"})
+}
+
+// ReportFrame receives a screen frame (raw JPEG body) from the agent and
+// relays it to the browsers connected to the session. This is the reliable
+// frame path while the WebRTC data channel is not complete.
+// POST /api/sessions/:id/frame (device key auth via X-Device-Key, like /api/agent/*)
+func (h *SessionHandler) ReportFrame(c *gin.Context) {
+	deviceKey := c.GetHeader("X-Device-Key")
+	if deviceKey == "" {
+		c.JSON(401, gin.H{"error": "missing X-Device-Key header"})
+		return
+	}
+
+	device, err := h.store.Devices.GetByKey(deviceKey)
+	if err != nil {
+		c.JSON(401, gin.H{"error": "unknown device key"})
+		return
+	}
+
+	sessionID := c.Param("id")
+	session, err := h.store.Sessions.GetByID(sessionID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "session not found"})
+		return
+	}
+	if session.DeviceID != device.ID {
+		c.JSON(403, gin.H{"error": "session does not belong to this device"})
+		return
+	}
+
+	// Raw JPEG body, bounded to 10 MB.
+	data, err := io.ReadAll(io.LimitReader(c.Request.Body, 10<<20))
+	if err != nil || len(data) == 0 {
+		c.JSON(400, gin.H{"error": "empty frame body"})
+		return
+	}
+
+	// Relay to the browsers on the user WS (mirrors how session_started is
+	// broadcast; SendToUser is not usable here because the session stores
+	// the user ID, not the WS token).
+	frameMsg := gin.H{
+		"session_id": sessionID,
+		"device_id":  session.DeviceID,
+		"data":       base64.StdEncoding.EncodeToString(data),
+	}
+	h.hub.BroadcastMessage("session_frame", frameMsg)
+	events.Publish("session_frame", gin.H{
+		"session_id": sessionID,
+		"device_id":  session.DeviceID,
+	})
+
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
+// SetQuality updates the screen-capture JPEG quality for a session and
+// notifies the device so the capture loop honors it.
+// POST /api/sessions/:id/quality
+func (h *SessionHandler) SetQuality(c *gin.Context) {
+	sessionID := c.Param("id")
+
+	var req struct {
+		Quality int `json:"quality" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
+	}
+	if req.Quality < 1 || req.Quality > 100 {
+		c.JSON(400, gin.H{"error": "quality must be between 1 and 100"})
+		return
+	}
+
+	session, err := h.store.Sessions.GetByID(sessionID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "session not found"})
+		return
+	}
+	device, err := h.store.Devices.GetByID(session.DeviceID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "device not found"})
+		return
+	}
+
+	if err := h.hub.SendToDevice(device.DeviceKey, "session_quality", gin.H{"quality": req.Quality}); err != nil {
+		c.JSON(409, gin.H{"error": "failed to notify device"})
+		return
+	}
+
+	c.JSON(200, gin.H{"status": "ok"})
 }

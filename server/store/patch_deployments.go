@@ -77,3 +77,37 @@ func (s *PatchDeploymentStore) MarkCompleted(id string) error {
 			"completed_at": now,
 		}).Error
 }
+
+// FinishIfComplete transitions a running deployment to "completed" when all
+// targeted devices have reported success, or to "failed" when at least one
+// device reported failure. Returns the deployment's status after the check;
+// the status is unchanged while devices are still outstanding.
+func (s *PatchDeploymentStore) FinishIfComplete(id string) (string, error) {
+	var deployment models.PatchDeployment
+	if err := s.db.First(&deployment, "id = ?", id).Error; err != nil {
+		return "", err
+	}
+
+	if deployment.Status != "running" {
+		return deployment.Status, nil
+	}
+
+	if deployment.DevicesTotal > 0 && deployment.DevicesSuccess+deployment.DevicesFailed >= deployment.DevicesTotal {
+		status := "completed"
+		if deployment.DevicesFailed > 0 {
+			status = "failed"
+		}
+		now := time.Now()
+		if err := s.db.Model(&models.PatchDeployment{}).
+			Where("id = ? AND status = ?", id, "running").
+			Updates(map[string]interface{}{
+				"status":       status,
+				"completed_at": now,
+			}).Error; err != nil {
+			return "", err
+		}
+		return status, nil
+	}
+
+	return deployment.Status, nil
+}

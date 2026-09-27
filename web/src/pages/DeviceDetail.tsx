@@ -31,7 +31,6 @@ import { CopyButton } from '../components/CopyButton';
 import { StatusBadge } from '../components/StatusBadge';
 import { SessionView } from '../components/SessionView';
 import { useMetricsStore } from '../stores/metrics';
-import type { WSMessage } from '../hooks/useWebSocket';
 import { useAuth } from '../auth/context';
 import type { Device, Metrics } from '../types/device';
 
@@ -73,6 +72,7 @@ export function DeviceDetail() {
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const history = useMetricsStore((s) => (id ? s.history[id] : null));
+  const addMetric = useMetricsStore((s) => s.addMetric);
 
   // Ensure id is always defined (it comes from URL params)
   const deviceId = id!;
@@ -136,9 +136,15 @@ export function DeviceDetail() {
 
       ws.onmessage = (event) => {
         try {
-          const msg: WSMessage = JSON.parse(event.data);
-          if (msg.type === 'metrics' && msg.device_id === id) {
+          // Server messages are {type, payload} envelopes; the device id and
+          // metrics live in the payload, not at the top level.
+          const raw = JSON.parse(event.data) as {
+            type: string;
+            payload?: { device_id?: string; metrics?: Metrics };
+          };
+          if (raw.type === 'metrics' && raw.payload?.device_id === id && raw.payload.metrics) {
             setConnected(true);
+            addMetric(raw.payload.device_id, raw.payload.metrics);
           }
         } catch {
           // ignore

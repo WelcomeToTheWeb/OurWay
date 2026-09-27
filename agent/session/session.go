@@ -1,9 +1,12 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log"
+	"net/http"
+	"strings"
 	"time"
 
 	"ourway/agent/collector"
@@ -11,9 +14,12 @@ import (
 
 // SessionManager manages remote control sessions for the agent.
 type SessionManager struct {
-	deviceKey string
-	capture   ScreenCapture
-	active    bool
+	deviceKey    string
+	capture      ScreenCapture
+	active       bool
+	sessionID    string
+	serverURL    string
+	httpClient   *http.Client
 	onSessionStart func()
 	onSessionEnd   func()
 }
@@ -21,10 +27,18 @@ type SessionManager struct {
 // NewSessionManager creates a new session manager.
 func NewSessionManager(deviceKey string) *SessionManager {
 	return &SessionManager{
-		deviceKey: deviceKey,
-		capture:   NewScreenCapture(),
-		active:    false,
+		deviceKey:  deviceKey,
+		capture:    NewScreenCapture(),
+		active:     false,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
+}
+
+// SetServerURL configures the server base URL used to upload frames.
+// The server also sends it in the "session_start" payload; this setter
+// exists so the client can pre-configure it if needed.
+func (sm *SessionManager) SetServerURL(url string) {
+	sm.serverURL = strings.TrimSuffix(url, "/")
 }
 
 // HandleMessage processes a session-related message from the server.
@@ -36,6 +50,8 @@ func (sm *SessionManager) HandleMessage(ctx context.Context, msgType string, pay
 		sm.EndSession()
 	case "input":
 		sm.HandleInput(payload)
+	case "session_quality":
+		sm.HandleQuality(payload)
 	case "command":
 		sm.HandleCommand(ctx, payload)
 	case "scan_updates":
@@ -59,6 +75,18 @@ func (sm *SessionManager) StartSession(ctx context.Context, payload interface{})
 	}
 
 	log.Printf("session: starting session: %s", string(sessionData))
+
+	// Learn the session ID and server base URL from the start payload so
+	// the capture loop can upload frames to POST /api/sessions/:id/frame.
+	if m, ok := payload.(map[string]interface{}); ok {
+		if id, ok := m["session_id"].(string); ok && id != "" {
+			sm.sessionID = id
+		}
+		if url, ok := m["server_url"].(string); ok && url != "" {
+			sm.serverURL = strings.TrimSuffix(url, "/")
+		}
+	}
+
 	sm.active = true
 
 	if sm.onSessionStart != nil {
@@ -102,12 +130,26 @@ func (sm *SessionManager) HandleInput(payload interface{}) {
 	}
 
 	inputType, _ := input["type"].(string)
+	// The server forwards the web client's nested shape:
+	// {"type": "key"|"mouse", "payload": {event fields}} - the event
+	// fields live under "payload", not at the top level.
+	event, _ := input["payload"].(map[string]interface{})
 
 	switch inputType {
 	case "key":
-		sm.handleKeyEvent(input)
+		sm.handleKeyEvent(event)
 	case "mouse":
-		sm.handleMouseEvent(input)
+		sm.handleMouseEvent(event)
+	}
+}
+
+// HandleQuality updates the screen-capture JPEG quality (0-100).
+func (sm *SessionManager) HandleQuality(payload interface{}) {
+	if m, ok := payload.(map[string]interface{}); ok {
+		if q, ok := m["quality"].(float64); ok {
+			sm.capture.SetQuality(int(q))
+			log.Printf("session: capture quality set to %d", int(q))
+		}
 	}
 }
 
@@ -146,26 +188,64 @@ func (sm *SessionManager) captureLoop(ctx context.Context) {
 				continue
 			}
 
-			// In a full implementation, this would send the frame over
-			// the WebRTC data channel. For now, we just log.
-			_ = frame
+			// Reliable path: upload the JPEG to the server, which relays it
+			// to the browser over the user WebSocket.
+			// TODO: also send frames over the WebRTC data channel once that
+			// path is complete, to reduce latency.
+			sm.postFrame(frame)
 		}
+	}
+}
+
+// postFrame uploads a JPEG frame to the server's frame endpoint.
+func (sm *SessionManager) postFrame(frame []byte) {
+	if sm.serverURL == "" {
+		log.Printf("session: server URL not set; frame dropped (cannot reach POST /api/sessions/:id/frame)")
+		return
+	}
+	if sm.sessionID == "" {
+		log.Printf("session: no session ID; frame dropped")
+		return
+	}
+
+	url := sm.serverURL + "/api/sessions/" + sm.sessionID + "/frame"
+	req, err := http.NewRequest("POST", url, bytes.NewReader(frame))
+	if err != nil {
+		log.Printf("session: failed to build frame request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "image/jpeg")
+	req.Header.Set("X-Device-Key", sm.deviceKey)
+
+	resp, err := sm.httpClient.Do(req)
+	if err != nil {
+		log.Printf("session: frame upload failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		log.Printf("session: frame upload returned %d", resp.StatusCode)
 	}
 }
 
 func (sm *SessionManager) handleKeyEvent(input map[string]interface{}) {
 	key, _ := input["key"].(string)
 	event, _ := input["event"].(string)
-	log.Printf("session: key event: %s %s", key, event)
-	// TODO: Synthesize key events on the device
+	if key == "" {
+		return
+	}
+	log.Printf("session: key event: %s %s", event, key)
+	synthesizeKey(key, event)
 }
 
 func (sm *SessionManager) handleMouseEvent(input map[string]interface{}) {
+	event, _ := input["event"].(string)
 	x, _ := input["x"].(float64)
 	y, _ := input["y"].(float64)
 	button, _ := input["button"].(string)
-	log.Printf("session: mouse event: %s at (%.0f, %.0f)", button, x, y)
-	// TODO: Move mouse and click on the device
+	delta, _ := input["delta"].(float64)
+	log.Printf("session: mouse event: %s at (%.0f, %.0f) button=%s", event, x, y, button)
+	synthesizeMouse(event, x, y, button, delta)
 }
 
 // ScanUpdates scans for available software updates.

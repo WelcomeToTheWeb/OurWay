@@ -28,5 +28,8 @@ export const addICECandidate = (sessionId: string, candidate: string) =>
 export const sendInput = (sessionId: string, type: string, payload: any) =>
   client.post(`/sessions/${sessionId}/input`, { type, payload }).then((r) => r.data);
 
+export const setQuality = (sessionId: string, quality: number) =>
+  client.post(`/sessions/${sessionId}/quality`, { quality }).then((r) => r.data);
+
 export const endSession = (sessionId: string) =>
   client.delete(`/sessions/${sessionId}`).then((r) => r.data);

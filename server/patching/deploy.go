@@ -33,10 +33,11 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// Create deployment record
+	// Create deployment record (tracking the targeted devices so rollback can find them)
 	deployment := &models.PatchDeployment{
-		ID:       uuid.New().String(),
-		Status:   "pending",
+		ID:        uuid.New().String(),
+		Status:    "pending",
+		DeviceIDs: deviceIDs,
 	}
 	if err := d.store.PatchDeployments.Create(deployment); err != nil {
 		return "", fmt.Errorf("failed to create deployment: %w", err)
@@ -55,18 +56,18 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 			continue
 		}
 
-		// Get updates for this device
-		updates, err := d.store.SoftwareUpdates.ListByStatus("approved")
+		// Get the approved updates for THIS device only (never cross-device)
+		updates, err := d.store.SoftwareUpdates.ListByDeviceAndStatus(deviceID, "approved")
 		if err != nil {
-			log.Printf("patching: failed to list updates: %v", err)
+			log.Printf("patching: failed to list updates for device %s: %v", deviceID, err)
 			continue
 		}
 
 		// Send deploy command
 		if err := d.hub.SendToDevice(device.DeviceKey, "deploy_updates", map[string]interface{}{
-			"device_id":    deviceID,
+			"device_id":     deviceID,
 			"deployment_id": deployment.ID,
-			"updates":      updates,
+			"updates":       updates,
 		}); err != nil {
 			log.Printf("patching: failed to send deploy to device %s: %v", device.Name, err)
 		}
@@ -76,10 +77,21 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 	return deployment.ID, nil
 }
 
-// ReportResult receives a deployment result from a device.
+// ReportResult records a per-device deployment result and transitions the
+// deployment to "completed" (all successes) or "failed" (any failure) once
+// every targeted device has reported.
 func (d *Deployer) ReportResult(deploymentID, deviceID, result string) error {
 	if result == "success" {
-		return d.store.PatchDeployments.IncrementSuccess(deploymentID)
+		if err := d.store.PatchDeployments.IncrementSuccess(deploymentID); err != nil {
+			return err
+		}
+	} else {
+		if err := d.store.PatchDeployments.IncrementFailed(deploymentID); err != nil {
+			return err
+		}
 	}
-	return d.store.PatchDeployments.IncrementFailed(deploymentID)
+	if _, err := d.store.PatchDeployments.FinishIfComplete(deploymentID); err != nil {
+		return err
+	}
+	return nil
 }

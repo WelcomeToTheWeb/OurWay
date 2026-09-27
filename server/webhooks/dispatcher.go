@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -83,7 +84,7 @@ func (d *Dispatcher) deliver(ctx context.Context, webhook *models.Webhook, deliv
 
 	req, err := http.NewRequestWithContext(ctx, "POST", webhook.URL, bytes.NewReader(payload))
 	if err != nil {
-		d.markFailed(delivery, "", err.Error(), 1)
+		d.markFailed(delivery, "", err.Error(), delivery.Attempts+1)
 		return
 	}
 
@@ -96,7 +97,7 @@ func (d *Dispatcher) deliver(ctx context.Context, webhook *models.Webhook, deliv
 
 	resp, err := d.client.Do(req)
 	if err != nil {
-		d.markFailed(delivery, "", err.Error(), 1)
+		d.markFailed(delivery, "", err.Error(), delivery.Attempts+1)
 		return
 	}
 	defer resp.Body.Close()
@@ -106,7 +107,7 @@ func (d *Dispatcher) deliver(ctx context.Context, webhook *models.Webhook, deliv
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		d.markDelivered(delivery, resp.StatusCode, string(body))
 	} else {
-		d.markFailed(delivery, fmt.Sprintf("HTTP %d", resp.StatusCode), string(body), 1)
+		d.markFailed(delivery, strconv.Itoa(resp.StatusCode), string(body), delivery.Attempts+1)
 	}
 }
 
@@ -125,17 +126,20 @@ func (d *Dispatcher) markDelivered(delivery *models.WebhookDelivery, statusCode 
 func (d *Dispatcher) markFailed(delivery *models.WebhookDelivery, status string, body string, attempt int) {
 	delivery.Attempts = attempt
 	if status != "" {
-		delivery.StatusCode, _ = parseInt(status)
+		if code, err := strconv.Atoi(status); err == nil {
+			delivery.StatusCode = code
+		}
 	}
 	delivery.ResponseBody = body
 
 	if attempt < 5 {
-		// Exponential backoff: 1m, 2m, 4m, 8m, 16m
-		backoff := time.Duration(1<<uint(attempt)) * time.Minute
+		// Exponential backoff: 1m, 2m, 4m, 8m (delivery terminates after the 5th attempt)
+		backoff := time.Duration(1<<uint(attempt-1)) * time.Minute
 		nextRetry := time.Now().Add(backoff)
 		delivery.NextRetryAt = &nextRetry
 	} else {
 		delivery.Status = "failed"
+		delivery.NextRetryAt = nil
 	}
 
 	d.store.WebhookDeliveries.Update(delivery)
@@ -188,14 +192,4 @@ func (d *Dispatcher) SendTestEvent(ctx context.Context, webhook *models.Webhook)
 	}
 
 	return nil
-}
-
-func parseInt(s string) (int, error) {
-	var n int
-	for _, c := range s {
-		if c >= '0' && c <= '9' {
-			n = n*10 + int(c-'0')
-		}
-	}
-	return n, nil
 }

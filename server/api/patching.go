@@ -65,6 +65,40 @@ func (h *PatchHandler) ScanDevice(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "scan_started"})
 }
 
+// ApproveUpdate transitions a detected update to approved.
+// POST /api/updates/:id/approve
+func (h *PatchHandler) ApproveUpdate(c *gin.Context) {
+	updateID := c.Param("id")
+
+	update, err := h.store.SoftwareUpdates.GetByID(updateID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(404, gin.H{"error": "update not found"})
+			return
+		}
+		c.JSON(500, gin.H{"error": "failed to get update"})
+		return
+	}
+
+	if update.Status != "detected" {
+		c.JSON(409, gin.H{"error": "only detected updates can be approved", "status": update.Status})
+		return
+	}
+
+	if _, err := h.store.SoftwareUpdates.MarkApproved(updateID); err != nil {
+		c.JSON(500, gin.H{"error": "failed to approve update"})
+		return
+	}
+
+	updated, err := h.store.SoftwareUpdates.GetByID(updateID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to get update"})
+		return
+	}
+
+	c.JSON(200, gin.H{"update": updated})
+}
+
 // ListPolicies returns all patch policies.
 // GET /api/patch/policies
 func (h *PatchHandler) ListPolicies(c *gin.Context) {
@@ -199,23 +233,16 @@ func (h *PatchHandler) RollbackDeployment(c *gin.Context) {
 		return
 	}
 
-	// If no specific devices requested, get all devices
+	// If no specific devices requested, target the devices in this deployment
 	if len(req.DeviceIDs) == 0 {
-		devices, err := h.store.Devices.ListAll()
-		if err != nil {
-			c.JSON(500, gin.H{"error": "failed to list devices"})
-			return
-		}
-		req.DeviceIDs = make([]string, 0, len(devices))
-		for _, device := range devices {
-			req.DeviceIDs = append(req.DeviceIDs, device.ID)
-		}
+		req.DeviceIDs = deployment.DeviceIDs
 	}
 
-	if err := h.rollbacker.RollbackDeployment(deploymentID, req.DeviceIDs); err != nil {
+	status, err := h.rollbacker.RollbackDeployment(deploymentID, req.DeviceIDs)
+	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"status": "rollback_initiated", "deployment_id": deploymentID, "devices": len(req.DeviceIDs)})
+	c.JSON(200, gin.H{"status": status, "deployment_id": deploymentID, "devices": len(req.DeviceIDs)})
 }

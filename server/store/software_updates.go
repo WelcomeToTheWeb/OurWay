@@ -45,6 +45,27 @@ func (s *SoftwareUpdateStore) ListByStatus(status string) ([]models.SoftwareUpda
 	return updates, nil
 }
 
+// ListByDeviceAndStatus returns updates for a device with a given status.
+func (s *SoftwareUpdateStore) ListByDeviceAndStatus(deviceID, status string) ([]models.SoftwareUpdate, error) {
+	var updates []models.SoftwareUpdate
+	if err := s.db.Where("device_id = ? AND status = ?", deviceID, status).Find(&updates).Error; err != nil {
+		return nil, err
+	}
+	return updates, nil
+}
+
+// MarkApproved transitions an update from "detected" to "approved".
+// Returns the number of rows affected (0 if the update was not in "detected" state).
+func (s *SoftwareUpdateStore) MarkApproved(id string) (int64, error) {
+	res := s.db.Model(&models.SoftwareUpdate{}).
+		Where("id = ? AND status = 'detected'", id).
+		Updates(map[string]interface{}{
+			"status":     "approved",
+			"updated_at": time.Now(),
+		})
+	return res.RowsAffected, res.Error
+}
+
 // Update persists changes to a software update.
 func (s *SoftwareUpdateStore) Update(update *models.SoftwareUpdate) error {
 	return s.db.Save(update).Error

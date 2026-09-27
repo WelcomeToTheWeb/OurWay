@@ -154,8 +154,12 @@ func scanLinuxUpdates() ([]Update, error) {
 
 func deployLinuxUpdates() error {
 	// Try apt first
+	var aptErr error
 	cmd := exec.Command("apt-get", "-y", "upgrade")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := cmd.CombinedOutput(); err == nil {
+		return nil
+	} else {
+		aptErr = err
 		log.Printf("apt-get upgrade: %s", string(output))
 	}
 
@@ -163,6 +167,7 @@ func deployLinuxUpdates() error {
 	cmd = exec.Command("yum", "-y", "update")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("yum update: %s", string(output))
+		return fmt.Errorf("linux update failed: apt-get upgrade: %v; yum update: %v", aptErr, err)
 	}
 
 	return nil
@@ -211,6 +216,7 @@ func deployMacOSUpdates() error {
 	cmd := exec.Command("softwareupdate", "-ia", "--no-scan")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("softwareupdate: %s", string(output))
+		return fmt.Errorf("macos softwareupdate failed: %v", err)
 	}
 
 	// Run homebrew update
@@ -247,6 +253,7 @@ func deployWindowsUpdates() error {
 	cmd := exec.Command("wuauclt", "/detectnow", "/reportnow")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("wuauclt: %s", string(output))
+		return fmt.Errorf("windows update failed: wuauclt: %v", err)
 	}
 	return nil
 }
@@ -255,14 +262,16 @@ func deployWindowsUpdates() error {
 func (h *Handler) RollbackUpdates(ctx context.Context, data interface{}) {
 	var payload map[string]interface{}
 	if b, err := json.Marshal(data); err == nil {
-		if err := json.Unmarshal(b, &payload); err == nil {
-			if deploymentID, ok := payload["deployment_id"].(string); ok {
-				log.Printf("rollback_updates: rolling back deployment %s", deploymentID)
-			}
+		if err := json.Unmarshal(b, &payload); err != nil {
+			log.Printf("rollback_updates: failed to parse payload: %v", err)
+			return
 		}
 	}
 
-	log.Printf("rollback_updates: rolling back")
+	deploymentID, _ := payload["deployment_id"].(string)
+	deviceID, _ := payload["device_id"].(string)
+
+	log.Printf("rollback_updates: rolling back deployment %s", deploymentID)
 
 	var err error
 	switch runtime.GOOS {
@@ -277,6 +286,9 @@ func (h *Handler) RollbackUpdates(ctx context.Context, data interface{}) {
 	if err != nil {
 		log.Printf("rollback_updates: error: %v", err)
 	}
+
+	// Report result to server
+	h.reportResult(deviceID, deploymentID, err == nil)
 }
 
 // Linux rollback (best-effort: revert apt upgrades)

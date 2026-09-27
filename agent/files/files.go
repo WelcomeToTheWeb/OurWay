@@ -58,8 +58,14 @@ func (h *Handler) HandlePush(ctx context.Context, data interface{}) {
 	log.Printf("file push: %s -> %s/%s", transferID, destination, filename)
 
 	// Download file from server
-	downloadURL := fmt.Sprintf("%s/api/files/%s/download", h.serverURL, transferID)
-	resp, err := h.httpClient.Get(downloadURL)
+	downloadURL := fmt.Sprintf("%s/api/agent/files/%s/download", h.serverURL, transferID)
+	req, err := http.NewRequest("GET", downloadURL, nil)
+	if err != nil {
+		log.Printf("file push: create request error: %v", err)
+		return
+	}
+	req.Header.Set("X-Device-Key", h.deviceKey)
+	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		log.Printf("file push: download error: %v", err)
 		return
@@ -188,13 +194,14 @@ func (h *Handler) HandlePull(ctx context.Context, data interface{}) {
 	writer.Close()
 
 	// Upload to server
-	uploadURL := fmt.Sprintf("%s/api/files/%s/upload", h.serverURL, transferID)
+	uploadURL := fmt.Sprintf("%s/api/agent/files/%s/upload", h.serverURL, transferID)
 	req, err := http.NewRequest("POST", uploadURL, &body)
 	if err != nil {
 		log.Printf("file pull: create request error: %v", err)
 		return
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Device-Key", h.deviceKey)
 	req.ContentLength = size
 
 	resp, err := h.httpClient.Do(req)

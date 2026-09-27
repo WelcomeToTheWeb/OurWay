@@ -14,6 +14,7 @@ import {
   getDeviceUpdates,
   scanDeviceForUpdates,
   deployNow,
+  approveUpdate,
 } from '../api/patching';
 import { getDevices } from '../api/devices';
 import type { Device } from '../types/device';
@@ -151,6 +152,17 @@ export function Patches() {
     }
   }
 
+  async function handleApprove(updateId: string) {
+    if (!selectedDevice) return;
+    try {
+      await approveUpdate(updateId);
+      const data = await getDeviceUpdates(selectedDevice);
+      setUpdates(data);
+    } catch {
+      // ignore
+    }
+  }
+
   const filtered = updates.filter((u) => {
     if (statusFilter !== 'all' && u.status !== statusFilter) return false;
     if (search) {
@@ -285,6 +297,15 @@ export function Patches() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
+                  {update.status === 'detected' && (
+                    <button
+                      onClick={() => handleApprove(update.id)}
+                      className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      Approve
+                    </button>
+                  )}
                   {update.status === 'installing' && (
                     <span className="flex items-center gap-1.5 text-xs text-accent">
                       <Activity className="h-3.5 w-3.5 animate-spin" />
