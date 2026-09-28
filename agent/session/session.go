@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"ourway/agent/collector"
 )
 
 // maxSessionDuration bounds how long a session may run locally. The server
@@ -75,11 +73,10 @@ func (sm *SessionManager) HandleMessage(ctx context.Context, msgType string, pay
 		sm.HandleQuality(payload)
 	case "command":
 		sm.HandleCommand(ctx, payload)
-	case "scan_updates":
-		sm.ScanUpdates(ctx, payload)
-	case "deploy_updates":
-		sm.DeployUpdates(ctx, payload)
 	}
+	// scan_updates / deploy_updates are intentionally NOT handled here:
+	// the client routes them to the patch handler, which is the real
+	// implementation.
 }
 
 // StartSession begins a remote control session.
@@ -288,36 +285,6 @@ func (sm *SessionManager) handleMouseEvent(input map[string]interface{}) {
 	synthesizeMouse(event, x, y, button, delta)
 }
 
-// ScanUpdates scans for available software updates.
-func (sm *SessionManager) ScanUpdates(ctx context.Context, payload interface{}) {
-	log.Printf("session: scanning for updates...")
-
-	packages, err := collector.CollectSoftwarePackages()
-	if err != nil {
-		log.Printf("session: failed to collect packages: %v", err)
-		return
-	}
-
-	log.Printf("session: found %d installed packages", len(packages))
-
-	// In a full implementation, this would compare against a catalog
-	// and report available updates to the server.
-}
-
-// DeployUpdates deploys approved software updates.
-func (sm *SessionManager) DeployUpdates(ctx context.Context, payload interface{}) {
-	log.Printf("session: deploying updates...")
-
-	deployData, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("session: failed to marshal payload: %v", err)
-		return
-	}
-
-	log.Printf("session: deploying: %s", string(deployData))
-
-	// In a full implementation, this would download and install updates.
-}
 
 // SetOnSessionStart registers a callback for when a session starts.
 func (sm *SessionManager) SetOnSessionStart(fn func()) {

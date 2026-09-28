@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 
+	"ourway/agent/config"
 	"ourway/agent/files"
 	"ourway/agent/patch"
 	"ourway/agent/session"
@@ -72,8 +72,8 @@ func New(serverURL, deviceKey string, opts ...Option) *Client {
 		metricsSec:   60 * time.Second,
 		streamSec:    2 * time.Second,
 		sessionMgr:   session.NewSessionManager(deviceKey),
-		fileHandler:  files.NewHandler(deviceKey, strings.TrimSuffix(serverURL, "/ws")),
-		patchHandler: patch.NewHandler(deviceKey, strings.TrimSuffix(serverURL, "/ws")),
+		fileHandler:  files.NewHandler(deviceKey, config.HTTPBaseURL(serverURL)),
+		patchHandler: patch.NewHandler(deviceKey, config.HTTPBaseURL(serverURL)),
 	}
 	for _, opt := range opts {
 		opt(c)

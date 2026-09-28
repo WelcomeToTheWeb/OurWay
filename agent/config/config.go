@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -75,6 +76,22 @@ func Load() (*Config, error) {
 	cfg.LogFile = *logFile
 
 	return cfg, nil
+}
+
+// HTTPBaseURL converts a WebSocket server URL (e.g. ws://host:8080/ws)
+// into the HTTP base URL (http://host:8080) used for the agent's REST
+// calls. Plain http(s) URLs are normalized by stripping a trailing /ws
+// path and slash, so the result is safe to call repeatedly.
+func HTTPBaseURL(serverURL string) string {
+	u := serverURL
+	switch {
+	case strings.HasPrefix(u, "wss://"):
+		u = "https://" + strings.TrimPrefix(u, "wss://")
+	case strings.HasPrefix(u, "ws://"):
+		u = "http://" + strings.TrimPrefix(u, "ws://")
+	}
+	u = strings.TrimSuffix(u, "/ws")
+	return strings.TrimSuffix(u, "/")
 }
 
 // Validate checks that the configuration is complete and valid.
