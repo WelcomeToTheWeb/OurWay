@@ -372,3 +372,14 @@ func (h *SessionHandler) SetQuality(c *gin.Context) {
 
 	c.JSON(200, gin.H{"status": "ok"})
 }
+
+// ListSessions returns all pending and active sessions.
+// GET /api/sessions
+func (h *SessionHandler) ListSessions(c *gin.Context) {
+	sessions, err := h.store.Sessions.ListActiveAll()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to list sessions"})
+		return
+	}
+	c.JSON(200, gin.H{"sessions": sessions})
+}

@@ -68,6 +68,7 @@ export function DeviceDetail() {
   const [sessionOffer, setSessionOffer] = useState<string | null>(null);
   const [startingSession, setStartingSession] = useState(false);
   const [rebooting, setRebooting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -199,11 +200,12 @@ export function DeviceDetail() {
 
   async function handleReboot() {
     if (!device) return;
+    setActionError(null);
+    setRebooting(true);
     try {
-      setRebooting(true);
       await rebootDevice(device.id);
-    } catch {
-      // ignore
+    } catch (err) {
+      setActionError(`Failed to reboot device: ${(err as Error).message}`);
     } finally {
       setRebooting(false);
     }
@@ -262,6 +264,17 @@ export function DeviceDetail() {
 
   return (
     <div className="space-y-6">
+      {actionError && (
+        <div className="flex items-center justify-between rounded-lg border border-status-error/40 bg-status-error/10 px-4 py-3">
+          <p className="text-sm text-status-error">{actionError}</p>
+          <button
+            onClick={() => setActionError(null)}
+            className="text-sm text-text-secondary hover:text-text-primary"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">

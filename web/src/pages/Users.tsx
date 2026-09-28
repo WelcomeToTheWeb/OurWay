@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getUsers, getRoles, updateUserRoles } from '../api/users';
+import { getUsers, getRoles, updateUserRoles, createUser, deleteUser } from '../api/users';
 import type { Role, UserWithRoles } from '../auth/types';
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,10 @@ export function Users() {
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newForm, setNewForm] = useState({ username: '', email: '', password: '' });
+  const [newRoles, setNewRoles] = useState<string[]>([]);
+  const [formError, setFormError] = useState('');
 
   const load = async () => {
     try {
@@ -32,9 +36,13 @@ export function Users() {
 
   const saveRoles = async () => {
     if (!editingUser) return;
-    await updateUserRoles(editingUser, selectedRoles);
-    setEditingUser(null);
-    await load();
+    try {
+      await updateUserRoles(editingUser, selectedRoles);
+      setEditingUser(null);
+      await load();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+    }
   };
 
   const toggleRole = (roleName: string) => {
@@ -45,15 +53,58 @@ export function Users() {
     );
   };
 
+  const toggleNewRole = (roleName: string) => {
+    setNewRoles((prev) =>
+      prev.includes(roleName)
+        ? prev.filter((r) => r !== roleName)
+        : [...prev, roleName]
+    );
+  };
+
+  const handleCreate = async () => {
+    if (!newForm.username || !newForm.email || !newForm.password) {
+      setFormError(t('common.error'));
+      return;
+    }
+    try {
+      await createUser({ ...newForm, roles: newRoles });
+      setShowCreate(false);
+      setNewForm({ username: '', email: '', password: '' });
+      setNewRoles([]);
+      setFormError('');
+      await load();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+    }
+  };
+
+  const handleDelete = async (user: UserWithRoles) => {
+    if (!confirm(`${t('common.delete')} ${user.username}?`)) return;
+    try {
+      await deleteUser(user.id);
+      await load();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+    }
+  };
+
   if (loading) {
     return <div className="p-6 text-text-secondary">{t('common.loading')}</div>;
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-text-primary">{t('users.title')}</h1>
-        <p className="text-sm text-text-secondary">{users.length} {t('users.title').toLowerCase()}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-text-primary">{t('users.title')}</h1>
+          <p className="text-sm text-text-secondary">{users.length} {t('users.title').toLowerCase()}</p>
+        </div>
+        <button
+          onClick={() => { setShowCreate(true); setFormError(''); }}
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-dark"
+        >
+          {t('users.addUser')}
+        </button>
       </div>
 
       {/* Users Table - responsive: scroll on mobile, full table on desktop */}
@@ -93,12 +144,20 @@ export function Users() {
                     {new Date(user.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => openEdit(user)}
-                      className="text-sm text-accent hover:text-accent-dark transition-colors"
-                    >
-                      {t('common.edit')} Roles
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => openEdit(user)}
+                        className="text-sm text-accent hover:text-accent-dark transition-colors"
+                      >
+                        {t('common.edit')} Roles
+                      </button>
+                      <button
+                        onClick={() => handleDelete(user)}
+                        className="text-sm text-red-500 hover:text-red-400 transition-colors"
+                      >
+                        {t('common.delete')}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -151,6 +210,82 @@ export function Users() {
               </button>
               <button
                 onClick={() => setEditingUser(null)}
+                className="flex-1 rounded-lg border border-bg-border bg-bg py-2 text-sm font-medium text-text-primary transition-colors hover:bg-bg-secondary"
+              >
+                {t('common.cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Create User Modal */}
+      {showCreate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add user"
+          onClick={() => setShowCreate(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-bg-border bg-bg-card p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-text-primary mb-4">
+              {t('users.addUser')}
+            </h3>
+            {formError && (
+              <p className="mb-3 text-sm text-red-500">{formError}</p>
+            )}
+            <div className="space-y-3 mb-4">
+              <input
+                type="text"
+                placeholder={t('users.username')}
+                value={newForm.username}
+                onChange={(e) => setNewForm({ ...newForm, username: e.target.value })}
+                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+              />
+              <input
+                type="email"
+                placeholder={t('users.email')}
+                value={newForm.email}
+                onChange={(e) => setNewForm({ ...newForm, email: e.target.value })}
+                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={newForm.password}
+                onChange={(e) => setNewForm({ ...newForm, password: e.target.value })}
+                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+              />
+            </div>
+            <div className="space-y-3 mb-6">
+              <span className="text-xs font-medium text-text-muted uppercase">{t('users.role')}</span>
+              {roles.map((role) => (
+                <label
+                  key={role.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-bg-border p-3 transition-colors hover:bg-bg-secondary"
+                >
+                  <input
+                    type="checkbox"
+                    checked={newRoles.includes(role.name)}
+                    onChange={() => toggleNewRole(role.name)}
+                    className="h-4 w-4 rounded border-bg-border accent-accent"
+                  />
+                  <span className="text-sm font-medium text-text-primary">{role.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCreate}
+                className="flex-1 rounded-lg bg-accent py-2 text-sm font-medium text-white transition-colors hover:bg-accent-dark"
+              >
+                {t('common.save')}
+              </button>
+              <button
+                onClick={() => setShowCreate(false)}
                 className="flex-1 rounded-lg border border-bg-border bg-bg py-2 text-sm font-medium text-text-primary transition-colors hover:bg-bg-secondary"
               >
                 {t('common.cancel')}

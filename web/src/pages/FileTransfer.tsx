@@ -12,7 +12,7 @@ import {
   File,
   Loader2,
 } from 'lucide-react';
-import { listTransfers, pushFile, pullFile, uploadFile } from '../api/files';
+import { listTransfers, pushFile, pullFile, uploadFile, downloadFile } from '../api/files';
 import { getDevices } from '../api/devices';
 import type { Device } from '../types/device';
 import type { FileTransfer } from '../types/file';
@@ -55,6 +55,22 @@ export function FileTransfer() {
   // Pull state
   const [pulling, setPulling] = useState(false);
   const [pullPath, setPullPath] = useState('');
+
+  // Download state
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState('');
+
+  const handleDownload = async (t: FileTransfer) => {
+    setDownloadingId(t.id);
+    setDownloadError('');
+    try {
+      await downloadFile(t.id, t.filename);
+    } catch {
+      setDownloadError(`Failed to download ${t.filename}`);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -312,6 +328,9 @@ export function FileTransfer() {
 
       {/* Transfer history */}
       <div>
+        {downloadError && (
+          <p className="mb-2 text-sm text-status-error">{downloadError}</p>
+        )}
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-text-primary">Transfer History</h2>
           <div className="relative">
@@ -385,6 +404,16 @@ export function FileTransfer() {
                       <span className="max-w-xs truncate text-xs text-status-error" title={t.error_message}>
                         {t.error_message}
                       </span>
+                    )}
+                    {t.status === 'completed' && (
+                      <button
+                        onClick={() => handleDownload(t)}
+                        disabled={downloadingId === t.id}
+                        className="text-sm text-accent hover:text-accent-dark transition-colors disabled:opacity-50"
+                        title="Download file"
+                      >
+                        {downloadingId === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      </button>
                     )}
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${statusColor}`}

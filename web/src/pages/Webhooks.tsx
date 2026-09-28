@@ -20,6 +20,7 @@ const EVENT_TYPES = [
   { value: 'alert_resolved', label: 'Alert Resolved' },
   { value: 'patch_deployed', label: 'Patch Deployed' },
   { value: 'session_started', label: 'Session Started' },
+  { value: 'session_frame', label: 'Session Frame' },
 ];
 
 function parseEvents(events: string): string {

@@ -56,3 +56,12 @@ func (s *SessionStore) ListActive(deviceID string) ([]models.Session, error) {
 	}
 	return sessions, nil
 }
+
+// ListActiveAll returns all pending and active sessions across devices.
+func (s *SessionStore) ListActiveAll() ([]models.Session, error) {
+	var sessions []models.Session
+	if err := s.db.Find(&sessions, "status IN (?)", []string{"pending", "active"}).Order("created_at DESC").Error; err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}

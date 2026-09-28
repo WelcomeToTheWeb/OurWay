@@ -168,6 +168,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 
 		// Session routes
 		protected.POST("/devices/:id/sessions", sessionHandler.StartSession)
+		protected.GET("/sessions", sessionHandler.ListSessions)
 		protected.POST("/sessions/:id/answer", sessionHandler.SubmitAnswer)
 		protected.POST("/sessions/:id/ice", sessionHandler.AddICECandidate)
 		protected.POST("/sessions/:id/input", sessionHandler.SendInput)

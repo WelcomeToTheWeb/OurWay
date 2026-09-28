@@ -33,3 +33,6 @@ export const setQuality = (sessionId: string, quality: number) =>
 
 export const endSession = (sessionId: string) =>
   client.delete(`/sessions/${sessionId}`).then((r) => r.data);
+
+export const listSessions = () =>
+  client.get<{ sessions: Session[] }>('/sessions').then((r) => r.data.sessions);

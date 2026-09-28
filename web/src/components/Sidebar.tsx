@@ -11,6 +11,7 @@ import {
   FolderUp,
   KeyRound,
   Webhook,
+  Radio,
 } from 'lucide-react';
 import { useAuth } from '../auth/context';
 
@@ -21,6 +22,9 @@ export function Sidebar() {
     { to: '/', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/devices', label: 'Devices', icon: Server },
     { to: '/alerts', label: 'Alerts', icon: Bell },
+    ...(hasAnyRole(['admin', 'manager', 'technician'])
+      ? [{ to: '/sessions', label: 'Sessions', icon: Radio }]
+      : []),
     ...(hasAnyRole(['admin', 'manager', 'technician'])
       ? [{ to: '/files', label: 'Files', icon: FolderUp }]
       : []),

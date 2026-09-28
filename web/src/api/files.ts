@@ -39,3 +39,19 @@ export const getTransfer = (id: string) =>
   client
     .get<{ transfer: FileTransfer }>(`/files/transfers/${id}`)
     .then((r) => r.data.transfer);
+
+// downloadFile fetches a stored file (GET /files/:transfer_id/file) and
+// triggers a browser download under its original name.
+export const downloadFile = async (transferId: string, filename: string) => {
+  const { data } = await client.get(`/files/${transferId}/file`, {
+    responseType: 'blob',
+  });
+  const url = URL.createObjectURL(data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};

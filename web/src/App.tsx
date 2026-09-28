@@ -12,6 +12,7 @@ import { Users } from './pages/Users';
 import { Patches } from './pages/Patches';
 import { PatchPolicies } from './pages/PatchPolicies';
 import { FileTransfer } from './pages/FileTransfer';
+import { Sessions } from './pages/Sessions';
 import { SSO } from './pages/SSO';
 import { Webhooks } from './pages/Webhooks';
 
@@ -40,6 +41,14 @@ export function App() {
           <Route path="devices" element={<Devices />} />
           <Route path="devices/:id" element={<DeviceDetail />} />
           <Route path="alerts" element={<Alerts />} />
+          <Route
+            path="sessions"
+            element={
+              <RoleRoute roles={['admin', 'manager', 'technician']}>
+                <Sessions />
+              </RoleRoute>
+            }
+          />
           <Route
             path="files"
             element={

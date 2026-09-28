@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { Search, Server, RefreshCw } from 'lucide-react';
 import { useDevices } from '../hooks/useDevices';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { useAuth } from '../auth/context';
 import { DeviceCard } from '../components/DeviceCard';
 import { Grid } from 'react-window';
 
 export function Devices() {
   const { devices, loading, error, refresh } = useDevices();
+  const { accessToken } = useAuth();
+  // Realtime presence: WS status/heartbeat frames update the shared device
+  // store, so the grid reflects online/offline changes without a refresh.
+  useWebSocket(accessToken);
   const [search, setSearch] = useState('');
 
   const filtered = devices.filter((d) =>
