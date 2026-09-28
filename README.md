@@ -39,15 +39,30 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - REST API for CRUD operations
 - WebSocket hub for real-time communication
 - Device registry and inventory
-- Alert engine (threshold-based)
+- Alert engine (threshold-based) with auto-resolution
 - Event stream for UI updates
-- Authentication (JWT)
+- Authentication (JWT + refresh tokens, RBAC roles)
+- Remote sessions (WebRTC gateway, agent frame relay)
+- Patching (scan, deploy, policies) for Windows, macOS, and Linux
+- File transfer (push/pull with transfer tracking)
+- SSO (OpenID Connect, OAuth 2.0)
+- Webhooks with HMAC-SHA256 signatures and delivery retries
+- API keys with read/write scopes
+- Rate limiting (in-memory or Redis token bucket)
+- Redis-backed scaling (cache, rate limits)
 
 ### Frontend Features
 - Dashboard with overview of all devices
-- Device list with status indicators
+- Device list with realtime status updates
 - Device detail page with real-time charts
-- Alert center
+- Remote session viewer (WebRTC)
+- Alert center with acknowledge/assign/resolve
+- Patch manager (updates, deployments, policies)
+- File transfer with drag-and-drop and download links
+- User management (create, roles, delete)
+- SSO provider configuration
+- Webhook management with delivery history
+- Sessions page for active remote sessions
 - Settings and configuration
 
 ## Project Structure
@@ -214,18 +229,20 @@ sc.exe stop OurWayAgent && sc.exe delete OurWayAgent
 - [ ] Documentation
 - [ ] Testing and bug fixes
 
-### Version 2.0 Roadmap
+### Version 2.0
 
-See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Key features:
+See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Implemented:
 
-- **Remote Sessions**: Custom VNC-like protocol with Go (WebRTC streaming)
-- **Patching**: OS update management for Windows, macOS, and Linux
-- **User Management**: RBAC with roles, permissions, and device groups
-- **SSO Integration**: OAuth 2.0, SAML 2.0, and OpenID Connect
-- **macOS Support**: Complete agent with launchd service and native metrics
-- **File Transfer**: Push/pull files with drag-and-drop
-- **Scalability**: Horizontal scaling with Redis, time-series metrics storage
-- **Automation**: Runbooks, scheduled scripts, workflows
+- ✅ **Remote Sessions**: WebRTC streaming with agent frame relay
+- ✅ **Patching**: OS update management for Windows, macOS, and Linux (scan, deploy, policies)
+- ✅ **User Management**: RBAC with roles and permissions
+- ✅ **SSO Integration**: OpenID Connect and OAuth 2.0
+- ✅ **macOS Support**: Complete agent with launchd service and native metrics
+- ✅ **File Transfer**: Push/pull files with drag-and-drop and download links
+- ✅ **Webhooks**: Event subscriptions with HMAC signatures and retry queue
+- ✅ **API Keys**: Scoped (read/write) long-lived credentials
+- ✅ **Scalability**: Redis-backed cache and distributed rate limiting
+- ⬜ **Automation**: Runbooks, scheduled scripts, workflows
 
 ## Key Design Decisions
 
