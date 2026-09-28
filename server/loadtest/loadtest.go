@@ -179,49 +179,49 @@ func sendHeartbeats(client *http.Client, cfg Config, deviceKeys []string) *Resul
 			go func(start, rid int) {
 				defer wg.Done()
 
-					deviceIdx := (start + rid) % len(deviceKeys)
-					deviceKey := deviceKeys[deviceIdx]
-					body := map[string]interface{}{
-						"device_key": deviceKey,
-						"timestamp":  time.Now().Unix(),
-					}
-					bodyBytes, _ := json.Marshal(body)
+				deviceIdx := (start + rid) % len(deviceKeys)
+				deviceKey := deviceKeys[deviceIdx]
+				body := map[string]interface{}{
+					"device_key": deviceKey,
+					"timestamp":  time.Now().Unix(),
+				}
+				bodyBytes, _ := json.Marshal(body)
 
-					req, err := http.NewRequest("POST", cfg.ServerURL+"/api/agent/heartbeat", bytes.NewReader(bodyBytes))
-					if err != nil {
-						atomic.AddInt64(&results.FailureCount, 1)
-						return
-					}
-					req.Header.Set("Content-Type", "application/json")
-					req.Header.Set("X-Device-Key", deviceKey)
+				req, err := http.NewRequest("POST", cfg.ServerURL+"/api/agent/heartbeat", bytes.NewReader(bodyBytes))
+				if err != nil {
+					atomic.AddInt64(&results.FailureCount, 1)
+					return
+				}
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-Device-Key", deviceKey)
 
-					reqStart := time.Now()
-					resp, err := client.Do(req)
-					duration := time.Since(reqStart)
-					if err != nil {
-						atomic.AddInt64(&results.FailureCount, 1)
-						return
-					}
-					defer resp.Body.Close()
+				reqStart := time.Now()
+				resp, err := client.Do(req)
+				duration := time.Since(reqStart)
+				if err != nil {
+					atomic.AddInt64(&results.FailureCount, 1)
+					return
+				}
+				defer resp.Body.Close()
 
-					respBody, _ := io.ReadAll(resp.Body)
-					atomic.AddInt64(&results.BytesReceived, int64(len(respBody)))
-					atomic.AddInt64(&results.BytesSent, int64(len(bodyBytes)))
+				respBody, _ := io.ReadAll(resp.Body)
+				atomic.AddInt64(&results.BytesReceived, int64(len(respBody)))
+				atomic.AddInt64(&results.BytesSent, int64(len(bodyBytes)))
 
-					if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-						atomic.AddInt64(&results.SuccessCount, 1)
-					} else {
-						atomic.AddInt64(&results.FailureCount, 1)
-					}
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+					atomic.AddInt64(&results.SuccessCount, 1)
+				} else {
+					atomic.AddInt64(&results.FailureCount, 1)
+				}
 
-					// Track timing
-					if duration < results.FastestRequest {
-						atomic.StoreInt64((*int64)(&results.FastestRequest), int64(duration))
-					}
-					if duration > results.SlowestRequest {
-						atomic.StoreInt64((*int64)(&results.SlowestRequest), int64(duration))
-					}
-				}(start, r)
+				// Track timing
+				if duration < results.FastestRequest {
+					atomic.StoreInt64((*int64)(&results.FastestRequest), int64(duration))
+				}
+				if duration > results.SlowestRequest {
+					atomic.StoreInt64((*int64)(&results.SlowestRequest), int64(duration))
+				}
+			}(start, r)
 		}
 	}
 

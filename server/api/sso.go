@@ -17,10 +17,10 @@ import (
 
 // SSOHandler handles SSO authentication and provider management.
 type SSOHandler struct {
-	store     *store.Store
-	jwtAuth   *auth.JWTAuth
-	oauth     *sso.OAuthHandler
-	redirect  string
+	store    *store.Store
+	jwtAuth  *auth.JWTAuth
+	oauth    *sso.OAuthHandler
+	redirect string
 }
 
 // NewSSOHandler creates a new SSO handler.

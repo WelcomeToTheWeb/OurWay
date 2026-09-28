@@ -21,15 +21,15 @@ import (
 
 // Client connects to the OurWay server via WebSocket and sends metrics.
 type Client struct {
-	serverURL     string
-	deviceKey     string
-	heartbeatSec  time.Duration
-	metricsSec    time.Duration
-	streamSec     time.Duration
-	metricsFunc   func() (interface{}, error)
-	sessionMgr    *session.SessionManager
-	fileHandler   *files.Handler
-	patchHandler  *patch.Handler
+	serverURL    string
+	deviceKey    string
+	heartbeatSec time.Duration
+	metricsSec   time.Duration
+	streamSec    time.Duration
+	metricsFunc  func() (interface{}, error)
+	sessionMgr   *session.SessionManager
+	fileHandler  *files.Handler
+	patchHandler *patch.Handler
 }
 
 // Option is a function that configures the client.
@@ -259,7 +259,7 @@ func (c *Client) sendMetrics(ctx context.Context, conn *websocket.Conn) {
 	hostname, _ := os.Hostname()
 
 	msg := map[string]interface{}{
-		"type":       "metrics",
+		"type": "metrics",
 		"payload": map[string]interface{}{
 			"device_key": c.deviceKey,
 			"hostname":   hostname,

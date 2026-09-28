@@ -285,7 +285,6 @@ func (sm *SessionManager) handleMouseEvent(input map[string]interface{}) {
 	synthesizeMouse(event, x, y, button, delta)
 }
 
-
 // SetOnSessionStart registers a callback for when a session starts.
 func (sm *SessionManager) SetOnSessionStart(fn func()) {
 	sm.onSessionStart = fn

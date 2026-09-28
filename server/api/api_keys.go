@@ -27,9 +27,9 @@ func CreateAPIKeyHandler(store *store.Store, jwtAuth *auth.JWTAuth) *APIKeyHandl
 
 // CreateKeyRequest is the request body for creating an API key.
 type CreateKeyRequest struct {
-	Name     string   `json:"name" binding:"required"`
-	Scopes   []string `json:"scopes"`
-	Expires  string   `json:"expires"` // "never", "1h", "24h", "7d", "30d", "90d"
+	Name    string   `json:"name" binding:"required"`
+	Scopes  []string `json:"scopes"`
+	Expires string   `json:"expires"` // "never", "1h", "24h", "7d", "30d", "90d"
 }
 
 // RotateKeyRequest is the request body for rotating an API key.
@@ -54,9 +54,9 @@ func (h *APIKeyHandler) CreateKey(c *gin.Context) {
 	scopesJSON, _ := json.Marshal(req.Scopes)
 
 	key := &models.APIKey{
-		UserID:   userID.(string),
-		Name:     req.Name,
-		Scopes:   string(scopesJSON),
+		UserID: userID.(string),
+		Name:   req.Name,
+		Scopes: string(scopesJSON),
 	}
 
 	if req.Expires != "" && req.Expires != "never" {

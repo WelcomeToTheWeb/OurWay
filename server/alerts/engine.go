@@ -20,10 +20,10 @@ type Thresholds struct {
 
 // Engine evaluates metrics against thresholds and creates alerts.
 type Engine struct {
-	alertStore store.AlertStoreInterface
-	mu         sync.RWMutex
-	thresholds map[string]Thresholds
-	dedupWindow time.Duration
+	alertStore   store.AlertStoreInterface
+	mu           sync.RWMutex
+	thresholds   map[string]Thresholds
+	dedupWindow  time.Duration
 	recentAlerts map[string]time.Time // key: deviceID:metric:severity -> last alert time
 }
 
@@ -36,7 +36,7 @@ func NewEngine(alertStore store.AlertStoreInterface) *Engine {
 			"ram":  {Warning: 85, Critical: 95},
 			"disk": {Warning: 85, Critical: 95},
 		},
-		dedupWindow: 5 * time.Minute,
+		dedupWindow:  5 * time.Minute,
 		recentAlerts: make(map[string]time.Time),
 	}
 }
@@ -98,11 +98,11 @@ func (e *Engine) autoResolve(m models.Metrics, deviceID string) {
 			continue
 		}
 		events.Publish("alert_resolved", map[string]interface{}{
-			"alert_id":   a.ID,
-			"device_id":  deviceID,
-			"device":     a.DeviceName,
-			"metric":     a.Metric,
-			"auto":       true,
+			"alert_id":  a.ID,
+			"device_id": deviceID,
+			"device":    a.DeviceName,
+			"metric":    a.Metric,
+			"auto":      true,
 		})
 	}
 }
@@ -174,13 +174,13 @@ func (e *Engine) checkThreshold(metric string, value float64, deviceID, deviceNa
 	}
 
 	events.Publish("alert_created", map[string]interface{}{
-		"alert_id":   alert.ID,
-		"device_id":  deviceID,
-		"device":     deviceName,
-		"severity":   severity,
-		"message":    message,
-		"metric":     metric,
-		"value":      value,
+		"alert_id":  alert.ID,
+		"device_id": deviceID,
+		"device":    deviceName,
+		"severity":  severity,
+		"message":   message,
+		"metric":    metric,
+		"value":     value,
 	})
 }
 

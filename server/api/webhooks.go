@@ -28,11 +28,11 @@ func NewWebhookHandler(store *store.Store, dispatcher *webhooks.Dispatcher) *Web
 // Create creates a new webhook.
 func (h *WebhookHandler) Create(c *gin.Context) {
 	var req struct {
-		Name    string   `json:"name" binding:"required"`
-		URL     string   `json:"url" binding:"required"`
-		Events  []string `json:"events" binding:"required"`
+		Name    string            `json:"name" binding:"required"`
+		URL     string            `json:"url" binding:"required"`
+		Events  []string          `json:"events" binding:"required"`
 		Headers map[string]string `json:"headers"`
-		Enabled *bool    `json:"enabled"`
+		Enabled *bool             `json:"enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,13 +41,13 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 	}
 
 	webhook := &models.Webhook{
-		ID:        uuid.New().String(),
-		Name:      req.Name,
-		URL:       req.URL,
-		Events:    string(mustJSON(req.Events)),
-		Headers:   "{}",
-		Enabled:   true,
-		Secret:    generateWebhookSecret(),
+		ID:      uuid.New().String(),
+		Name:    req.Name,
+		URL:     req.URL,
+		Events:  string(mustJSON(req.Events)),
+		Headers: "{}",
+		Enabled: true,
+		Secret:  generateWebhookSecret(),
 	}
 
 	if req.Headers != nil {
@@ -111,11 +111,11 @@ func (h *WebhookHandler) Update(c *gin.Context) {
 	}
 
 	var req struct {
-		Name    *string `json:"name"`
-		URL     *string `json:"url"`
-		Events  []string `json:"events"`
+		Name    *string           `json:"name"`
+		URL     *string           `json:"url"`
+		Events  []string          `json:"events"`
 		Headers map[string]string `json:"headers"`
-		Enabled *bool   `json:"enabled"`
+		Enabled *bool             `json:"enabled"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
