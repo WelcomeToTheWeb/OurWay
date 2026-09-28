@@ -51,11 +51,60 @@ func (e *Engine) SetDedupWindow(d time.Duration) {
 	e.dedupWindow = d
 }
 
-// Evaluate checks metrics against thresholds and creates alerts as needed.
+// Evaluate checks metrics against thresholds, creates alerts as needed,
+// and auto-resolves alerts whose metric has returned to normal.
 func (e *Engine) Evaluate(m models.Metrics, deviceID, deviceName string) {
 	e.checkThreshold("cpu", m.CPU, deviceID, deviceName, "CPU usage")
 	e.checkThreshold("ram", m.RAM, deviceID, deviceName, "RAM usage")
 	e.checkThreshold("disk", m.DiskUsage, deviceID, deviceName, "Disk usage")
+	e.autoResolve(m, deviceID)
+}
+
+// autoResolve marks unresolved alerts as resolved when their metric has
+// dropped back to or below the warning threshold, so a recovering device
+// does not keep stale alerts open.
+func (e *Engine) autoResolve(m models.Metrics, deviceID string) {
+	normal := map[string]bool{}
+	e.mu.RLock()
+	t, ok := e.thresholds["cpu"]
+	if ok && m.CPU <= t.Warning {
+		normal["cpu"] = true
+	}
+	t, ok = e.thresholds["ram"]
+	if ok && m.RAM <= t.Warning {
+		normal["ram"] = true
+	}
+	t, ok = e.thresholds["disk"]
+	if ok && m.DiskUsage <= t.Warning {
+		normal["disk"] = true
+	}
+	e.mu.RUnlock()
+
+	if len(normal) == 0 {
+		return
+	}
+
+	alerts, err := e.alertStore.List(&deviceID, true)
+	if err != nil {
+		return
+	}
+
+	for i := range alerts {
+		a := &alerts[i]
+		if !normal[a.Metric] {
+			continue
+		}
+		if err := e.alertStore.MarkResolved(a.ID); err != nil {
+			continue
+		}
+		events.Publish("alert_resolved", map[string]interface{}{
+			"alert_id":   a.ID,
+			"device_id":  deviceID,
+			"device":     a.DeviceName,
+			"metric":     a.Metric,
+			"auto":       true,
+		})
+	}
 }
 
 // checkThreshold evaluates a single metric against its thresholds.

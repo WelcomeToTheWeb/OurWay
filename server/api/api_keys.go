@@ -261,6 +261,17 @@ func APIKeyMiddleware(store *store.Store, jwtAuth *auth.JWTAuth) gin.HandlerFunc
 			keyHash := models.HashAPIKey(apiKey)
 			key, err := store.APIKeys.GetByHash(keyHash)
 			if err == nil && key.IsActive() {
+				// Enforce the key's stored scopes: read-only keys may not
+				// perform mutating requests (and vice versa). An empty
+				// scope list is treated as no access.
+				var scopes []string
+				json.Unmarshal([]byte(key.Scopes), &scopes)
+				if !scopeAllows(scopes, c.Request.Method) {
+					c.JSON(http.StatusForbidden, gin.H{"error": "api key scope does not permit this request"})
+					c.Abort()
+					return
+				}
+
 				// API key is valid - set user context
 				c.Set("user_id", key.UserID)
 				c.Set("api_key_id", key.ID)
@@ -299,4 +310,21 @@ func getBearerToken(c *gin.Context) string {
 		return strings.TrimPrefix(authHeader, "Bearer ")
 	}
 	return authHeader
+}
+
+// scopeAllows reports whether a key with the given scopes may perform a
+// request with the given HTTP method: read-only methods need "read", all
+// other methods need "write".
+func scopeAllows(scopes []string, method string) bool {
+	needed := "write"
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		needed = "read"
+	}
+	for _, s := range scopes {
+		if s == needed {
+			return true
+		}
+	}
+	return false
 }

@@ -154,7 +154,11 @@ func (h *Hub) Run() {
 			log.Printf("ws: client %s registered (%s)", client.ID, client.Type)
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.clients[client.ID]; ok {
+			// Only unregister if the currently registered client for this
+			// ID is exactly this connection. A stale conn's unregister must
+			// not delete a newer conn that already registered under the same
+			// ID (e.g. a device reconnecting).
+			if current, ok := h.clients[client.ID]; ok && current == client {
 				delete(h.clients, client.ID)
 				close(client.SendCh)
 			}

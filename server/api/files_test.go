@@ -138,10 +138,23 @@ func TestListTransfers(t *testing.T) {
 func TestAgentReportStatus(t *testing.T) {
 	ts, st, _, _ := setupFileTest(t)
 
-	// Create a file transfer first
+	// Register a device so the agent can authenticate with its key.
+	device := &models.Device{
+		Name:      "test-device",
+		Hostname:  "test-host",
+		OS:        "linux",
+		Arch:      "amd64",
+		Status:    "online",
+		DeviceKey: "test-device-key",
+	}
+	if err := st.Devices.Create(device); err != nil {
+		t.Fatalf("failed to create device: %v", err)
+	}
+
+	// Create a file transfer owned by that device
 	transfer := &models.FileTransfer{
 		ID:          uuid.New().String(),
-		DeviceID:    "device-1",
+		DeviceID:    device.ID,
 		Filename:    "test.txt",
 		Destination: "/tmp/test.txt",
 		Status:      "pending",
@@ -160,6 +173,7 @@ func TestAgentReportStatus(t *testing.T) {
 
 	req, _ := http.NewRequest("POST", ts.URL+"/api/agent/files/status", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Device-Key", "test-device-key")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

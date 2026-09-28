@@ -66,6 +66,11 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		}
 	}()
 
+	// Periodic fleet-wide update scan (every 24h); the scanner was
+	// created above but ScanAll was never started, so scheduled scans
+	// never ran.
+	go scanner.ScanAll(context.Background(), 24*time.Hour)
+
 	// Auth routes (no auth required)
 	authGroup := r.Group("/api/auth")
 	{
@@ -138,9 +143,9 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 
 		// Alert routes
 		protected.GET("/alerts", alertHandler.ListAlerts)
-		protected.POST("/alerts/:id/resolve", alertHandler.ResolveAlert)
-		protected.POST("/alerts/:id/acknowledge", alertHandler.AcknowledgeAlert)
-		protected.POST("/alerts/:id/assign", alertHandler.AssignAlert)
+		protected.POST("/alerts/:id/resolve", RequireAnyRole("admin", "manager", "technician"), alertHandler.ResolveAlert)
+		protected.POST("/alerts/:id/acknowledge", RequireAnyRole("admin", "manager", "technician"), alertHandler.AcknowledgeAlert)
+		protected.POST("/alerts/:id/assign", RequireAnyRole("admin", "manager", "technician"), alertHandler.AssignAlert)
 
 		// Role routes
 		roleGroup := protected.Group("/roles")

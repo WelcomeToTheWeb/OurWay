@@ -116,6 +116,72 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 	c.Redirect(http.StatusFound, h.redirect+"/login?token="+token+"&refresh="+refreshToken)
 }
 
+// applyProviderDefaults fills in well-known endpoint presets for named
+// providers (google, microsoft, apple) without overwriting values that
+// are already set.
+func applyProviderDefaults(provider *models.SSOProvider, name string) {
+	var preset struct {
+		AuthURL     string
+		TokenURL    string
+		UserInfoURL string
+		Scope       string
+	}
+	switch name {
+	case "google":
+		preset = struct {
+			AuthURL     string
+			TokenURL    string
+			UserInfoURL string
+			Scope       string
+		}{
+			AuthURL:     "https://accounts.google.com/o/oauth2/v2/auth",
+			TokenURL:    "https://oauth2.googleapis.com/token",
+			UserInfoURL: "https://openidconnect.googleapis.com/v1/userinfo",
+			Scope:       "openid profile email",
+		}
+	case "microsoft":
+		preset = struct {
+			AuthURL     string
+			TokenURL    string
+			UserInfoURL string
+			Scope       string
+		}{
+			AuthURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+			TokenURL:    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+			UserInfoURL: "https://graph.microsoft.com/oidc/userinfo",
+			Scope:       "openid profile email offline_access",
+		}
+	case "apple":
+		preset = struct {
+			AuthURL     string
+			TokenURL    string
+			UserInfoURL string
+			Scope       string
+		}{
+			AuthURL:     "https://appleid.apple.com/auth/authorize",
+			TokenURL:    "https://appleid.apple.com/auth/token",
+			UserInfoURL: "https://appleid.apple.com/auth/userinfo",
+			Scope:       "name email",
+		}
+	}
+
+	if preset.AuthURL == "" {
+		return
+	}
+	if provider.AuthURL == "" {
+		provider.AuthURL = preset.AuthURL
+	}
+	if provider.TokenURL == "" {
+		provider.TokenURL = preset.TokenURL
+	}
+	if provider.UserInfoURL == "" {
+		provider.UserInfoURL = preset.UserInfoURL
+	}
+	if provider.Scope == "" {
+		provider.Scope = preset.Scope
+	}
+}
+
 // CreateProvider creates or updates an SSO provider (admin).
 func (h *SSOHandler) CreateProvider(c *gin.Context) {
 	var req struct {
@@ -147,6 +213,10 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 		if req.ClientSecret != "" {
 			provider.ClientSecret = req.ClientSecret
 		}
+		// Apply provider-specific defaults (see create branch), then let
+		// explicit request values win. Values that are not provided must
+		// keep the preset defaults — do not clobber them with empty strings.
+		applyProviderDefaults(provider, req.Name)
 		if req.AuthURL != "" {
 			provider.AuthURL = req.AuthURL
 		}
@@ -179,53 +249,22 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 			Enabled:      true,
 		}
 
-		// Apply provider-specific defaults
-		switch req.Name {
-		case "google":
-			if req.AuthURL == "" {
-				provider.AuthURL = "https://accounts.google.com/o/oauth2/v2/auth"
-			}
-			if req.TokenURL == "" {
-				provider.TokenURL = "https://oauth2.googleapis.com/token"
-			}
-			if req.UserInfoURL == "" {
-				provider.UserInfoURL = "https://openidconnect.googleapis.com/v1/userinfo"
-			}
-			if req.Scope == "" {
-				provider.Scope = "openid profile email"
-			}
-		case "microsoft":
-			if req.AuthURL == "" {
-				provider.AuthURL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-			}
-			if req.TokenURL == "" {
-				provider.TokenURL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-			}
-			if req.UserInfoURL == "" {
-				provider.UserInfoURL = "https://graph.microsoft.com/oidc/userinfo"
-			}
-			if req.Scope == "" {
-				provider.Scope = "openid profile email offline_access"
-			}
-		case "apple":
-			if req.AuthURL == "" {
-				provider.AuthURL = "https://appleid.apple.com/auth/authorize"
-			}
-			if req.TokenURL == "" {
-				provider.TokenURL = "https://appleid.apple.com/auth/token"
-			}
-			if req.UserInfoURL == "" {
-				provider.UserInfoURL = "https://appleid.apple.com/auth/userinfo"
-			}
-			if req.Scope == "" {
-				provider.Scope = "name email"
-			}
+		// Apply provider-specific defaults, then let explicit request
+		// values win (only when provided — empty values must not clobber
+		// the presets).
+		applyProviderDefaults(provider, req.Name)
+		if req.AuthURL != "" {
+			provider.AuthURL = req.AuthURL
 		}
-
-		provider.AuthURL = req.AuthURL
-		provider.TokenURL = req.TokenURL
-		provider.UserInfoURL = req.UserInfoURL
-		provider.Scope = req.Scope
+		if req.TokenURL != "" {
+			provider.TokenURL = req.TokenURL
+		}
+		if req.UserInfoURL != "" {
+			provider.UserInfoURL = req.UserInfoURL
+		}
+		if req.Scope != "" {
+			provider.Scope = req.Scope
+		}
 		if req.Enabled != nil {
 			provider.Enabled = *req.Enabled
 		}

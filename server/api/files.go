@@ -57,19 +57,19 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	// The model has no dedicated uploader column: record the uploading user
-	// in DeviceID (a real UUID) until a push assigns an actual device.
+	// Record the uploading user in UploaderID; DeviceID stays empty until
+	// a push assigns a real device.
 	uploader := c.GetString("user_id")
 	if uploader == "" {
 		uploader = "00000000-0000-0000-0000-000000000000"
 	}
 	transfer := &models.FileTransfer{
-		ID:        transferID,
-		DeviceID:  uploader,
-		Filename:  file.Filename,
-		SizeBytes: file.Size,
-		Status:    "pending",
-		Direction: "push",
+		ID:         transferID,
+		UploaderID: uploader,
+		Filename:   file.Filename,
+		SizeBytes:  file.Size,
+		Status:     "pending",
+		Direction:  "push",
 	}
 	if err := h.service.CreateTransfer(transfer); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})

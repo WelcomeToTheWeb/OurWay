@@ -24,6 +24,13 @@ func NewAgentFileHandler(store *store.Store, service *files.Service) *AgentFileH
 // ReportStatus receives a transfer status update from an agent.
 // POST /api/agent/files/status
 func (h *AgentFileHandler) ReportStatus(c *gin.Context) {
+	// Authenticate the calling agent and require the transfer to belong
+	// to it, matching the other /api/agent/files/* handlers.
+	device := h.authorizeAgentDevice(c)
+	if device == nil {
+		return
+	}
+
 	var req struct {
 		TransferID   string `json:"transfer_id" binding:"required"`
 		Status       string `json:"status" binding:"required"`
@@ -33,6 +40,16 @@ func (h *AgentFileHandler) ReportStatus(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	transfer, err := h.service.GetTransfer(req.TransferID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "transfer not found"})
+		return
+	}
+	if transfer.DeviceID != device.ID {
+		c.JSON(404, gin.H{"error": "transfer not found"})
 		return
 	}
 

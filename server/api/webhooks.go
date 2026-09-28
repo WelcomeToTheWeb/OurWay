@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 
@@ -45,6 +47,7 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 		Events:    string(mustJSON(req.Events)),
 		Headers:   "{}",
 		Enabled:   true,
+		Secret:    generateWebhookSecret(),
 	}
 
 	if req.Headers != nil {
@@ -60,7 +63,21 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"webhook": webhook})
+	// The secret is never returned by list/get/update (json:"-"); show it
+	// exactly once, on creation, so the receiver can verify signatures.
+	c.JSON(http.StatusCreated, gin.H{
+		"webhook": webhook,
+		"secret":  webhook.Secret,
+	})
+}
+
+// generateWebhookSecret creates a random 32-byte hex HMAC signing secret.
+func generateWebhookSecret() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return uuid.New().String() + uuid.New().String()
+	}
+	return hex.EncodeToString(b)
 }
 
 // List returns all webhooks.

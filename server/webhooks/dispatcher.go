@@ -3,6 +3,9 @@ package webhooks
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -73,6 +76,15 @@ func (d *Dispatcher) Publish(ctx context.Context, event Event) {
 	}
 }
 
+// signPayload returns "sha256=<hex>" where <hex> is the HMAC-SHA256 of the
+// payload under the webhook's secret. Receivers can verify the signature
+// with the same HMAC to authenticate the event.
+func signPayload(secret string, payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
 // deliver sends a single webhook delivery. It first claims the delivery
 // (pending -> in_flight) so the initial delivery and the retry loop can
 // never POST the same event to the target concurrently.
@@ -103,7 +115,9 @@ func (d *Dispatcher) deliver(ctx context.Context, webhook *models.Webhook, deliv
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-OurWay-Event", delivery.Event)
-	req.Header.Set("X-OurWay-Signature", "") // TODO: add HMAC signature
+	if webhook.Secret != "" {
+		req.Header.Set("X-OurWay-Signature", signPayload(webhook.Secret, payload))
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}

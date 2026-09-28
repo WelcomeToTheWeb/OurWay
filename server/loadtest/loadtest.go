@@ -158,28 +158,28 @@ func sendHeartbeats(client *http.Client, cfg Config, deviceKeys []string) *Resul
 
 	var wg sync.WaitGroup
 
-	// Distribute requests across workers
-	batchSize := count / cfg.Concurrency
-	if batchSize < 1 {
-		batchSize = 1
-	}
-	// Adjust the first worker's batch to ensure we send exactly 'count' requests
-	firstBatchSize := batchSize
-	if count%cfg.Concurrency != 0 {
-		firstBatchSize = count%cfg.Concurrency + batchSize
-	}
+	// Distribute requests across workers so exactly 'count' requests are
+	// sent: each worker gets base, the first 'rem' workers get one extra.
+	base := count / cfg.Concurrency
+	rem := count % cfg.Concurrency
 
+	offset := 0
 	for w := 0; w < cfg.Concurrency; w++ {
-		workerBatch := batchSize
-		if w == 0 {
-			workerBatch = firstBatchSize
+		workerBatch := base
+		if w < rem {
+			workerBatch++
 		}
+		if workerBatch == 0 {
+			continue
+		}
+		start := offset
+		offset += workerBatch
 		for r := 0; r < workerBatch; r++ {
 			wg.Add(1)
-			go func(workerID, rid int) {
+			go func(start, rid int) {
 				defer wg.Done()
 
-					deviceIdx := (workerID*batchSize + rid) % len(deviceKeys)
+					deviceIdx := (start + rid) % len(deviceKeys)
 					deviceKey := deviceKeys[deviceIdx]
 					body := map[string]interface{}{
 						"device_key": deviceKey,
@@ -195,9 +195,9 @@ func sendHeartbeats(client *http.Client, cfg Config, deviceKeys []string) *Resul
 					req.Header.Set("Content-Type", "application/json")
 					req.Header.Set("X-Device-Key", deviceKey)
 
-					start := time.Now()
+					reqStart := time.Now()
 					resp, err := client.Do(req)
-					duration := time.Since(start)
+					duration := time.Since(reqStart)
 					if err != nil {
 						atomic.AddInt64(&results.FailureCount, 1)
 						return
@@ -221,7 +221,7 @@ func sendHeartbeats(client *http.Client, cfg Config, deviceKeys []string) *Resul
 					if duration > results.SlowestRequest {
 						atomic.StoreInt64((*int64)(&results.SlowestRequest), int64(duration))
 					}
-				}(w, r)
+				}(start, r)
 		}
 	}
 

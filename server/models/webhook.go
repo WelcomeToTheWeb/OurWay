@@ -12,6 +12,7 @@ type Webhook struct {
 	Events      string    `gorm:"not null;default:'[]'" json:"events"` // JSON array of event types
 	Headers     string    `gorm:"type:text;not null;default:'{}'" json:"headers"` // JSON object
 	Enabled     bool      `gorm:"not null;default:true" json:"enabled"`
+	Secret      string    `gorm:"type:text" json:"-"` // HMAC signing secret (never exposed in API responses)
 	LastError   string    `json:"last_error"`
 	LastDeliveredAt *time.Time `json:"last_delivered_at"`
 	CreatedAt   time.Time `json:"created_at"`

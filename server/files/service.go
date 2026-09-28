@@ -86,9 +86,16 @@ func (s *Service) PushFile(ctx context.Context, sourceID string, deviceID string
 		}
 	}
 
+	// Keep the uploader lineage from the source (uploaded) transfer row.
+	var uploaderID string
+	if src, err := s.GetTransfer(sourceID); err == nil {
+		uploaderID = src.UploaderID
+	}
+
 	transfer := &models.FileTransfer{
 		ID:          transferID,
 		DeviceID:    deviceID,
+		UploaderID:  uploaderID,
 		Filename:    filename,
 		Destination: destination,
 		SizeBytes:   size,
