@@ -66,6 +66,12 @@ if (-not $Key -and $Register) {
     Write-Host ""
 }
 
+# Hard gate: never install an agent with an empty device key — it would
+# crash-loop on start with no way to recover.
+if (-not $Key) {
+    Write-ErrorAndExit "No device key available. Pass -Key KEY, or fix server registration (is $Server reachable?) and retry with -Register."
+}
+
 # Create install directory
 if (!(Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null

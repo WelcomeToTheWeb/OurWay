@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"nhooyr.io/websocket"
 
+	"ourway/server/alerts"
 	"ourway/server/auth"
 	"ourway/server/events"
 	"ourway/server/models"
@@ -65,6 +66,7 @@ type Hub struct {
 	mu         sync.RWMutex
 	redis      *RedisPubSub // Optional Redis pub/sub for distributed broadcasting
 	reaperOnce sync.Once
+	Alerts     *alerts.Engine // Optional alert engine, evaluated on the WS metrics path
 }
 
 // NewHub creates a new WebSocket hub.
@@ -237,10 +239,10 @@ func (h *Hub) SendToDevice(deviceKey string, msgType string, payload interface{}
 	return fmt.Errorf("device %s not connected", deviceKey)
 }
 
-// SendToUser sends a message to a specific user by their token.
+// SendToUser sends a message to a specific user by their user ID.
 // If the user is not on this instance, it publishes to Redis.
-func (h *Hub) SendToUser(token string, msgType string, payload interface{}) error {
-	clientID := "user:" + token
+func (h *Hub) SendToUser(userID string, msgType string, payload interface{}) error {
+	clientID := "user:" + userID
 	msg := Message{Type: msgType, Payload: payload}
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -256,7 +258,7 @@ func (h *Hub) SendToUser(token string, msgType string, payload interface{}) erro
 		case client.SendCh <- data:
 			return nil
 		default:
-			return fmt.Errorf("user %s send buffer full", token)
+			return fmt.Errorf("user %s send buffer full", userID)
 		}
 	}
 
@@ -273,7 +275,7 @@ func (h *Hub) SendToUser(token string, msgType string, payload interface{}) erro
 		return nil
 	}
 
-	return fmt.Errorf("user %s not connected", token)
+	return fmt.Errorf("user %s not connected", userID)
 }
 
 // RemoteMessage is a message sent to a specific client on another instance.
@@ -303,9 +305,23 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	if deviceKey != "" {
 		clientType = "device"
 		clientID = "device:" + deviceKey
+		// Reject unknown device keys before accepting the connection.
+		if _, err := store.Devices.GetByKey(deviceKey); err != nil {
+			c.JSON(401, gin.H{"error": "invalid device key"})
+			return
+		}
 	} else if token != "" {
 		clientType = "user"
-		clientID = "user:" + token
+		// Reject invalid/expired access tokens before accepting the
+		// connection — previously any non-empty token was accepted.
+		// The client is registered under the user's stable ID (not the
+		// rotating JWT) so messages can be targeted by user ID.
+		claims, err := jwtAuth.ValidateToken(token)
+		if err != nil {
+			c.JSON(401, gin.H{"error": "invalid token"})
+			return
+		}
+		clientID = "user:" + claims.UserID
 	} else {
 		c.JSON(400, gin.H{"error": "provide device_key or token query parameter"})
 		return
@@ -362,7 +378,19 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	// Receiver loop
 	ctx := c.Request.Context()
 	for {
-		_, data, err := conn.Read(ctx)
+		// Devices are expected to send a 15s heartbeat; drop a device
+		// connection that goes silent for 60s (e.g. blackholed peer) so the
+		// client goroutines don't leak. User (browser) connections are
+		// receive-only and stay open without a deadline.
+		readCtx := ctx
+		var cancelRead context.CancelFunc
+		if clientType == "device" {
+			readCtx, cancelRead = context.WithTimeout(ctx, 60*time.Second)
+		}
+		_, data, err := conn.Read(readCtx)
+		if cancelRead != nil {
+			cancelRead()
+		}
 		if err != nil {
 			return
 		}
@@ -378,7 +406,6 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 			h.handleDeviceMessage(client, msg, store, deviceKey)
 		case "user":
 			// User messages are echoed or handled for future use
-			_ = jwtAuth
 		}
 	}
 }
@@ -418,7 +445,7 @@ func (h *Hub) startReaper(store *store.Store) {
 	})
 }
 
-func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Store, deviceKey string) {
+func (h *Hub) handleDeviceMessage(_ *Client, msg Message, store *store.Store, deviceKey string) {
 	switch msg.Type {
 	case "heartbeat":
 		dev, err := store.Devices.GetByKey(deviceKey)
@@ -495,6 +522,25 @@ func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Stor
 							if err := store.MetricHistory.Insert(mh); err != nil {
 								log.Printf("ws: failed to save metrics: %v", err)
 							}
+						}
+
+						// Evaluate alerts on the WS metrics path, same as the REST
+						// path — agents report metrics over WebSocket, so without
+						// this the alert engine never runs in the real flow.
+						if h.Alerts != nil {
+							h.Alerts.Evaluate(models.Metrics{
+								CPU:       mh.CPU,
+								RAM:       mh.RAM,
+								RAMUsed:   mh.RAMUsed,
+								RAMTotal:  mh.RAMTotal,
+								DiskUsage: mh.DiskUsage,
+								DiskUsed:  mh.DiskUsed,
+								DiskTotal: mh.DiskTotal,
+								NetIn:     mh.NetIn,
+								NetOut:    mh.NetOut,
+								Uptime:    mh.Uptime,
+								Processes: mh.Processes,
+							}, dev.ID, dev.Name)
 						}
 
 						// Broadcast in the REST shape ({device_id, device, metrics})

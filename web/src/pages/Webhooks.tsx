@@ -15,11 +15,20 @@ import {
 const EVENT_TYPES = [
   { value: 'device_registered', label: 'Device Registered' },
   { value: 'device_online', label: 'Device Online' },
+  { value: 'device_offline', label: 'Device Offline' },
   { value: 'alert_created', label: 'Alert Created' },
   { value: 'alert_resolved', label: 'Alert Resolved' },
   { value: 'patch_deployed', label: 'Patch Deployed' },
   { value: 'session_started', label: 'Session Started' },
 ];
+
+function parseEvents(events: string): string {
+  try {
+    return JSON.parse(events).join(', ');
+  } catch {
+    return events;
+  }
+}
 
 export function Webhooks() {
   const [webhooks, setWebhooks] = useState<WebhookType[]>([]);
@@ -208,7 +217,7 @@ export function Webhooks() {
                   <p className="font-medium text-text-primary">{w.name}</p>
                   <p className="text-xs text-text-secondary">{w.url}</p>
                   <p className="text-xs text-text-muted">
-                    Events: {JSON.parse(w.events).join(', ')}
+                    Events: {parseEvents(w.events)}
                   </p>
                 </div>
               </div>

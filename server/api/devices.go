@@ -29,6 +29,9 @@ func NewDeviceHandler(store *store.Store, hub *ws.Hub, engine *alerts.Engine, me
 }
 
 // RegisterDevice handles agent device registration.
+// Idempotent: re-registering the same physical machine (same hostname +
+// private IP, e.g. the installer run twice) returns the existing device and
+// its key instead of creating a duplicate.
 func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 	var req struct {
 		Name         string `json:"name" binding:"required"`
@@ -41,6 +44,31 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Re-registration of an existing machine: refresh its record and
+	// return the original device (and key) so the agent keeps its identity.
+	if existing, err := h.store.Devices.GetByHostnameAndIP(req.Hostname, req.PrivateIP); err == nil {
+		existing.Name = req.Name
+		existing.OS = req.OS
+		existing.Arch = req.Arch
+		existing.AgentVersion = req.AgentVersion
+		existing.PublicIP = req.PublicIP
+		existing.PrivateIP = req.PrivateIP
+		existing.Status = "online"
+		if err := h.store.Devices.Update(existing); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update device"})
+			return
+		}
+		if err := h.store.Devices.UpdateLastSeen(existing.ID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update device"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"device":     existing,
+			"device_key": existing.DeviceKey,
+		})
 		return
 	}
 
@@ -167,9 +195,9 @@ func (h *DeviceHandler) ReportMetrics(c *gin.Context) {
 
 	// Broadcast metrics to users
 	h.hub.BroadcastMessage("metrics", map[string]interface{}{
-		"device_id":  device.ID,
-		"device":     device.Name,
-		"metrics":    metrics,
+		"device_id": device.ID,
+		"device":    device.Name,
+		"metrics":   metrics,
 	})
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -204,6 +232,28 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// ClearMonitoringData deletes all stored metrics and alerts
+// (Danger Zone: "clear all monitoring data"). Admin only (enforced by the
+// route middleware).
+// DELETE /api/monitoring/data
+func (h *DeviceHandler) ClearMonitoringData(c *gin.Context) {
+	metricsCleared, err := h.store.MetricHistory.ClearAll()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear metrics"})
+		return
+	}
+	alertsCleared, err := h.store.Alerts.ClearAll()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear alerts"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"status":          "ok",
+		"metrics_cleared": metricsCleared,
+		"alerts_cleared":  alertsCleared,
+	})
 }
 
 // GetMetricsHistory returns historical metrics for a device.

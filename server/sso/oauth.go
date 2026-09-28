@@ -141,24 +141,26 @@ type UserInfo struct {
 	UserPrincipalName   string `json:"upn"`
 }
 
-// HandleCallback handles the OAuth callback and returns a JWT token.
-func (h *OAuthHandler) HandleCallback(ctx context.Context, provider *models.SSOProvider, code, redirectURI string) (string, error) {
+// HandleCallback handles the OAuth callback and returns a JWT access token
+// and refresh token so the browser can keep the session alive past the
+// access token's lifetime.
+func (h *OAuthHandler) HandleCallback(ctx context.Context, provider *models.SSOProvider, code, redirectURI string) (string, string, error) {
 	// Exchange code for token
 	tokens, err := h.ExchangeCode(provider, code, redirectURI)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Get user info
 	info, err := h.GetUserInfo(provider, tokens.AccessToken)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Find or create user (JIT provisioning)
 	user, err := h.findOrCreateUser(ctx, provider, info, tokens.IDToken)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	// Generate JWT
@@ -172,10 +174,15 @@ func (h *OAuthHandler) HandleCallback(ctx context.Context, provider *models.SSOP
 
 	token, err := h.jwtAuth.GenerateToken(user.ID, user.Username, roles)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate JWT: %w", err)
+		return "", "", fmt.Errorf("failed to generate JWT: %w", err)
 	}
 
-	return token, nil
+	refreshToken, err := h.jwtAuth.GenerateRefreshToken(user.ID, user.Username, roles)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+
+	return token, refreshToken, nil
 }
 
 // findOrCreateUser implements JIT user provisioning.

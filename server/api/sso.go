@@ -104,14 +104,16 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 	}
 
 	redirectURI := h.redirect + "/api/auth/sso/" + providerName + "/callback"
-	token, err := h.oauth.HandleCallback(c.Request.Context(), provider, code, redirectURI)
+	token, refreshToken, err := h.oauth.HandleCallback(c.Request.Context(), provider, code, redirectURI)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("SSO callback failed: %s", err.Error())})
 		return
 	}
 
-	// Redirect to frontend with token
-	c.Redirect(http.StatusFound, h.redirect + "/login?token=" + token)
+	// Redirect to frontend with access + refresh tokens (the refresh token
+	// keeps the SSO session alive; without it the session dies after the
+	// access token expires).
+	c.Redirect(http.StatusFound, h.redirect+"/login?token="+token+"&refresh="+refreshToken)
 }
 
 // CreateProvider creates or updates an SSO provider (admin).

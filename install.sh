@@ -132,22 +132,26 @@ if [ -z "$DEVICE_KEY" ] && [ "$REGISTER" = true ]; then
         PAYLOAD="{\"name\":\"${HOSTNAME}\",\"hostname\":\"${HOSTNAME}\",\"os\":\"${OS}\",\"arch\":\"${ARCH}\",\"agent_version\":\"${VERSION}\",\"private_ip\":\"${PRIVATE_IP}\"}"
     fi
     
-    # Register with server
-    RESPONSE=$(curl -s --max-time 10 -X POST "${SERVER}/api/agent/register" -H "Content-Type: application/json" -d "$PAYLOAD" 2>&1)
-    
-    if [ $? -eq 0 ]; then
-        # Extract device_key from JSON response
-        DEVICE_KEY=$(echo "$RESPONSE" | grep -o '"device_key":"[^"]*"' | cut -d'"' -f4)
-        if [ -n "$DEVICE_KEY" ]; then
-            success "Device registered! Key: ${DEVICE_KEY}"
-        else
-            warn "Device registered but could not extract key. Check server response."
-        fi
+    # Register with server (|| true: set -e must not kill the script on a
+    # failed call — the error is handled below and by the key gate)
+    RESPONSE=$(curl -s --max-time 10 -X POST "${SERVER}/api/agent/register" -H "Content-Type: application/json" -d "$PAYLOAD" 2>&1) || true
+
+    if [ -n "$RESPONSE" ]; then
+        DEVICE_KEY=$(echo "$RESPONSE" | grep -o '"device_key":"[^"]*"' | head -1 | cut -d'"' -f4)
+    fi
+    if [ -n "$DEVICE_KEY" ]; then
+        success "Device registered! Key: ${DEVICE_KEY}"
     else
-        warn "Failed to register device with server: ${RESPONSE}"
+        warn "Device registration failed: ${RESPONSE:-no response from server}"
         warn "You can manually set the key with --key option"
     fi
     echo ""
+fi
+
+# Hard gate: never install an agent with an empty device key — it would
+# crash-loop on start with no way to recover.
+if [ -z "$DEVICE_KEY" ]; then
+    error "No device key available. Pass --key KEY, or fix server registration (is ${SERVER} reachable?) and retry with --register."
 fi
 
 # Determine download URL

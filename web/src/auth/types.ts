@@ -36,7 +36,7 @@ export interface AuthContextType extends AuthState {
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
-  setToken: (token: string) => void;
+  setToken: (token: string, refreshToken?: string) => void;
   hasRole: (role: string) => boolean;
   hasAnyRole: (roles: string[]) => boolean;
 }

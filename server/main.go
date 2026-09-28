@@ -79,6 +79,10 @@ func main() {
 	// Initialize alert engine
 	alertEngine := alerts.NewEngine(st.Alerts)
 
+	// Wire the alert engine into the hub so the WS metrics path evaluates
+	// thresholds (the agent's primary reporting path).
+	hub.Alerts = alertEngine
+
 	// Initialize metrics retention manager
 	retentionManager := metrics.NewRetentionManager(
 		st.MetricHistory,
@@ -98,10 +102,15 @@ func main() {
 
 	// Start HTTP server
 	srv := &http.Server{
-		Addr:         cfg.ServerPort,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:      cfg.ServerPort,
+		Handler:   router,
+		// No server-level Read/Write timeouts: WebSocket connections are
+		// long-lived and the http.Server timeouts would force-close them
+		// after 15s. Liveness is enforced by the agent's 15s heartbeat
+		// (dead conns stop reading and are closed) and the hub's 45s
+		// stale-device reaper.
+		ReadTimeout:  0,
+		WriteTimeout: 0,
 	}
 
 	// Graceful shutdown

@@ -88,10 +88,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('ourway_access_token', data.access_token);
   }, []);
 
-  const setToken = useCallback((token: string) => {
+  const setToken = useCallback((token: string, refreshToken?: string) => {
     setAccessToken(token);
     setIsAuthenticated(true);
     localStorage.setItem('ourway_access_token', token);
+    // Store the refresh token (SSO flow) so the session can be renewed
+    // instead of dying when the access token expires.
+    if (refreshToken) {
+      setRefreshToken(refreshToken);
+      localStorage.setItem('ourway_refresh_token', refreshToken);
+    }
     // Fetch user profile with new token
     client.get('/auth/profile').then((res) => {
       setUser(res.data.user);

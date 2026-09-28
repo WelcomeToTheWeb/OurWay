@@ -12,6 +12,8 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { getAlerts, resolveAlert, acknowledgeAlert, assignAlert } from '../api/devices';
+import { getUsers } from '../api/users';
+import type { UserWithRoles } from '../auth/types';
 import type { Alert, AlertSeverity } from '../types/alert';
 import { useTranslation } from 'react-i18next';
 
@@ -59,9 +61,26 @@ export function Alerts() {
   const [loading, setLoading] = useState(true);
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [search, setSearch] = useState('');
-  const [newAlerts, setNewAlerts] = useState(0);
+  const [search, setSearch] = useState('');  const [newAlerts, setNewAlerts] = useState(0);
+  const [users, setUsers] = useState<UserWithRoles[]>([]);
+  const [assignFor, setAssignFor] = useState<string | null>(null);
+  const [assignUser, setAssignUser] = useState('');
   const previousCount = useRef(0);
+
+  // Load the user list for the Assign picker.
+  useEffect(() => {
+    let cancelled = false;
+    getUsers()
+      .then((u) => {
+        if (!cancelled) setUsers(u);
+      })
+      .catch(() => {
+        // non-fatal: assign picker will be empty
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,9 +112,14 @@ export function Alerts() {
     load();
     const interval = setInterval(load, 30000);
 
+    // Refresh immediately when a new alert arrives over the WebSocket.
+    const onAlert = () => load();
+    window.addEventListener('ourway:alert', onAlert);
+
     return () => {
       cancelled = true;
       clearInterval(interval);
+      window.removeEventListener('ourway:alert', onAlert);
     };
   }, [severityFilter, statusFilter]);
 
@@ -121,15 +145,16 @@ export function Alerts() {
     }
   }
 
-  async function handleAssign(id: string) {
+  async function handleAssign(id: string, username: string) {
     try {
-      // For now, assign to first available user (admin)
-      await assignAlert(id, 'admin');
+      await assignAlert(id, username);
       setAlerts((a) =>
         a.map((x) =>
-          x.id === id ? { ...x, assigned_to: 'admin' } : x
+          x.id === id ? { ...x, assigned_to: username } : x
         )
       );
+      setAssignFor(null);
+      setAssignUser('');
     } catch {
       // ignore
     }
@@ -177,6 +202,7 @@ export function Alerts() {
             </p>
           </div>
           <button
+            type="button"
             onClick={() => setNewAlerts(0)}
             className="rounded-lg bg-status-warning/20 px-3 py-1 text-xs text-status-warning transition-colors hover:bg-status-warning/30"
           >
@@ -223,11 +249,12 @@ export function Alerts() {
       </div>
 
       {/* Alerts List */}
-      {loading ? (
+      {loading && (
         <div className="flex h-64 items-center justify-center">
           <Activity className="h-8 w-8 animate-spin text-accent" />
         </div>
-      ) : filtered.length === 0 ? (
+      )}
+      {!loading && filtered.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-16 text-text-secondary">
           <div className="relative">
             <div className="flex h-20 w-20 items-center justify-center rounded-full border border-bg-border bg-bg">
@@ -242,7 +269,8 @@ export function Alerts() {
             {t('alerts.noAlertsMatch')}
           </p>
         </div>
-      ) : (
+      )}
+      {!loading && filtered.length > 0 && (
         <div className="space-y-3">
           {filtered.map((alert) => {
             const sev = severityConfig[alert.severity];
@@ -310,6 +338,7 @@ export function Alerts() {
                     <div className="flex shrink-0 gap-2">
                       {!alert.acknowledged && (
                         <button
+                          type="button"
                           onClick={() => handleAcknowledge(alert.id)}
                           className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80"
                           title={t('alerts.acknowledge')}
@@ -318,17 +347,45 @@ export function Alerts() {
                           {t('alerts.ack')}
                         </button>
                       )}
-                      {!alert.assigned_to && (
-                        <button
-                          onClick={() => handleAssign(alert.id)}
-                          className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-bg"
-                          title={t('alerts.assign')}
-                        >
-                          <UserPlus className="h-3.5 w-3.5" />
-                          {t('alerts.assign')}
-                        </button>
-                      )}
+                      {!alert.assigned_to &&
+                        (assignFor === alert.id ? (
+                          <span className="flex items-center gap-1.5">
+                            <select
+                              value={assignUser}
+                              onChange={(e) => setAssignUser(e.target.value)}
+                              className="rounded-lg border border-bg-border bg-bg-secondary px-2 py-1.5 text-xs text-text-primary"
+                              aria-label="Assign to user"
+                            >
+                              <option value="">Select user…</option>
+                              {users.map((u) => (
+                                <option key={u.id} value={u.username}>
+                                  {u.username}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleAssign(alert.id, assignUser)}
+                              disabled={!assignUser}
+                              className="rounded-lg bg-accent px-2 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80 disabled:opacity-50"
+                              title={t('alerts.assign')}
+                            >
+                              {t('alerts.assign')}
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setAssignFor(alert.id)}
+                            className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-bg"
+                            title={t('alerts.assign')}
+                          >
+                            <UserPlus className="h-3.5 w-3.5" />
+                            {t('alerts.assign')}
+                          </button>
+                        ))}
                       <button
+                        type="button"
                         onClick={() => handleResolve(alert.id)}
                         className="flex items-center gap-1.5 rounded-lg bg-status-online px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-status-online/80"
                         title={t('alerts.resolve')}

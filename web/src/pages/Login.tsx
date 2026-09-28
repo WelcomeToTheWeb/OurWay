@@ -22,7 +22,9 @@ export function Login() {
   useEffect(() => {
     const token = searchParams.get('token');
     if (token) {
-      setToken(token);
+      // The server also passes a refresh token so SSO sessions can be
+      // renewed (without it the session dies after the access token expires).
+      setToken(token, searchParams.get('refresh') ?? undefined);
       navigate('/');
     }
   }, [searchParams, setToken, navigate]);
@@ -84,7 +86,12 @@ export function Login() {
   }
 
   function handleSSO(provider: SSOProvider) {
-    window.location.href = authorizeProvider(provider.name);
+    const url = authorizeProvider(provider.name);
+    // The authorize endpoint is our own server path; only navigate to
+    // that exact prefix (same-origin, handled by the router).
+    if (url.startsWith('/api/auth/sso/')) {
+      navigate(url);
+    }
   }
 
   // Loading state while checking for existing users
@@ -257,7 +264,8 @@ function ProviderIcon({ provider }: { provider: string }) {
   switch (provider) {
     case 'google':
       return (
-        <svg width="16" height="16" viewBox="0 0 24 24">
+        <svg width="16" height="16" viewBox="0 0 24 24" role="img" aria-label="Google">
+          <title>Google</title>
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
           <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
           <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.26 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
@@ -266,7 +274,8 @@ function ProviderIcon({ provider }: { provider: string }) {
       );
     case 'microsoft':
       return (
-        <svg width="16" height="16" viewBox="0 0 24 24">
+        <svg width="16" height="16" viewBox="0 0 24 24" role="img" aria-label="Microsoft">
+          <title>Microsoft</title>
           <path fill="#F25022" d="M1 1h11v11H1z" />
           <path fill="#7FBA00" d="M14 1h11v11H14z" />
           <path fill="#00A4EF" d="M1 14h11v11H1z" />
@@ -275,7 +284,8 @@ function ProviderIcon({ provider }: { provider: string }) {
       );
     case 'apple':
       return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="Apple">
+          <title>Apple</title>
           <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.22.5-2.12.43-3.06-.35C2.43 15.25 3.04 8.51 7.12 7.36c1.88-.53 3.2.52 4.28.97 1.18-.48 2.43-1.35 4.08-.82 1.65.47 2.86 1.76 3.06 3.44-2.93 1.42-2.36 5.29.15 6.14-.45 1.61-1.2 3.19-1.64 3.99-.52.96-.98 1.89-1.93 2.85h-.07zM12.03 7.2c-.26-1.63.73-3.27 2.11-4.01.35-.18.73-.31 1.12-.39.27.55.34 1.19.15 1.82-.22.76-.73 1.45-1.37 1.94-.62.47-1.4.74-2.01.64z" />
         </svg>
       );

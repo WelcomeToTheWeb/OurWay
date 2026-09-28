@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -72,8 +73,20 @@ func (d *Dispatcher) Publish(ctx context.Context, event Event) {
 	}
 }
 
-// deliver sends a single webhook delivery.
+// deliver sends a single webhook delivery. It first claims the delivery
+// (pending -> in_flight) so the initial delivery and the retry loop can
+// never POST the same event to the target concurrently.
 func (d *Dispatcher) deliver(ctx context.Context, webhook *models.Webhook, delivery *models.WebhookDelivery) {
+	claimed, err := d.store.WebhookDeliveries.ClaimPending(delivery.ID)
+	if err != nil {
+		log.Printf("webhooks: claim failed for %s: %v", delivery.ID, err)
+		return
+	}
+	if !claimed {
+		// Another worker is already delivering (or finished) this row.
+		return
+	}
+
 	payload := []byte(delivery.Payload)
 
 	// Parse custom headers

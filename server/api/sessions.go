@@ -120,10 +120,34 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 	})
 }
 
+// authorizeSessionAccess verifies the session exists and belongs to the
+// caller. Returns the session on success; on failure it writes the
+// appropriate 403/404 response and returns false.
+func (h *SessionHandler) authorizeSessionAccess(c *gin.Context, sessionID string) (*models.Session, bool) {
+	session, err := h.store.Sessions.GetByID(sessionID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "session not found"})
+		return nil, false
+	}
+
+	userIDVal, _ := c.Get("user_id")
+	userID, _ := userIDVal.(string)
+	if session.UserID != userID {
+		c.JSON(403, gin.H{"error": "not authorized for this session"})
+		return nil, false
+	}
+
+	return session, true
+}
+
 // SubmitAnswer handles the browser's answer to the session offer.
 // POST /api/sessions/:id/answer
 func (h *SessionHandler) SubmitAnswer(c *gin.Context) {
 	sessionID := c.Param("id")
+
+	if _, ok := h.authorizeSessionAccess(c, sessionID); !ok {
+		return
+	}
 
 	var req struct {
 		Answer string `json:"answer" binding:"required"`
@@ -158,6 +182,10 @@ func (h *SessionHandler) SubmitAnswer(c *gin.Context) {
 func (h *SessionHandler) AddICECandidate(c *gin.Context) {
 	sessionID := c.Param("id")
 
+	if _, ok := h.authorizeSessionAccess(c, sessionID); !ok {
+		return
+	}
+
 	var req struct {
 		Candidate string `json:"candidate" binding:"required"`
 	}
@@ -179,9 +207,20 @@ func (h *SessionHandler) AddICECandidate(c *gin.Context) {
 func (h *SessionHandler) EndSession(c *gin.Context) {
 	sessionID := c.Param("id")
 
-	if err := h.gateway.CloseSession(sessionID); err != nil {
-		c.JSON(404, gin.H{"error": err.Error()})
+	session, ok := h.authorizeSessionAccess(c, sessionID)
+	if !ok {
 		return
+	}
+
+	// Close the WebRTC peer connection if one is live on this instance.
+	// After a server restart the in-memory gateway is empty — in that case
+	// ending the session must still succeed (it is already effectively
+	// over) so clients can reliably clean up.
+	if _, live := h.gateway.GetSession(sessionID); live {
+		if err := h.gateway.CloseSession(sessionID); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	if err := h.store.Sessions.EndSession(sessionID); err != nil {
@@ -190,13 +229,11 @@ func (h *SessionHandler) EndSession(c *gin.Context) {
 	}
 
 	// Tell the device to stop capturing.
-	if session, err := h.store.Sessions.GetByID(sessionID); err == nil {
-		if device, err := h.store.Devices.GetByID(session.DeviceID); err == nil {
-			if err := h.hub.SendToDevice(device.DeviceKey, "session_end", gin.H{
-				"session_id": sessionID,
-			}); err != nil {
-				log.Printf("sessions: failed to notify device of session end: %v", err)
-			}
+	if device, err := h.store.Devices.GetByID(session.DeviceID); err == nil {
+		if err := h.hub.SendToDevice(device.DeviceKey, "session_end", gin.H{
+			"session_id": sessionID,
+		}); err != nil {
+			log.Printf("sessions: failed to notify device of session end: %v", err)
 		}
 	}
 
@@ -217,10 +254,9 @@ func (h *SessionHandler) SendInput(c *gin.Context) {
 		return
 	}
 
-	// Get session to find device
-	session, err := h.store.Sessions.GetByID(sessionID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "session not found"})
+	// Get session (and verify ownership) to find device
+	session, ok := h.authorizeSessionAccess(c, sessionID)
+	if !ok {
 		return
 	}
 
@@ -280,15 +316,19 @@ func (h *SessionHandler) ReportFrame(c *gin.Context) {
 		return
 	}
 
-	// Relay to the browsers on the user WS (mirrors how session_started is
-	// broadcast; SendToUser is not usable here because the session stores
-	// the user ID, not the WS token).
+	// Relay only to the session owner's browser connection. Previously this
+	// broadcast to every connected user, letting any authenticated client
+	// watch another user's live session.
 	frameMsg := gin.H{
 		"session_id": sessionID,
 		"device_id":  session.DeviceID,
 		"data":       base64.StdEncoding.EncodeToString(data),
 	}
-	h.hub.BroadcastMessage("session_frame", frameMsg)
+	if err := h.hub.SendToUser(session.UserID, "session_frame", frameMsg); err != nil {
+		// Owner not connected (or on another instance without Redis): drop
+		// the frame rather than leaking it to other users.
+		log.Printf("sessions: dropping frame for session %s: %v", sessionID, err)
+	}
 	events.Publish("session_frame", gin.H{
 		"session_id": sessionID,
 		"device_id":  session.DeviceID,
@@ -315,9 +355,8 @@ func (h *SessionHandler) SetQuality(c *gin.Context) {
 		return
 	}
 
-	session, err := h.store.Sessions.GetByID(sessionID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "session not found"})
+	session, ok := h.authorizeSessionAccess(c, sessionID)
+	if !ok {
 		return
 	}
 	device, err := h.store.Devices.GetByID(session.DeviceID)

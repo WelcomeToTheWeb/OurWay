@@ -36,6 +36,22 @@ func (s *DeviceStore) GetByKey(key string) (*models.Device, error) {
 	return &d, nil
 }
 
+// GetByHostnameAndIP finds an existing device with the same hostname and
+// private IP — the stable identity used to make agent re-registration
+// idempotent (re-running the installer must not create a duplicate device).
+// If privateIP is empty, hostname alone is used.
+func (s *DeviceStore) GetByHostnameAndIP(hostname, privateIP string) (*models.Device, error) {
+	var d models.Device
+	q := s.db.Where("hostname = ?", hostname)
+	if privateIP != "" {
+		q = q.Where("private_ip = ?", privateIP)
+	}
+	if err := q.Order("created_at ASC").First(&d).Error; err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
 // ListAll returns every device.
 func (s *DeviceStore) ListAll() ([]models.Device, error) {
 	var devices []models.Device

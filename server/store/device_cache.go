@@ -56,6 +56,12 @@ func (s *CachedDeviceStore) GetByKey(key string) (*models.Device, error) {
 	return s.ds.GetByKey(key)
 }
 
+// GetByHostnameAndIP finds an existing device by hostname and private IP
+// (stable identity for idempotent re-registration).
+func (s *CachedDeviceStore) GetByHostnameAndIP(hostname, privateIP string) (*models.Device, error) {
+	return s.ds.GetByHostnameAndIP(hostname, privateIP)
+}
+
 // ListAll returns every device.
 func (s *CachedDeviceStore) ListAll() ([]models.Device, error) {
 	return s.ds.ListAll()

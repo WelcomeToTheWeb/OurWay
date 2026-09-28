@@ -39,3 +39,8 @@ export const deployNow = (deviceIds?: string[]) =>
   client
     .post<{ deployment_id: string; status: string }>('/patch/deploy', { device_ids: deviceIds || [] })
     .then((r) => r.data);
+
+export const rollbackDeployment = (deploymentId: string) =>
+  client
+    .post<{ deployment_id: string; status: string }>(`/patch/deployments/${deploymentId}/rollback`)
+    .then((r) => r.data);

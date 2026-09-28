@@ -101,3 +101,16 @@ func (s *WebhookDeliveryStore) FindPending() ([]models.WebhookDelivery, error) {
 	err := s.db.Where("status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)", "pending", now).Find(&deliveries).Error
 	return deliveries, err
 }
+
+// ClaimPending atomically marks a pending delivery as in-flight so that the
+// first-delivery goroutine and the retry loop can never deliver the same
+// row concurrently. Returns true if this caller won the claim.
+func (s *WebhookDeliveryStore) ClaimPending(id string) (bool, error) {
+	res := s.db.Model(&models.WebhookDelivery{}).
+		Where("id = ? AND status = ?", id, "pending").
+		Update("status", "in_flight")
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}

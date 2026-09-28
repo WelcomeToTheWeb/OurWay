@@ -23,6 +23,30 @@ func NewAgentPatchHandler(store *store.Store, deployer *patching.Deployer) *Agen
 	}
 }
 
+// verifyDeviceKey authenticates the calling agent via its X-Device-Key
+// header and verifies the claimed device_id matches the key's owner.
+// Writes the 401/403 response on failure.
+func (h *AgentPatchHandler) verifyDeviceKey(c *gin.Context, deviceID string) bool {
+	deviceKey := c.GetHeader("X-Device-Key")
+	if deviceKey == "" {
+		c.JSON(401, gin.H{"error": "missing X-Device-Key header"})
+		return false
+	}
+
+	device, err := h.store.Devices.GetByKey(deviceKey)
+	if err != nil {
+		c.JSON(401, gin.H{"error": "unknown device key"})
+		return false
+	}
+
+	if deviceID != device.ID {
+		c.JSON(403, gin.H{"error": "device_id does not match device key"})
+		return false
+	}
+
+	return true
+}
+
 // ReportUpdate receives an update report from an agent.
 // POST /api/agent/updates
 func (h *AgentPatchHandler) ReportUpdate(c *gin.Context) {
@@ -36,6 +60,10 @@ func (h *AgentPatchHandler) ReportUpdate(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	if !h.verifyDeviceKey(c, req.DeviceID) {
 		return
 	}
 
@@ -67,6 +95,10 @@ func (h *AgentPatchHandler) ReportDeploymentResult(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	if !h.verifyDeviceKey(c, req.DeviceID) {
 		return
 	}
 

@@ -14,23 +14,24 @@ import (
 
 // Store provides database access through separate repositories.
 type Store struct {
-	DB         *gorm.DB
-	Cache      *cache.RedisClient
-	Devices    DeviceStoreInterface
-	Users      *UserStore
-	Alerts     *AlertStore
-	Roles      *RoleStore
-	UserRoles  *UserRoleStore
-	Sessions   *SessionStore
-	SoftwareUpdates      *SoftwareUpdateStore
-	PatchPolicies        *PatchPolicyStore
-	PatchDeployments     *PatchDeploymentStore
-	FileTransfers        *FileTransferStore
-	SSOProviders         *SSOProviderStore
-	Webhooks             *WebhookStore
-	WebhookDeliveries    *WebhookDeliveryStore
-	APIKeys              *APIKeyStore
-	MetricHistory        *MetricHistoryStore
+	DB                *gorm.DB
+	Cache             *cache.RedisClient
+	Devices           DeviceStoreInterface
+	Users             *UserStore
+	Alerts            *AlertStore
+	Roles             *RoleStore
+	UserRoles         *UserRoleStore
+	Sessions          *SessionStore
+	SoftwareUpdates   *SoftwareUpdateStore
+	PatchPolicies     *PatchPolicyStore
+	PatchDeployments  *PatchDeploymentStore
+	FileTransfers     *FileTransferStore
+	SSOProviders      *SSOProviderStore
+	Webhooks          *WebhookStore
+	WebhookDeliveries *WebhookDeliveryStore
+	APIKeys           *APIKeyStore
+	MetricHistory     *MetricHistoryStore
+	DeploymentResults *DeploymentResultStore
 }
 
 // NewWithDB creates a Store from an existing *gorm.DB instance,
@@ -52,27 +53,29 @@ func NewWithDB(db *gorm.DB) (*Store, error) {
 		&models.WebhookDelivery{},
 		&models.APIKey{},
 		&models.MetricHistory{},
+		&models.DeploymentResult{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
 	st := &Store{
-		DB:         db,
-		Devices:    &DeviceStore{db: db},
-		Users:      &UserStore{db: db},
-		Alerts:     &AlertStore{db: db},
-		Roles:      &RoleStore{db: db},
-		UserRoles:  &UserRoleStore{db: db},
-		Sessions:   &SessionStore{db: db},
-		SoftwareUpdates:    &SoftwareUpdateStore{db: db},
-		PatchPolicies:      &PatchPolicyStore{db: db},
-		PatchDeployments:   &PatchDeploymentStore{db: db},
-		FileTransfers:      &FileTransferStore{db: db},
-		SSOProviders:       &SSOProviderStore{db: db},
-		Webhooks:           &WebhookStore{db: db},
-		WebhookDeliveries:  &WebhookDeliveryStore{db: db},
-		APIKeys:            &APIKeyStore{db: db},
-		MetricHistory:      NewMetricHistoryStore(db),
+		DB:                db,
+		Devices:           &DeviceStore{db: db},
+		Users:             &UserStore{db: db},
+		Alerts:            &AlertStore{db: db},
+		Roles:             &RoleStore{db: db},
+		UserRoles:         &UserRoleStore{db: db},
+		Sessions:          &SessionStore{db: db},
+		SoftwareUpdates:   &SoftwareUpdateStore{db: db},
+		PatchPolicies:     &PatchPolicyStore{db: db},
+		PatchDeployments:  &PatchDeploymentStore{db: db},
+		FileTransfers:     &FileTransferStore{db: db},
+		SSOProviders:      &SSOProviderStore{db: db},
+		Webhooks:          &WebhookStore{db: db},
+		WebhookDeliveries: &WebhookDeliveryStore{db: db},
+		APIKeys:           &APIKeyStore{db: db},
+		MetricHistory:     NewMetricHistoryStore(db),
+		DeploymentResults: NewDeploymentResultStore(db),
 	}
 
 	// Seed built-in roles
@@ -117,27 +120,29 @@ func New(dsn string) (*Store, error) {
 		&models.WebhookDelivery{},
 		&models.APIKey{},
 		&models.MetricHistory{},
+		&models.DeploymentResult{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
 	st := &Store{
-		DB:         db,
-		Devices:    &DeviceStore{db: db},
-		Users:      &UserStore{db: db},
-		Alerts:     &AlertStore{db: db},
-		Roles:      &RoleStore{db: db},
-		UserRoles:  &UserRoleStore{db: db},
-		Sessions:   &SessionStore{db: db},
-		SoftwareUpdates:    &SoftwareUpdateStore{db: db},
-		PatchPolicies:      &PatchPolicyStore{db: db},
-		PatchDeployments:   &PatchDeploymentStore{db: db},
-		FileTransfers:      &FileTransferStore{db: db},
-		SSOProviders:       &SSOProviderStore{db: db},
-		Webhooks:           &WebhookStore{db: db},
-		WebhookDeliveries:  &WebhookDeliveryStore{db: db},
-		APIKeys:            &APIKeyStore{db: db},
-		MetricHistory:      NewMetricHistoryStore(db),
+		DB:                db,
+		Devices:           &DeviceStore{db: db},
+		Users:             &UserStore{db: db},
+		Alerts:            &AlertStore{db: db},
+		Roles:             &RoleStore{db: db},
+		UserRoles:         &UserRoleStore{db: db},
+		Sessions:          &SessionStore{db: db},
+		SoftwareUpdates:   &SoftwareUpdateStore{db: db},
+		PatchPolicies:     &PatchPolicyStore{db: db},
+		PatchDeployments:  &PatchDeploymentStore{db: db},
+		FileTransfers:     &FileTransferStore{db: db},
+		SSOProviders:      &SSOProviderStore{db: db},
+		Webhooks:          &WebhookStore{db: db},
+		WebhookDeliveries: &WebhookDeliveryStore{db: db},
+		APIKeys:           &APIKeyStore{db: db},
+		MetricHistory:     NewMetricHistoryStore(db),
+		DeploymentResults: NewDeploymentResultStore(db),
 	}
 
 	// Seed built-in roles

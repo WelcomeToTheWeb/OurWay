@@ -83,8 +83,27 @@ func (h *Handler) HandlePush(ctx context.Context, data interface{}) {
 		return
 	}
 
+	// Sanitize the filename: only the base name may be used, and the final
+	// path must stay inside the destination directory (path traversal guard).
+	safeName := filepath.Base(filename)
+	if safeName == "" || safeName == "." || safeName == ".." {
+		log.Printf("file push: refusing invalid filename %q", filename)
+		h.reportProgress(transferID, "failed", 0, "invalid filename")
+		return
+	}
+	destDir, err := filepath.Abs(destination)
+	if err != nil {
+		log.Printf("file push: resolve destination error: %v", err)
+		return
+	}
+	destPath := filepath.Join(destDir, safeName)
+	if !strings.HasPrefix(destPath, destDir+string(os.PathSeparator)) {
+		log.Printf("file push: refusing path escape %q", destPath)
+		h.reportProgress(transferID, "failed", 0, "invalid destination")
+		return
+	}
+
 	// Write file to destination
-	destPath := filepath.Join(destination, filename)
 	out, err := os.Create(destPath)
 	if err != nil {
 		log.Printf("file push: create file error: %v", err)
@@ -126,9 +145,9 @@ func (h *Handler) HandlePush(ctx context.Context, data interface{}) {
 // reportProgress updates the transfer status on the server.
 func (h *Handler) reportProgress(transferID string, status string, progress int, errMsg string) {
 	payload := map[string]interface{}{
-		"transfer_id": transferID,
-		"status":      status,
-		"progress":    progress,
+		"transfer_id":   transferID,
+		"status":        status,
+		"progress":      progress,
 		"error_message": errMsg,
 	}
 	b, err := json.Marshal(payload)
@@ -202,7 +221,10 @@ func (h *Handler) HandlePull(ctx context.Context, data interface{}) {
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("X-Device-Key", h.deviceKey)
-	req.ContentLength = size
+	// Use the full multipart body length, not the raw file size — setting
+	// ContentLength to the raw size would truncate the trailing bytes of the
+	// upload (multipart boundary + terminator + file tail) in flight.
+	req.ContentLength = int64(body.Len())
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {

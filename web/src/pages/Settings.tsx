@@ -15,6 +15,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useAuth } from '../auth/context';
+import { updateProfile, updatePassword, deleteAccount } from '../api/auth';
+import { clearMonitoringData } from '../api/devices';
 import { useThemeStore, Theme } from '../stores/themeStore';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
@@ -27,18 +29,67 @@ import {
   type APIKey as APIKeyType,
 } from '../api/api-keys';
 
+function parseScopes(scopes: string): string {
+  try {
+    return JSON.parse(scopes).join(', ');
+  } catch {
+    return scopes;
+  }
+}
+
 export function Settings() {
-  const { user } = useAuth();
+  const { user, logout, hasRole } = useAuth();
   const { theme, setTheme } = useThemeStore();
   const { t } = useTranslation();
   const [username, setUsername] = useState(user?.username || '');
   const [email, setEmail] = useState(user?.email || '');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState('30');
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [criticalOnly, setCriticalOnly] = useState(false);
+
+  // Danger Zone
+  const [clearingData, setClearingData] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [dangerError, setDangerError] = useState<string | null>(null);
+
+  async function handleClearData() {
+    if (!window.confirm('Delete ALL metrics history and alerts? This cannot be undone.')) {
+      return;
+    }
+    setClearingData(true);
+    setDangerError(null);
+    try {
+      const res = await clearMonitoringData();
+      window.alert(`Cleared ${res.metrics_cleared} metrics and ${res.alerts_cleared} alerts.`);
+    } catch (err) {
+      setDangerError(err instanceof Error ? err.message : 'Failed to clear monitoring data');
+    } finally {
+      setClearingData(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!window.confirm('Permanently delete your account? This cannot be undone.')) {
+      return;
+    }
+    setDeletingAccount(true);
+    setDangerError(null);
+    try {
+      await deleteAccount();
+      logout();
+    } catch (err) {
+      setDangerError(err instanceof Error ? err.message : 'Failed to delete account');
+      setDeletingAccount(false);
+    }
+  }
 
   // API Keys
   const [apiKeys, setApiKeys] = useState<APIKeyType[]>([]);
@@ -111,17 +162,48 @@ export function Settings() {
     }
   }
 
-  async function handleSaveProfile(e: React.FormEvent) {
-    e.preventDefault();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  function errMsg(err: unknown): string {
+    const e = err as { response?: { data?: { error?: string } }; message?: string };
+    return e?.response?.data?.error || e?.message || 'Request failed';
   }
 
-  function handleSavePassword(e: React.FormEvent) {
+  async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
-    setSaved(true);
-    setPassword('');
-    setTimeout(() => setSaved(false), 2000);
+    setSavingProfile(true);
+    setProfileError(null);
+    try {
+      await updateProfile({ username, email });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setProfileError(errMsg(err));
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  async function handleSavePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) {
+      setPasswordError('New password must be at least 8 characters');
+      return;
+    }
+    setSavingPassword(true);
+    setPasswordError(null);
+    try {
+      await updatePassword({
+        current_password: currentPassword,
+        new_password: password,
+      });
+      setPassword('');
+      setCurrentPassword('');
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setPasswordError(errMsg(err));
+    } finally {
+      setSavingPassword(false);
+    }
   }
 
 
@@ -153,6 +235,11 @@ export function Settings() {
         </div>
 
         <form onSubmit={handleSaveProfile} className="mt-4 space-y-4">
+          {profileError && (
+            <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
+              {profileError}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-text-secondary">{t('settings.profile.username')}</label>
@@ -175,10 +262,11 @@ export function Settings() {
           </div>
           <button
             type="submit"
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-accent-dark"
+            disabled={savingProfile}
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
-            Save Profile
+            {savingProfile ? 'Saving...' : 'Save Profile'}
           </button>
         </form>
       </div>
@@ -196,6 +284,22 @@ export function Settings() {
         </div>
 
         <form onSubmit={handleSavePassword} className="mt-4 space-y-4">
+          {passwordError && (
+            <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
+              {passwordError}
+            </p>
+          )}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-text-secondary">Current Password</label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 pr-10 text-sm text-text-primary focus:border-accent focus:outline-none"
+              placeholder="Enter current password"
+              required
+            />
+          </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-text-secondary">New Password</label>
             <div className="relative">
@@ -217,10 +321,11 @@ export function Settings() {
           </div>
           <button
             type="submit"
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-accent-dark"
+            disabled={savingPassword}
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
-            Update Password
+            {savingPassword ? 'Updating...' : 'Update Password'}
           </button>
         </form>
       </div>
@@ -538,7 +643,7 @@ export function Settings() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] text-accent">
-                    {JSON.parse(key.scopes).join(', ')}
+                    {parseScopes(key.scopes)}
                   </span>
                   {key.expires_at && (
                     <span className="rounded-full bg-bg-secondary px-2 py-0.5 text-[10px] text-text-secondary">
@@ -591,19 +696,26 @@ export function Settings() {
         </div>
 
         <div className="mt-4 space-y-3">
-          <div className="flex items-center justify-between rounded-lg border border-bg-border p-3">
-            <div>
-              <p className="text-sm font-medium text-text-primary">Clear all monitoring data</p>
-              <p className="text-xs text-text-muted">Delete all metrics history and alerts</p>
+          {dangerError && (
+            <p className="text-xs text-status-error">{dangerError}</p>
+          )}
+          {hasRole('admin') && (
+            <div className="flex items-center justify-between rounded-lg border border-bg-border p-3">
+              <div>
+                <p className="text-sm font-medium text-text-primary">Clear all monitoring data</p>
+                <p className="text-xs text-text-muted">Delete all metrics history and alerts</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearData}
+                disabled={clearingData}
+                className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-bg hover:text-status-error disabled:opacity-50"
+              >
+                <Database className="h-3.5 w-3.5" />
+                {clearingData ? 'Clearing…' : 'Clear Data'}
+              </button>
             </div>
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-bg hover:text-status-error"
-            >
-              <Database className="h-3.5 w-3.5" />
-              Clear Data
-            </button>
-          </div>
+          )}
           <div className="flex items-center justify-between rounded-lg border border-bg-border p-3">
             <div>
               <p className="text-sm font-medium text-text-primary">Delete account</p>
@@ -611,10 +723,12 @@ export function Settings() {
             </div>
             <button
               type="button"
-              className="flex items-center gap-1.5 rounded-lg bg-status-error px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-status-error/80"
+              onClick={handleDeleteAccount}
+              disabled={deletingAccount}
+              className="flex items-center gap-1.5 rounded-lg bg-status-error px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-status-error/80 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Delete Account
+              {deletingAccount ? 'Deleting…' : 'Delete Account'}
             </button>
           </div>
         </div>

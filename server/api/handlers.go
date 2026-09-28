@@ -91,7 +91,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		agentGroup.POST("/files/status", agentFileHandler.ReportStatus)
 		agentGroup.GET("/files/:transfer_id/download", agentFileHandler.DownloadForAgent)
 		agentGroup.POST("/files/:transfer_id/upload", agentFileHandler.UploadFromAgent)
-		
+
 		// Agent binary download (no auth)
 		agentGroup.GET("/binary", func(c *gin.Context) {
 			osName := c.Query("os")
@@ -122,6 +122,12 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 	{
 		// User profile
 		protected.GET("/auth/profile", authHandler.GetProfile)
+		protected.PUT("/auth/profile", authHandler.UpdateProfile)
+		protected.PUT("/auth/password", authHandler.UpdatePassword)
+		protected.DELETE("/auth/me", authHandler.DeleteAccount)
+
+		// Monitoring data (Danger Zone: clear all metrics + alerts)
+		protected.DELETE("/monitoring/data", RequireRole("admin"), deviceHandler.ClearMonitoringData)
 
 		// Device routes
 		protected.GET("/devices", deviceHandler.ListDevices)

@@ -15,5 +15,7 @@ type PatchDeployment struct {
 	DevicesFailed  int        `json:"devices_failed"`
 	StartedAt      *time.Time `json:"started_at"`
 	CompletedAt    *time.Time `json:"completed_at"`
+	TimeoutAt      *time.Time `json:"timeout_at"`
+	Message        string     `json:"message"`
 	CreatedAt      time.Time  `json:"created_at"`
 }

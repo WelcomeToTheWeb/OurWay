@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -48,8 +49,8 @@ func (s *AlertStore) MarkResolved(id string) error {
 	return s.db.Model(&models.Alert{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"resolved":     true,
-			"resolved_at":  time.Now(),
+			"resolved":    true,
+			"resolved_at": time.Now(),
 		}).Error
 }
 
@@ -58,9 +59,9 @@ func (s *AlertStore) Acknowledge(id, userID string) error {
 	return s.db.Model(&models.Alert{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"acknowledged":     true,
-			"acknowledged_by":  userID,
-			"acknowledged_at":  time.Now(),
+			"acknowledged":    true,
+			"acknowledged_by": userID,
+			"acknowledged_at": time.Now(),
 		}).Error
 }
 
@@ -69,4 +70,13 @@ func (s *AlertStore) Assign(id, userID string) error {
 	return s.db.Model(&models.Alert{}).
 		Where("id = ?", id).
 		Update("assigned_to", userID).Error
+}
+
+// ClearAll deletes every stored alert (Danger Zone: clear monitoring data).
+func (s *AlertStore) ClearAll() (int64, error) {
+	result := s.db.Delete(&models.Alert{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to clear alerts: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }

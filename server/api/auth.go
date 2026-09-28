@@ -208,3 +208,120 @@ func (h *AuthHandler) GetProfile(c *gin.Context) {
 		"roles": roleNames,
 	})
 }
+
+// UpdateProfile updates the caller's username and/or email.
+// PUT /api/auth/profile
+func (h *AuthHandler) UpdateProfile(c *gin.Context) {
+	var req struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+	user, err := h.store.Users.GetByID(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	if req.Username != "" {
+		user.Username = req.Username
+	}
+	if req.Email != "" {
+		user.Email = req.Email
+	}
+
+	if err := h.store.Users.Update(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"user": user})
+}
+
+// UpdatePassword changes the caller's password after verifying the current one.
+// PUT /api/auth/password
+func (h *AuthHandler) UpdatePassword(c *gin.Context) {
+	var req struct {
+		CurrentPassword string `json:"current_password" binding:"required"`
+		NewPassword     string `json:"new_password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.NewPassword) < 8 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "new password must be at least 8 characters"})
+		return
+	}
+
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+	user, err := h.store.Users.GetByID(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	if user.Provider != "local" || user.PasswordHash == "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "password change is not available for SSO accounts"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
+	user.PasswordHash = string(hash)
+
+	if err := h.store.Users.Update(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update password"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// DeleteAccount deletes the caller's own account (Danger Zone).
+// The user's role assignments and API keys are removed as well.
+// DELETE /api/auth/me
+func (h *AuthHandler) DeleteAccount(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+
+	user, err := h.store.Users.GetByID(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Revoke the user's API keys and clear role assignments.
+	if keys, err := h.store.APIKeys.ListByUser(user.ID); err == nil {
+		for _, k := range keys {
+			if err := h.store.APIKeys.Delete(k.ID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete API keys"})
+				return
+			}
+		}
+	}
+	h.store.UserRoles.SetUserRoles(user.ID, []string{})
+
+	if err := h.store.Users.Delete(user.ID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+}

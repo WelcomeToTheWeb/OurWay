@@ -77,3 +77,13 @@ func (s *MetricHistoryStore) TotalCount() (int64, error) {
 	}
 	return count, nil
 }
+
+// ClearAll deletes every stored metric row (Danger Zone: clear monitoring
+// data).
+func (s *MetricHistoryStore) ClearAll() (int64, error) {
+	result := s.db.Delete(&models.MetricHistory{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to clear metrics: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}

@@ -11,6 +11,11 @@ import (
 type ProcessCollector struct {
 	topN     int
 	interval time.Duration
+	// handles keeps one *process.Process per PID across Collect() calls.
+	// gopsutil computes CPUPercent as a delta against the previous sample
+	// stored on the handle, so a fresh handle every cycle would always
+	// report 0% CPU.
+	handles map[int32]*process.Process
 }
 
 // NewProcessCollector creates a new process collector.
@@ -18,6 +23,7 @@ func NewProcessCollector() *ProcessCollector {
 	return &ProcessCollector{
 		topN:     10,
 		interval: 500 * time.Millisecond,
+		handles:  make(map[int32]*process.Process),
 	}
 }
 
@@ -41,9 +47,18 @@ func (c *ProcessCollector) Collect() (map[string]interface{}, error) {
 	}
 
 	var infos []procInfo
+	seen := make(map[int32]bool, len(procs))
 	for _, p := range procs {
 		if p == nil {
 			continue
+		}
+		seen[p.Pid] = true
+		// Reuse the previous cycle's handle when available so that
+		// CPUPercent() has a prior sample to diff against.
+		if prev, ok := c.handles[p.Pid]; ok {
+			p = prev
+		} else {
+			c.handles[p.Pid] = p
 		}
 
 		cpuPercent, err := p.CPUPercent()
@@ -57,11 +72,18 @@ func (c *ProcessCollector) Collect() (map[string]interface{}, error) {
 			memUsed = memInfo.RSS
 		}
 
-		infos = append(infos, procInfo{
-			p:      p,
-			cpu:    cpuPercent,
-			memory: memUsed,
-		})
+			infos = append(infos, procInfo{
+				p:      p,
+				cpu:    cpuPercent,
+				memory: memUsed,
+			})
+	}
+
+	// Drop handles for processes that have exited.
+	for pid := range c.handles {
+		if !seen[pid] {
+			delete(c.handles, pid)
+		}
 	}
 
 	// Top by CPU

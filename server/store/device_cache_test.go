@@ -41,6 +41,15 @@ func (m *MockDeviceStore) GetByKey(key string) (*models.Device, error) {
 	return nil, nil
 }
 
+func (m *MockDeviceStore) GetByHostnameAndIP(hostname, privateIP string) (*models.Device, error) {
+	for _, d := range m.devices {
+		if d.Hostname == hostname && (privateIP == "" || d.PrivateIP == privateIP) {
+			return d, nil
+		}
+	}
+	return nil, nil
+}
+
 func (m *MockDeviceStore) ListAll() ([]models.Device, error) {
 	var result []models.Device
 	for _, d := range m.devices {

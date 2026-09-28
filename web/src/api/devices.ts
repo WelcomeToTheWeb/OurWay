@@ -15,6 +15,13 @@ export const getDevice = (id: string) =>
 export const deleteDevice = (id: string) =>
   client.delete(`/devices/${id}`).then((r) => r.data);
 
+export const clearMonitoringData = () =>
+  client
+    .delete<{ status: string; metrics_cleared: number; alerts_cleared: number }>(
+      '/monitoring/data',
+    )
+    .then((r) => r.data);
+
 export const registerAgent = (data: {
   hostname: string;
   os: string;

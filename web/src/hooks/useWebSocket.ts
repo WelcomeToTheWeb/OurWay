@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Metrics } from '../types/device';
 import { useMetricsStore } from '../stores/metrics';
+import { useDevicesStore } from '../stores/devices';
 
 // Raw message as sent by the server: {type, payload}
 interface RawWSMessage {
@@ -60,6 +61,7 @@ export function useWebSocket(token: string | null) {
   tokenRef.current = token;
 
   const addMetric = useMetricsStore((s) => s.addMetric);
+  const updateDeviceStatus = useDevicesStore((s) => s.updateDeviceStatus);
 
   useEffect(() => {
     if (!token) return;
@@ -86,6 +88,20 @@ export function useWebSocket(token: string | null) {
               setLastDeviceId(msg.device_id);
               addMetric(msg.device_id, msg.metrics);
               break;
+            case 'status':
+              // Realtime presence: update the device list immediately.
+              updateDeviceStatus(msg.device_id, msg.status);
+              break;
+            case 'heartbeat':
+              // A heartbeat means the device is alive.
+              updateDeviceStatus(msg.device_id, 'online');
+              break;
+            case 'alert':
+              // Let mounted pages (Alerts) refresh immediately.
+              window.dispatchEvent(
+                new CustomEvent('ourway:alert', { detail: msg })
+              );
+              break;
             case 'connected':
               setConnected(true);
               break;
@@ -109,7 +125,7 @@ export function useWebSocket(token: string | null) {
       wsRef.current?.close();
       if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
     };
-  }, [token, addMetric]);
+  }, [token, addMetric, updateDeviceStatus]);
 
   return { connected, lastMetrics, lastDeviceId };
 }

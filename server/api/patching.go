@@ -115,13 +115,13 @@ func (h *PatchHandler) ListPolicies(c *gin.Context) {
 // POST /api/patch/policies
 func (h *PatchHandler) CreatePolicy(c *gin.Context) {
 	var req struct {
-		Name             string `json:"name" binding:"required"`
-		Scope            string `json:"scope"`
-		ScopeValue       string `json:"scope_value"`
-		Schedule         string `json:"schedule"`
-		AutoReboot       bool   `json:"auto_reboot"`
-		ApprovalRequired bool   `json:"approval_required"`
-		MaxDevicesPerBatch int `json:"max_devices_per_batch"`
+		Name               string `json:"name" binding:"required"`
+		Scope              string `json:"scope"`
+		ScopeValue         string `json:"scope_value"`
+		Schedule           string `json:"schedule"`
+		AutoReboot         bool   `json:"auto_reboot"`
+		ApprovalRequired   bool   `json:"approval_required"`
+		MaxDevicesPerBatch int    `json:"max_devices_per_batch"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -164,6 +164,10 @@ func (h *PatchHandler) CreatePolicy(c *gin.Context) {
 // ListDeployments returns all patch deployments.
 // GET /api/patch/deployments
 func (h *PatchHandler) ListDeployments(c *gin.Context) {
+	// Finalize any deployments that timed out (so the UI never shows a
+	// deployment stuck in "running" past its deadline).
+	h.deployer.FinalizeTimedOut()
+
 	deployments, err := h.store.PatchDeployments.ListAll()
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list deployments"})

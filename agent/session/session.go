@@ -7,19 +7,31 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"ourway/agent/collector"
 )
 
+// maxSessionDuration bounds how long a session may run locally. The server
+// is the primary authority (session_end), but if it dies mid-session the
+// agent must not keep capturing and uploading frames forever.
+const maxSessionDuration = 24 * time.Hour
+
 // SessionManager manages remote control sessions for the agent.
 type SessionManager struct {
-	deviceKey    string
-	capture      ScreenCapture
-	active       bool
-	sessionID    string
-	serverURL    string
-	httpClient   *http.Client
+	deviceKey string
+	capture   ScreenCapture
+
+	// mu guards active, sessionID, serverURL and startedAt: they are
+	// written by the WS message goroutine and read by the capture loop.
+	mu        sync.Mutex
+	active    bool
+	sessionID string
+	serverURL string
+	startedAt time.Time
+
+	httpClient     *http.Client
 	onSessionStart func()
 	onSessionEnd   func()
 }
@@ -38,7 +50,16 @@ func NewSessionManager(deviceKey string) *SessionManager {
 // The server also sends it in the "session_start" payload; this setter
 // exists so the client can pre-configure it if needed.
 func (sm *SessionManager) SetServerURL(url string) {
+	sm.mu.Lock()
 	sm.serverURL = strings.TrimSuffix(url, "/")
+	sm.mu.Unlock()
+}
+
+// stateSnapshot returns a consistent view of the mutable session state.
+func (sm *SessionManager) stateSnapshot() (active bool, sessionID, serverURL string, startedAt time.Time) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.active, sm.sessionID, sm.serverURL, sm.startedAt
 }
 
 // HandleMessage processes a session-related message from the server.
@@ -63,10 +84,15 @@ func (sm *SessionManager) HandleMessage(ctx context.Context, msgType string, pay
 
 // StartSession begins a remote control session.
 func (sm *SessionManager) StartSession(ctx context.Context, payload interface{}) {
+	sm.mu.Lock()
 	if sm.active {
+		sm.mu.Unlock()
 		log.Printf("session: already active, ignoring start")
 		return
 	}
+	sm.active = true
+	sm.startedAt = time.Now()
+	sm.mu.Unlock()
 
 	sessionData, err := json.Marshal(payload)
 	if err != nil {
@@ -79,15 +105,15 @@ func (sm *SessionManager) StartSession(ctx context.Context, payload interface{})
 	// Learn the session ID and server base URL from the start payload so
 	// the capture loop can upload frames to POST /api/sessions/:id/frame.
 	if m, ok := payload.(map[string]interface{}); ok {
+		sm.mu.Lock()
 		if id, ok := m["session_id"].(string); ok && id != "" {
 			sm.sessionID = id
 		}
 		if url, ok := m["server_url"].(string); ok && url != "" {
 			sm.serverURL = strings.TrimSuffix(url, "/")
 		}
+		sm.mu.Unlock()
 	}
-
-	sm.active = true
 
 	if sm.onSessionStart != nil {
 		sm.onSessionStart()
@@ -99,12 +125,15 @@ func (sm *SessionManager) StartSession(ctx context.Context, payload interface{})
 
 // EndSession ends the current remote control session.
 func (sm *SessionManager) EndSession() {
+	sm.mu.Lock()
 	if !sm.active {
+		sm.mu.Unlock()
 		return
 	}
+	sm.active = false
+	sm.mu.Unlock()
 
 	log.Printf("session: ending session")
-	sm.active = false
 
 	if sm.onSessionEnd != nil {
 		sm.onSessionEnd()
@@ -113,7 +142,8 @@ func (sm *SessionManager) EndSession() {
 
 // HandleInput processes a keyboard/mouse input event.
 func (sm *SessionManager) HandleInput(payload interface{}) {
-	if !sm.active {
+	active, _, _, _ := sm.stateSnapshot()
+	if !active {
 		return
 	}
 
@@ -155,7 +185,8 @@ func (sm *SessionManager) HandleQuality(payload interface{}) {
 
 // HandleCommand processes a command event (e.g., reboot, install).
 func (sm *SessionManager) HandleCommand(ctx context.Context, payload interface{}) {
-	if !sm.active {
+	active, _, _, _ := sm.stateSnapshot()
+	if !active {
 		return
 	}
 
@@ -178,7 +209,15 @@ func (sm *SessionManager) captureLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
-			if !sm.active {
+			active, _, _, startedAt := sm.stateSnapshot()
+			if !active {
+				return
+			}
+			// Local stop timeout: the server should end the session, but if
+			// it is gone the agent must not capture/upload forever.
+			if time.Since(startedAt) > maxSessionDuration {
+				log.Printf("session: max session duration (%s) reached, stopping", maxSessionDuration)
+				sm.EndSession()
 				return
 			}
 
@@ -199,16 +238,17 @@ func (sm *SessionManager) captureLoop(ctx context.Context) {
 
 // postFrame uploads a JPEG frame to the server's frame endpoint.
 func (sm *SessionManager) postFrame(frame []byte) {
-	if sm.serverURL == "" {
+	_, sessionID, serverURL, _ := sm.stateSnapshot()
+	if serverURL == "" {
 		log.Printf("session: server URL not set; frame dropped (cannot reach POST /api/sessions/:id/frame)")
 		return
 	}
-	if sm.sessionID == "" {
+	if sessionID == "" {
 		log.Printf("session: no session ID; frame dropped")
 		return
 	}
 
-	url := sm.serverURL + "/api/sessions/" + sm.sessionID + "/frame"
+	url := serverURL + "/api/sessions/" + sessionID + "/frame"
 	req, err := http.NewRequest("POST", url, bytes.NewReader(frame))
 	if err != nil {
 		log.Printf("session: failed to build frame request: %v", err)
@@ -251,15 +291,15 @@ func (sm *SessionManager) handleMouseEvent(input map[string]interface{}) {
 // ScanUpdates scans for available software updates.
 func (sm *SessionManager) ScanUpdates(ctx context.Context, payload interface{}) {
 	log.Printf("session: scanning for updates...")
-	
+
 	packages, err := collector.CollectSoftwarePackages()
 	if err != nil {
 		log.Printf("session: failed to collect packages: %v", err)
 		return
 	}
-	
+
 	log.Printf("session: found %d installed packages", len(packages))
-	
+
 	// In a full implementation, this would compare against a catalog
 	// and report available updates to the server.
 }
@@ -267,15 +307,15 @@ func (sm *SessionManager) ScanUpdates(ctx context.Context, payload interface{}) 
 // DeployUpdates deploys approved software updates.
 func (sm *SessionManager) DeployUpdates(ctx context.Context, payload interface{}) {
 	log.Printf("session: deploying updates...")
-	
+
 	deployData, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("session: failed to marshal payload: %v", err)
 		return
 	}
-	
+
 	log.Printf("session: deploying: %s", string(deployData))
-	
+
 	// In a full implementation, this would download and install updates.
 }
 
@@ -291,5 +331,6 @@ func (sm *SessionManager) SetOnSessionEnd(fn func()) {
 
 // IsActive returns whether a session is currently active.
 func (sm *SessionManager) IsActive() bool {
-	return sm.active
+	active, _, _, _ := sm.stateSnapshot()
+	return active
 }

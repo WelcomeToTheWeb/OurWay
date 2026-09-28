@@ -8,14 +8,36 @@ import (
 	"os/exec"
 )
 
-// xdotoolKeyMap maps a few browser KeyboardEvent.key values to the key
-// names xdotool expects (the two naming schemes differ).
+// xdotoolKeyMap maps browser KeyboardEvent.key values to the key names
+// xdotool expects (the two naming schemes differ).
 var xdotoolKeyMap = map[string]string{
-	"Enter":     "Return",
-	" ":         "space",
-	"Backspace": "BackSpace",
-	"Control":   "ctrl",
-	"Meta":      "super",
+	"Enter":       "Return",
+	" ":           "space",
+	"Backspace":   "BackSpace",
+	"Tab":         "Tab",
+	"Escape":      "Escape",
+	"Delete":      "Delete",
+	"Insert":      "Insert",
+	"ArrowUp":     "Up",
+	"ArrowDown":   "Down",
+	"ArrowLeft":   "Left",
+	"ArrowRight":  "Right",
+	"PageUp":      "Prior",
+	"PageDown":    "Next",
+	"Home":        "Home",
+	"End":         "End",
+	"Control":     "ctrl",
+	"Shift":       "shift",
+	"Alt":         "alt",
+	"Meta":        "super",
+	"CapsLock":    "Caps_Lock",
+	"PrintScreen": "Print",
+	"Pause":       "Pause",
+	"ScrollLock":  "Scroll_Lock",
+	"NumLock":     "Num_Lock",
+	"F1":          "F1", "F2": "F2", "F3": "F3", "F4": "F4",
+	"F5": "F5", "F6": "F6", "F7": "F7", "F8": "F8",
+	"F9": "F9", "F10": "F10", "F11": "F11", "F12": "F12",
 }
 
 func xdotoolPath() (string, error) {
