@@ -21,7 +21,7 @@ git clone https://github.com/ourway-rmm/ourway.git
 cd ourway
 
 # Build and start all services (server, web, postgres)
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 This starts:
@@ -35,7 +35,7 @@ This starts:
 Wait for all services to become healthy:
 
 ```bash
-docker compose ps
+docker compose -f docker/docker-compose.yml ps
 # All services should show "healthy"
 ```
 
@@ -80,6 +80,8 @@ npm run build
 # Or run in development mode (with hot reload)
 npm run dev
 ```
+
+Note: the Vite dev server proxies `/api` and `/ws` to `http://localhost:9090` (see `web/vite.config.ts`). When using the dev server against a local backend, start the server with `SERVER_PORT=":9090"` so the web UI can reach it.
 
 ### 4. Verify
 

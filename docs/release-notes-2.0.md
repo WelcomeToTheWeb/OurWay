@@ -20,9 +20,7 @@ OurWay RMM 2.0 transforms from a solid monitoring foundation into a complete Rem
 ### 🖥️ Remote Sessions
 Real-time screen sharing and control via WebRTC:
 - View and control any managed device from your browser
-- Adjust resolution, FPS, and quality settings
-- Session recording with playback
-- Concurrent viewing (multiple observers, one controller)
+- Adjust screen-capture quality
 - Cross-platform: connect from any OS to any managed device
 
 ### 🔧 Automated Patch Management
@@ -31,14 +29,13 @@ Complete software update lifecycle management:
 - Create patch policies with scheduling and batching
 - Approval workflow: Scan → Report → Approve → Deploy
 - Deployment progress tracking
-- Automatic rollback for failed patches
-- Maintenance window scheduling
+- Rollback support for failed patches (via API)
+- Policy scheduling (daily, weekly, monthly)
 
 ### 📁 File Transfer
 Push and pull files with ease:
 - Drag-and-drop file selection in the web UI
 - Transfer progress and status tracking
-- Large file support with resumable uploads
 - Recent transfers history
 
 ### 🔐 Enterprise SSO
@@ -52,7 +49,6 @@ Log in with your identity provider:
 Fine-grained permissions for your team:
 - Built-in roles: Admin, Manager, Technician, Viewer
 - Custom role creation
-- Device group assignments
 - Audit-ready permission model
 
 ### 📱 Frontend Enhancements
@@ -75,13 +71,12 @@ Built to scale with your fleet:
 Smarter alerting with less noise:
 - Alert deduplication (5-minute configurable window)
 - Alert acknowledgment and assignment workflow
-- Per-device and per-group custom thresholds
 - Alert history and resolution tracking
 
 ### 🚀 API & Integrations
-- Versioned API v2 at `/api/v2/`
+- API v2 endpoints for webhooks and API keys under `/api/v2/`
 - Rate limiting (100 requests/minute per user)
-- Webhook system with 6 event types and retry logic
+- Webhook system with 8 event types and retry logic
 - Scoped API keys with rotation and revocation
 
 ---

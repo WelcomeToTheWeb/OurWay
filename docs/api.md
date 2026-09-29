@@ -619,7 +619,7 @@ Authorization: Bearer <access-token>
     "status": "pending",
     "created_at": "2026-09-25T10:00:00Z"
   },
-  "offer": "base64-encoded-SDP-offer"
+  "offer": "<SDP offer as a JSON string>"
 }
 ```
 
@@ -633,7 +633,7 @@ Submit the browser's WebRTC answer.
 
 ```json
 {
-  "answer": "base64-encoded-SDP-answer"
+  "answer": "<SDP answer as a JSON string>"
 }
 ```
 
@@ -655,9 +655,7 @@ Add an ICE candidate.
 
 ```json
 {
-  "candidate": "candidate:...",
-  "sdpMid": "0",
-  "sdpMLineIndex": 0
+  "candidate": "candidate:..."
 }
 ```
 
@@ -679,8 +677,8 @@ Send keyboard/mouse input to the remote session.
 
 ```json
 {
-  "type": "mouse_click",
-  "data": {
+  "type": "mouse",
+  "payload": {
     "x": 100,
     "y": 200,
     "button": "left"
@@ -688,11 +686,13 @@ Send keyboard/mouse input to the remote session.
 }
 ```
 
+`type` is `"key"` or `"mouse"`; `payload` carries the event details.
+
 **Response (200 OK):**
 
 ```json
 {
-  "status": "ok"
+  "status": "sent"
 }
 ```
 
@@ -706,7 +706,7 @@ End a remote session.
 
 ```json
 {
-  "status": "ok"
+  "status": "ended"
 }
 ```
 
@@ -921,7 +921,9 @@ Reboot a device.
 
 ## File Transfer Endpoints
 
-All file transfer endpoints require JWT authentication.
+File transfer endpoints require JWT authentication, except the agent-facing
+endpoints under `/api/agent/files/`, which use device key authentication
+(`X-Device-Key` header).
 
 ### POST /api/files/upload
 
@@ -935,7 +937,7 @@ Upload a file to the server.
 {
   "transfer_id": "transfer-uuid",
   "filename": "example.txt",
-  "size": 1024
+  "size_bytes": 1024
 }
 ```
 
@@ -950,19 +952,21 @@ Push a file to a device.
 ```json
 {
   "transfer_id": "transfer-uuid",
-  "device_id": "device-uuid",
-  "destination": "/tmp/example.txt",
-  "filename": "example.txt",
-  "size": 1024
+  "device_ids": ["device-uuid-1", "device-uuid-2"],
+  "destination": "/tmp/"
 }
 ```
+
+- `transfer_id` (required): ID returned by `POST /api/files/upload`
+- `device_ids` (required): one or more target device IDs
+- `destination` (optional): destination directory on the device (defaults to `/home/`)
 
 **Response (200 OK):**
 
 ```json
 {
-  "transfer_id": "transfer-uuid",
-  "status": "pending"
+  "status": "push_initiated",
+  "device_count": 2
 }
 ```
 
@@ -986,7 +990,7 @@ Pull a file from a device.
 ```json
 {
   "transfer_id": "transfer-uuid",
-  "status": "pending"
+  "status": "pull_initiated"
 }
 ```
 
@@ -1004,12 +1008,16 @@ List recent file transfers.
     {
       "id": "transfer-uuid",
       "device_id": "device-uuid",
+      "uploader_id": "user-uuid",
       "filename": "example.txt",
+      "directory": "",
+      "source_path": "",
       "destination": "/tmp/example.txt",
       "size_bytes": 1024,
       "status": "completed",
       "direction": "push",
       "progress": 100,
+      "error_message": "",
       "created_at": "2026-09-25T10:00:00Z",
       "updated_at": "2026-09-25T10:00:05Z",
       "completed_at": "2026-09-25T10:00:05Z"
@@ -1031,11 +1039,72 @@ Get details for a specific file transfer.
   "transfer": {
     "id": "transfer-uuid",
     "device_id": "device-uuid",
+    "uploader_id": "user-uuid",
     "filename": "example.txt",
+    "directory": "",
+    "source_path": "",
+    "destination": "/tmp/example.txt",
+    "size_bytes": 1024,
     "status": "completed",
     "direction": "push",
-    "progress": 100
+    "progress": 100,
+    "error_message": "",
+    "created_at": "2026-09-25T10:00:00Z",
+    "updated_at": "2026-09-25T10:00:05Z",
+    "completed_at": "2026-09-25T10:00:05Z"
   }
+}
+```
+
+---
+
+### GET /api/files/:transfer_id/file
+
+Download a retrieved file (e.g. after a completed pull transfer). Served with `Content-Disposition: attachment`.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `transfer_id` | UUID | Transfer ID |
+
+---
+
+### GET /api/agent/files/:transfer_id/download
+
+Agent downloads a file pushed to it.
+
+**Headers:**
+
+```
+X-Device-Key: <device-key>
+```
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `transfer_id` | UUID | Transfer ID |
+
+Returns the file bytes (404 if the transfer does not exist or does not belong to the device).
+
+---
+
+### POST /api/agent/files/:transfer_id/upload
+
+Agent uploads a file pulled from the device. `multipart/form-data` with field `file`. Marks the transfer as completed.
+
+**Headers:**
+
+```
+X-Device-Key: <device-key>
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "status": "uploaded"
 }
 ```
 
@@ -1057,7 +1126,8 @@ X-Device-Key: <device-key>
 {
   "transfer_id": "transfer-uuid",
   "status": "transferring",
-  "progress": 50
+  "progress": 50,
+  "error_message": ""
 }
 ```
 
@@ -1122,19 +1192,18 @@ All messages are JSON objects with a `type` field and an optional `payload` fiel
 
 #### User → Server
 
-| Type | Payload | Description |
-|------|---------|-------------|
-| `stream_start` | `{ device_id: string }` | Request streaming for a device |
-| `stream_stop` | `{ device_id: string }` | Stop streaming for a device |
+No message types are currently defined for user (browser) connections. User
+connections are receive-only; messages sent by the client are ignored by the
+server.
 
 #### Server → User
 
 | Type | Payload | Description |
 |------|---------|-------------|
-| `metrics` | `{ device_id: string, device: string, metrics: object }` | New metrics for a device |
-| `heartbeat` | `{ device_id: string, device: string }` | Device heartbeat |
-| `alert` | `{ alert: object }` | New alert |
-| `status` | `{ device_id: string, device: string, status: string }` | Device status change |
+| `metrics` | `{ device_id: string, device: string, metrics: object }` | New metrics for a device (broadcast) |
+| `heartbeat` | `{ device_id: string, device: string }` | Device heartbeat (broadcast) |
+| `status` | `{ ... }` | Device status change, broadcast from the agent's `status` payload |
+| `session_frame` | `{ session_id: string, device_id: string, data: string }` | Remote session video frame (base64 JPEG), sent only to the session owner |
 
 #### Agent → Server
 
@@ -1148,8 +1217,16 @@ All messages are JSON objects with a `type` field and an optional `payload` fiel
 
 | Type | Payload | Description |
 |------|---------|-------------|
-| `stream` | `{ interval: number }` | Start streaming (higher frequency) |
-| `stream_end` | `{}` | Stop streaming (revert to normal frequency) |
+| `session_start` | `{ session_id: string, server_url: string }` | Start a remote session (begin screen capture) |
+| `session_end` | `{ session_id: string }` | End the remote session |
+| `session_quality` | `{ quality: number }` | Change session video quality (1–100) |
+| `input` | `{ type: string, payload: object }` | Keyboard/mouse input from the session viewer |
+| `file_push` | `{ transfer_id: string, filename: string, destination: string }` | Download a pushed file |
+| `file_pull` | `{ transfer_id: string, source_path: string, filename: string }` | Upload a file from the given path |
+| `scan_updates` | `{ device_id: string }` | Run a software update scan |
+| `deploy_updates` | `{ device_id: string, deployment_id: string, updates: array }` | Deploy approved updates |
+| `rollback_updates` | `{ deployment_id: string, device_id: string }` | Roll back a deployment |
+| `reboot` | `{ delay_seconds: number }` (or null) | Reboot the device |
 
 ### WebSocket Example (JavaScript)
 
@@ -1170,8 +1247,8 @@ ws.onmessage = (event) => {
     case 'metrics':
       console.log('Metrics from', msg.payload.device);
       break;
-    case 'alert':
-      console.log('Alert:', msg.payload.alert.message);
+    case 'status':
+      console.log('Status:', msg.payload);
       break;
   }
 };
@@ -1315,13 +1392,20 @@ All error responses follow this format:
 
 ## Rate Limiting
 
-The current MVP does not implement rate limiting. This is planned for a future release.
+All protected (authenticated) endpoints are rate limited:
+
+- **Limit:** 100 requests per minute per user, sustained (token bucket with a
+  burst allowance of 10 requests)
+- **Scope:** Per user (identified by JWT) with a fallback to the client IP
+- **Backend:** In-memory by default; Redis-backed when `REDIS_ENABLED=true`
+- **Response:** `429 Too Many Requests` with `{"error": "rate limit exceeded"}`
+  when the limit is exceeded
 
 ---
 
 ## API Versioning
 
-The API is versioned via the URL path (`/api/`). The current version is v1 (implicit). Future versions will use `/api/v2/`.
+Most routes live directly under `/api/` with no version prefix. The `/api/v2/` prefix is used only for the webhook and API key endpoints.
 
 ---
 
@@ -1486,10 +1570,12 @@ POST /api/v2/webhooks
 **Supported event types:**
 - `device_registered` — new device registered
 - `device_online` — device comes online
+- `device_offline` — device goes offline
 - `alert_created` — new alert created
 - `alert_resolved` — alert resolved
 - `patch_deployed` — patch deployed to device
 - `session_started` — remote session started
+- `session_frame` — remote session video frame received
 
 ### List Webhooks
 ```
@@ -1616,15 +1702,6 @@ POST /api/v2/api-keys/:id/rotate
 
 ---
 
-## Rate Limiting
-
-The API enforces rate limiting on all protected endpoints:
-- **Limit:** 100 requests per minute per user
-- **Scope:** Per user (identified by JWT) or per IP for unauthenticated requests
-- **Response:** `429 Too Many Requests` when the limit is exceeded
-
----
-
 ## Webhook Payload Format
 
 All webhook events use a consistent JSON payload format:
@@ -1648,4 +1725,5 @@ All webhook events use a consistent JSON payload format:
 Request headers include:
 - `Content-Type: application/json`
 - `X-OurWay-Event: <event_type>`
-- `X-OurWay-Signature: <hmac>` (future)
+- `X-OurWay-Signature: sha256=<hex>` — HMAC-SHA256 of the payload under the
+  webhook's secret (sent when the webhook has a signing secret)

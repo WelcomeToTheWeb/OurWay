@@ -24,7 +24,9 @@ The server reads configuration from environment variables. All variables have se
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:ourway@localhost:5432/ourway?sslmode=disable` | No |
 | `JWT_SECRET` | Secret key for JWT token signing | `ourway-secret-key` | No (but required for production) |
 | `WS_PATH` | WebSocket endpoint path | `/ws` | No |
-| `TZ` | Timezone for logs | (system default) | No |
+| `REDIS_URL` | Redis connection URL | (none) | No |
+| `REDIS_ENABLED` | Enable Redis-backed rate limiting and distributed WebSocket pub/sub | `false` | No |
+| `WEB_URL` | Public URL of the web dashboard | `http://localhost:3000` | No |
 
 ### JWT Token Details
 
@@ -45,7 +47,7 @@ export SERVER_PORT=":8080"
 export DATABASE_URL="postgresql://ourway:securepassword@db.example.com:5432/ourway?sslmode=require&tlsrootcert=/etc/ssl/certs/ca-certificates.crt"
 export JWT_SECRET="a-very-long-random-64-character-secret-key"
 export WS_PATH="/ws"
-export TZ="UTC"
+export WEB_URL="http://localhost:3000"
 ```
 
 ---
@@ -62,7 +64,7 @@ The agent supports three configuration sources with this precedence (highest to 
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `OURWAY_SERVER` | WebSocket server URL | `ws://localhost:8081` | `wss://ourway.example.com/ws` |
+| `OURWAY_SERVER` | WebSocket server URL | `ws://localhost:8080` | `wss://ourway.example.com/ws` |
 | `OURWAY_DEVICE_KEY` | Unique device key (UUID) | (required) | `550e8400-e29b-41d4-a716-446655440000` |
 | `OURWAY_HEARTBEAT` | Heartbeat interval | `15s` | `30s`, `1m` |
 | `OURWAY_METRICS_INTERVAL` | Metrics collection interval | `60s` | `30s`, `2m` |
@@ -93,7 +95,7 @@ Duration values accept Go duration strings:
 |----------|---------|-------------|
 | Heartbeat | 15s | Device liveness check |
 | Metrics | 60s | Full system metrics snapshot |
-| Streaming | 2s | High-frequency metrics when user views device |
+| Stream interval | 2s | Interval used while the agent is in streaming mode; no server mechanism currently triggers streaming |
 
 ---
 
@@ -161,8 +163,6 @@ JWT_SECRET="3a7f8c2b9e1d4a5c6b8f0e2d7a9c1b3e4f5d6c7a8b9e0f1d2c3b4a5c6d7e8f9a"
 # WebSocket endpoint path
 WS_PATH="/ws"
 
-# Timezone
-TZ="UTC"
 ```
 
 ### Agent systemd Environment File

@@ -76,7 +76,7 @@ cd cmd/ourway-cli && go mod download && cd ..
 Create `server/.env` (optional, for development convenience):
 
 ```bash
-SERVER_PORT=":8080"
+SERVER_PORT=":9090"  # Vite dev server proxies /api and /ws to localhost:9090
 DATABASE_URL="postgresql://ourway_dev:ourway@localhost:5432/ourway_dev?sslmode=disable"
 JWT_SECRET="dev-secret-key"
 WS_PATH="/ws"
@@ -123,7 +123,7 @@ The dev server runs on `http://localhost:3000` with:
 
 ```bash
 cd agent
-go run . --server ws://localhost:8080/ws --key <device-key>
+go run . --server ws://localhost:9090/ws --key <device-key>
 ```
 
 ### Full Stack (Docker Compose)
@@ -131,7 +131,7 @@ go run . --server ws://localhost:8080/ws --key <device-key>
 For a fully containerized development environment:
 
 ```bash
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 ### Service Overview
@@ -139,8 +139,10 @@ docker compose up -d
 | Service | Port | URL |
 |---------|------|-----|
 | Web dev server | 3000 | http://localhost:3000 |
-| Go server | 8080 | http://localhost:8080 |
+| Go server | 9090 | http://localhost:9090 |
 | PostgreSQL | 5432 | localhost:5432 |
+
+Note: the server's default port is 8080 (`SERVER_PORT` in `server/config/config.go`). The 9090 port above matches the Vite dev server proxy target in `web/vite.config.ts`, so the web UI can reach the backend in development mode.
 
 ---
 
@@ -179,8 +181,7 @@ ourway/
 │   ├── main.go                # Agent entry point
 │   ├── go.mod                 # Go module definition
 │   ├── config/
-│   │   ├── config.go          # Configuration loading
-│   │   └── install.sh         # Shell installer script
+│   │   └── config.go          # Configuration loading
 │   ├── client/
 │   │   └── client.go          # WebSocket client
 │   ├── collector/
@@ -504,7 +505,7 @@ To test the full stack:
 
 ```bash
 # Start all services
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # Register a test user
 curl -X POST http://localhost:8080/api/auth/register \
@@ -563,10 +564,7 @@ GOOS=windows GOARCH=amd64 go build -o ourway-agent-windows-amd64.exe .
 ```bash
 cd web
 
-# Development build (with source maps)
-npm run build
-
-# Production build (optimized)
+# Build (type-checks, then bundles with Vite)
 npm run build
 ```
 
@@ -574,13 +572,13 @@ npm run build
 
 ```bash
 # Build all images
-docker compose build
+docker compose -f docker/docker-compose.yml build
 
 # Build specific service
-docker compose build server
+docker compose -f docker/docker-compose.yml build server
 
 # Build with version info
-VERSION=1.0.0 docker compose build server
+VERSION=1.0.0 docker compose -f docker/docker-compose.yml build server
 ```
 
 ### Building the CLI

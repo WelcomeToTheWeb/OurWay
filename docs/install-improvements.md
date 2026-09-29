@@ -84,7 +84,7 @@ A new `docker/Dockerfile.agent` allows running the agent in a container, which i
 | `--register` | Auto-register device with server | (off) |
 | `--install-dir DIR` | Installation directory | /opt/ourway (Linux/macOS), C:\Program Files\OurWay\Agent (Windows) |
 | `--skip-service` | Don't install as a service | (off) |
-| `--version VER` | Agent version to install | latest |
+| `--version VER` | Agent version to install | 1.0.0 |
 
 ## Files Changed
 

@@ -32,7 +32,6 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - Streaming mode: sends metrics every 2s when detail page is open
 - Collects: CPU, RAM, disk (usage + I/O), network, uptime, processes
 - OS-specific: Windows services, Linux systemd, macOS launchd
-- Self-updating
 - Configured via env vars or config file
 
 ### Backend Features
@@ -155,7 +154,7 @@ curl -sL https://ourway.example.com/install.sh | bash -s -- --server wss://ourwa
 curl -sL https://ourway.example.com/install.sh | bash -s -- --server wss://ourway.example.com --key YOUR_DEVICE_KEY
 
 # For development (installs from local build)
-./install.sh --server http://localhost:8081 --register
+./install.sh --server http://localhost:8080 --register
 ```
 
 ### Windows
@@ -179,12 +178,12 @@ docker run -d --name ourway-agent \
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--server URL` | OurWay server URL | http://localhost:8081 |
+| `--server URL` | OurWay server URL | http://localhost:8080 |
 | `--key KEY` | Device key (or use --register) | (none) |
 | `--register` | Auto-register device with server | (off) |
 | `--install-dir DIR` | Installation directory | /opt/ourway |
 | `--skip-service` | Don't install as a service | (off) |
-| `--version VER` | Agent version to install | latest |
+| `--version VER` | Agent version to install | 1.0.0 |
 
 ### Uninstalling
 

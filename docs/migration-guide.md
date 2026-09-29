@@ -24,7 +24,7 @@ OurWay 2.0 transforms from a monitoring foundation into a complete RMM platform 
 ### Phase 1: Foundation & Scale
 - **macOS Agent**: Complete macOS support (arm64 + x64) with native metrics
 - **RBAC**: Role-based access control (Admin, Manager, Technician, Viewer)
-- **Alert Enhancements**: Deduplication, acknowledgment, assignment, custom thresholds
+- **Alert Enhancements**: Deduplication, acknowledgment, assignment
 
 ### Phase 2: Remote Management
 - **Remote Sessions**: WebRTC-based screen sharing and control
@@ -33,7 +33,7 @@ OurWay 2.0 transforms from a monitoring foundation into a complete RMM platform 
 
 ### Phase 3: Authentication & Integration
 - **SSO**: OAuth 2.0 and OpenID Connect (Google, Microsoft, Apple)
-- **API v2**: Versioned API with rate limiting
+- **API v2**: Webhook and API-key endpoints under `/api/v2/`
 - **Webhooks**: Event-driven integrations with retry logic
 
 ### Phase 4.1: Scalability
@@ -57,7 +57,7 @@ OurWay 2.0 transforms from a monitoring foundation into a complete RMM platform 
 In 1.x, any authenticated user could access all API endpoints. In 2.0, each endpoint has role-based access control:
 
 - **GET /api/devices**: All roles
-- **POST /api/devices/:id/sessions**: Technician+ roles
+- **POST /api/updates/:id/approve**: Admin or Manager
 - **POST /api/sso/providers**: Admin only
 - **POST /api/patch/policies**: Admin only
 
@@ -65,24 +65,24 @@ If you have custom integrations, ensure they use users with appropriate roles.
 
 ### 2. API Key Scopes
 
-API keys created in 2.0 have scopes (read, write). Legacy keys from 1.x retain full access until rotated.
+API keys (a 2.0 feature) have scopes (read, write). Choose scopes per key when creating it.
 
 ### 3. Database Schema Changes
 
 The database schema has been extended. GORM will automatically run migrations on server startup, but:
 
-- **New tables**: roles, permissions, role_assignments, sso_providers, webhooks, webhook_deliveries, api_keys, software_updates, patch_policies, patch_deployments, file_transfers
-- **Modified tables**: users (+ provider, provider_id, sso_attributes), devices (+ group_id)
+- **New tables**: roles, user_roles, sessions, software_updates, patch_policies, patch_deployments, file_transfers, sso_providers, webhooks, webhook_deliveries, api_keys, metric_history, deployment_results
+- **Modified tables**: users (+ provider, provider_id, sso_attributes), alerts (+ acknowledged)
 
 ### 4. Alert Engine Behavior
 
 - Alerts now include deduplication (5-minute window)
 - Alerts can be acknowledged and assigned
-- Custom per-device thresholds are now supported
+- Alerts auto-resolve when the metric returns below the warning threshold
 
 ### 5. Default JWT Secret
 
-The default JWT secret is still `ourway-secret-key`, but 2.0 will warn at startup if you haven't changed it. Existing tokens remain valid.
+The default JWT secret is `ourway-secret-key`. Set `JWT_SECRET` to a unique value in production; changing the secret invalidates all existing tokens.
 
 ---
 
@@ -130,11 +130,6 @@ Before migrating:
   cp /etc/ourway/server.env /etc/ourway/server.env.backup
   ```
 
-- [ ] **Note your current version**:
-  ```bash
-  ourway-server --version
-  ```
-
 - [ ] **Test in staging**: If possible, test the migration on a staging environment first.
 
 - [ ] **Communicate with users**: Inform users about potential downtime.
@@ -171,12 +166,10 @@ chmod +x /opt/ourway/server/ourway-server
 Add any new environment variables to `/etc/ourway/server.env`:
 
 ```bash
-# Redis (optional but recommended)
+# Redis (optional; enables Redis-backed rate limiting, caching, and the
+# distributed WebSocket hub)
+REDIS_ENABLED="true"
 REDIS_URL="redis://localhost:6379/0"
-
-# Rate limiting
-RATE_LIMIT_REQUESTS="100"
-RATE_LIMIT_WINDOW="1m"
 ```
 
 ### Step 4: Start the Server
@@ -223,8 +216,7 @@ Or use the installer script:
 ```bash
 curl -sL https://releases.ourway.io/agent/install.sh | bash -s \
   --server wss://ourway.example.com/ws \
-  --key <device-key> \
-  --upgrade
+  --key <device-key>
 ```
 
 Agents are backward-compatible, so you can upgrade the server first and agents later.
@@ -249,9 +241,8 @@ All database migrations are handled automatically by GORM on server startup. The
 | Table | Purpose |
 |-------|---------|
 | `roles` | RBAC roles |
-| `permissions` | Permission definitions |
-| `role_permissions` | Role-permission mappings |
 | `user_roles` | User-role assignments |
+| `sessions` | Remote session records |
 | `sso_providers` | SSO provider configurations |
 | `webhooks` | Webhook configurations |
 | `webhook_deliveries` | Webhook delivery history |
@@ -261,21 +252,20 @@ All database migrations are handled automatically by GORM on server startup. The
 | `patch_deployments` | Patch deployment records |
 | `file_transfers` | File transfer tracking |
 | `metric_history` | Historical metrics (time-series) |
+| `deployment_results` | Patch deployment results |
 
 ### Modified Tables
 
 | Table | Changes |
-|-------|---------|
-| `users` | Added: `provider`, `provider_id`, `sso_attributes`, `role_id` |
-| `devices` | Added: `group_id`, `macos_energy`, `macos_disk_encryption` |
-| `alerts` | Added: `acknowledged`, `acknowledged_by`, `assigned_to`, `dedup_key` |
+| `users` | Added: `provider`, `provider_id`, `sso_attributes` |
+| `alerts` | Added: `acknowledged` |
 
 ### Migration Safety
 
 - Migrations are idempotent — safe to run multiple times
-- Migrations use `ADD COLUMN IF NOT EXISTS` where supported
+- Migrations are additive: GORM creates missing tables and adds missing columns
 - Data is preserved — no columns are dropped
-- Migrations run in a transaction — either all succeed or none are applied
+- Take a database backup before upgrading (see the checklist above)
 
 ---
 
@@ -346,7 +336,7 @@ No, but it's recommended. If you change it, all existing tokens become invalid a
 
 ### Q: What happens to my existing users?
 
-Existing users are preserved. In 2.0, they will be assigned the Admin role by default. You can change their roles after migration.
+Existing users are preserved, but 2.0 does not auto-assign roles to them. New users registered in 2.0 receive the `viewer` role by default; existing users need roles assigned after migration (Users page, or `PUT /api/users/:id/roles`).
 
 ### Q: Do agents auto-upgrade?
 

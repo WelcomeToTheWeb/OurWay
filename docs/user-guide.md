@@ -45,11 +45,11 @@ A task-oriented guide to using the OurWay RMM dashboard.
      --server wss://ourway.example.com/ws \
      --key <device-key>
    ```
-   (The device key can be found in the Devices page after pre-registering, or the agent auto-registers.)
+   (Add the `--register` flag to have the installer register the device with the server and obtain a key, or pass an existing key with `--key`.)
 
 2. **View your device**: Once the agent connects, it appears on the Dashboard.
 
-3. **Configure alerts**: Navigate to Devices → [Device] to set custom thresholds.
+3. **View alerts**: Alerts are generated automatically when a device crosses a global threshold (CPU 80/90%, RAM 85/95%, disk 85/95%).
 
 ---
 
@@ -91,32 +91,18 @@ Click a device to open its detail page.
 - **Network I/O**: Inbound/outbound traffic chart
 - **Top processes**: Processes sorted by CPU usage
 
-#### Streaming Mode
-
-When viewing a device detail page, the agent automatically switches to streaming mode, sending metrics every 2 seconds instead of 60. Close the page to revert to normal mode.
-
 #### Remote Session
 
 Click **Remote Session** on the device detail page to start a WebRTC-based remote desktop session.
 
 - **View mode**: Watch the screen without controlling
 - **Control mode**: Click, type, and interact with the remote machine
-- **Quality settings**: Adjust resolution and FPS
+- **Quality settings**: Adjust screen-capture quality (1-100%)
 
 #### Device Actions
 
 - **Reboot**: Restart the device
-- **Run command**: Execute a shell or PowerShell command
-- **Scan for updates**: Trigger a software update scan
-- **Remove device**: Delete the device from OurWay
-
-### Custom Alert Thresholds
-
-On the device detail page, click **Alert Settings** to configure per-device thresholds:
-
-- CPU warning/critical thresholds (%)
-- Memory warning/critical thresholds (%)
-- Disk warning/critical thresholds (%)
+- **Delete**: Remove the device from OurWay
 
 ---
 
@@ -135,7 +121,7 @@ Navigate to **Alerts** to view all alerts across your fleet.
 1. **Created**: Alert triggered by threshold breach
 2. **Acknowledged**: A user has seen the alert
 3. **Assigned**: Alert assigned to a specific user
-4. **Resolved**: Alert cleared manually or automatically when threshold is met
+4. **Resolved**: Alert cleared manually, or automatically when the metric returns to normal
 
 ### Actions
 
@@ -166,13 +152,7 @@ Remote sessions provide real-time screen sharing and control over any managed de
 
 - **Keyboard input**: Type directly into the remote session
 - **Mouse input**: Click and drag to interact
-- **Copy/Paste**: Clipboard sync between local and remote
-- **Screenshot**: Capture the current screen
 - **End session**: Close the remote session
-
-### Session Recording
-
-Sessions can be recorded for playback later. Access recordings from the device detail page under **Sessions**.
 
 ---
 
@@ -183,7 +163,7 @@ Patch management automates software update scanning, approval, and deployment ac
 ### Scanning for Updates
 
 1. Navigate to **Patches**
-2. Click **Scan All Devices** or select specific devices
+2. Select a device and click **Scan** (a fleet-wide scan also runs automatically every 24 hours)
 3. Wait for scan results
 
 ### Viewing Available Updates
@@ -199,8 +179,8 @@ The Patches page shows:
 Click **New Policy** to create a patch policy:
 
 - **Name**: Policy name
-- **Scope**: All devices or specific group
-- **Schedule**: Weekly, monthly, or custom
+- **Scope**: All devices, by tag, or specific devices
+- **Schedule**: Daily, weekly, or monthly
 - **Auto-reboot**: Automatically reboot after deployment
 - **Approval required**: Require manual approval before deploying
 - **Batch size**: Maximum devices to patch simultaneously
@@ -214,11 +194,12 @@ Click **New Policy** to create a patch policy:
 
 ### Deployment Rollback
 
-If a deployment fails, you can roll it back:
+There is no rollback button in the web UI. If a deployment fails, you can roll it back via the API:
 
-1. Navigate to **Patches** → **Deployments**
-2. Select the failed deployment
-3. Click **Rollback**
+```bash
+curl -X POST https://ourway.example.com/api/patch/deployments/<deployment-id>/rollback \
+-H "Authorization: Bearer <token>"
+```
 
 ---
 
@@ -266,9 +247,9 @@ Manage users, roles, and permissions.
 | Role | Can View | Can Modify | Can Manage Users | Can Configure |
 |------|----------|------------|-----------------|---------------|
 | Admin | Everything | Everything | Yes | Yes |
-| Manager | Everything | Devices, Alerts | No | Yes |
-| Technician | Devices, Alerts | Alerts, Commands | No | No |
-| Viewer | Everything | Nothing | No | No |
+| Manager | Devices, Users, Roles, Alerts | Devices, Alerts, user roles | No | No |
+| Technician | Devices, Users, Roles, Alerts | Devices, Alerts | No | No |
+| Viewer | Devices, Users, Roles, Alerts | Nothing | No | No |
 
 ### Managing Roles
 
@@ -306,7 +287,7 @@ Configure single sign-on providers for your users.
 - **Auth URL**: `https://login.microsoftonline.com/common/oauth2/v2.0/authorize`
 - **Token URL**: `https://login.microsoftonline.com/common/oauth2/v2.0/token`
 - **User Info URL**: `https://graph.microsoft.com/oidc/userinfo`
-- **Scopes**: `openid profile email`
+- **Scopes**: `openid profile email offline_access`
 
 #### Apple
 
@@ -317,11 +298,7 @@ Configure single sign-on providers for your users.
 
 ### Just-in-Time Provisioning
 
-When a user logs in via SSO for the first time, an account is automatically created with:
-
-- Email from SSO as username
-- Random password (not used, SSO is primary)
-- Viewer role (admin can change)
+When a user logs in via SSO for the first time, an account is automatically created with the user's email as the username. The account has no role initially — an admin must assign one (e.g., viewer) on the **Users** page before the user can access role-restricted pages.
 
 ---
 
@@ -344,10 +321,12 @@ Configure webhooks to send event notifications to external systems.
 
 - `device_registered`: New device registered
 - `device_online`: Device comes online
+- `device_offline`: Device goes offline
 - `alert_created`: New alert created
 - `alert_resolved`: Alert resolved
 - `patch_deployed`: Patch deployed to device
 - `session_started`: Remote session started
+- `session_frame`: Remote session video frame captured
 
 ### Testing a Webhook
 
@@ -355,7 +334,7 @@ Click **Test** on a webhook to send a sample event and verify it works.
 
 ### Delivery History
 
-Click a webhook to view recent delivery history, including status codes and response times.
+Click a webhook to view recent delivery history, including status, status codes, attempts, and response bodies.
 
 ---
 
@@ -371,20 +350,20 @@ Generate API keys for programmatic access to the OurWay API.
 4. Select scopes: read, write, or both
 5. Choose expiration: never, 1h, 24h, 7d, 30d, 90d
 6. Click **Create**
-7. **Copy the key** — it's only shown once
+7. **Copy the key** — you'll need it for API requests
 
 ### Using an API Key
 
 Include the key in API requests:
 
 ```bash
-curl -H "X-API-Key: owk_<your-key>" https://ourway.example.com/api/v2/devices
+curl -H "X-API-Key: owk_<your-key>" https://ourway.example.com/api/devices
 ```
 
 Or with the Bearer prefix:
 
 ```bash
-curl -H "Authorization: Bearer owk_<your-key>" https://ourway.example.com/api/v2/devices
+curl -H "Authorization: Bearer owk_<your-key>" https://ourway.example.com/api/devices
 ```
 
 ### Managing API Keys
@@ -424,9 +403,8 @@ curl -H "Authorization: Bearer owk_<your-key>" https://ourway.example.com/api/v2
 
 ### Monitoring
 
-- Set custom alert thresholds per critical server
 - Acknowledge alerts promptly to prevent alert fatigue
-- Use device groups to organize related devices
+- Alert thresholds are global per metric (CPU, memory, disk) and apply to all devices
 
 ### Patching
 

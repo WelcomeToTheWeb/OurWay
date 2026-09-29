@@ -10,14 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **macOS Agent Support** (arm64 + x64) with native metrics collectors
 - **Role-Based Access Control (RBAC)** with 4 built-in roles (Admin, Manager, Technician, Viewer)
-- **WebRTC Remote Sessions** with view/control modes, quality settings, and session recording
+- **WebRTC Remote Sessions** with view/control modes and capture quality settings
 - **Software Patch Management** with scanning, policies, deployment, and rollback
 - **File Transfer** with server-mediated push/pull and drag-and-drop upload
 - **SSO Integration** (OAuth 2.0 / OpenID Connect) for Google, Microsoft, and Apple
-- **API v2** at `/api/v2/` with rate limiting (100 req/min per user)
-- **Webhook System** with 6 event types, retry logic, and delivery tracking
+- **API v2** endpoints for webhooks and API keys at `/api/v2/`, with rate limiting (100 req/min per user)
+- **Webhook System** with 8 event types, retry logic, and delivery tracking
 - **API Key Management** with scoped keys, rotation, and revocation
-- **Alert Enhancements**: deduplication, acknowledgment, assignment, custom thresholds
+- **Alert Enhancements**: deduplication, acknowledgment, assignment
 - **Dark Mode** with light/dark/system options
 - **Responsive Mobile Layout** with hamburger menu
 - **Keyboard Shortcuts** with chord-based navigation
@@ -87,8 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CSRF protection with state parameter
 
 **API v2 & Webhooks**
-- Versioned API at `/api/v2/`
-- Webhook system with 6 event types: device_registered, device_online, alert_created, alert_resolved, patch_deployed, session_started
+- Versioned API endpoints for webhooks and API keys at `/api/v2/`
+- Webhook system with 8 event types: device_registered, device_online, device_offline, alert_created, alert_resolved, patch_deployed, session_started, session_frame
 - Webhook delivery with exponential backoff retry (max 5 attempts)
 - Delivery tracking and history
 - Webhook test delivery
@@ -101,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JWT tokens now include user roles
 - RBAC middleware for route protection
 - Role and user management API endpoints
-- New users automatically assigned viewer role
+- New local users are automatically assigned the viewer role at registration
 
 **macOS Agent Support**
 - Complete macOS agent support (arm64 and x64)
@@ -120,7 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - WebRTC-based remote screen sharing and control
 - Platform-specific screen capture (Linux, macOS, Windows)
 - Real-time remote input (mouse/keyboard)
-- Quality controls (resolution, FPS, quality)
+- Quality controls (capture quality)
 - View/control mode switching
 - Session management API
 
@@ -157,49 +157,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Alert engine with configurable thresholds (CPU: 80/90%, RAM: 85/95%, Disk: 85/95%)
 - Alert severity levels: info, warning, critical
 - WebSocket hub for real-time communication (`/ws` endpoint)
-- Remote command execution (shell, PowerShell, restart service, kill process)
-- Session recording with playback
 - Health check endpoint
 - PostgreSQL 16 database with GORM ORM
 - Graceful shutdown handling
 - Environment-based configuration
 
 **Agent**
-- Cross-platform support (Linux x64/arm64, Windows x64/arm64)
-- Auto-registration with server on startup
+- Cross-platform support (Linux x64/arm64, Windows x64)
 - Heartbeat monitoring (15s interval)
 - Metrics collection (60s interval)
-- Session activity streaming (2s interval)
 - Platform-specific collectors (procfs for Linux, WMI for Windows)
-- Command execution (shell, PowerShell, service restart, process kill)
 - Service installation (systemd on Linux, Windows service on Windows)
 - Logging with file rotation
 - Auto-reconnect with backoff
 - Graceful shutdown
 
 **CLI**
-- `ow install` - Interactive RMM agent installer
-- `ow agent install` - Standalone agent installer
-- `ow update` - Update OurWay installation
-- `ow diagnostics` - Run health and connectivity checks
-- `ow login` - Authenticate with the server
-- `ow logout` - Clear local credentials
-- `ow version` - Display version information
-- Token storage at `~/.ourway/auth.json`
+- `ourway-cli register` - Register a new device with the server
+- `ourway-cli install` - Install the OurWay agent on this machine
+- `ourway-cli uninstall` - Remove the OurWay agent
+- `ourway-cli status` - Show the status of the OurWay agent
+- `ourway-cli logs` - Show OurWay agent logs
+- `ourway-cli version` - Display version information
+- `--server` flag to select the server URL (default http://localhost:8081)
 
 **Frontend**
 - Device dashboard with real-time status
 - Device details page with metrics charts
 - Alerts page with filtering
-- Remote command interface
-- Session recording player
 - Authentication pages (login/register)
 - User settings
-- Built with React 19, TypeScript, and Vite
+- Built with React 18, TypeScript, and Vite
 
 **Docker**
 - Multi-stage Dockerfile for server
-- Multi-stage Dockerfile for each agent platform (linux-x64, linux-arm64, windows-x64, windows-arm64)
+- Multi-stage Dockerfile for each agent platform (linux-x64, linux-arm64, windows-x64)
 - Docker Compose configuration with PostgreSQL 16
 - Build script for all Docker images
 

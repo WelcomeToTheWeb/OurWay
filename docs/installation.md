@@ -249,7 +249,7 @@ For Linux and macOS, a shell installer is provided:
 
 ```bash
 # Download the installer
-curl -sL https://releases.ourway.io/agent/install.sh | bash -s \
+curl -sL https://ourway.example.com/install.sh | bash -s -- \
   --server wss://ourway.example.com/ws \
   --key <device-key>
 ```
@@ -258,11 +258,15 @@ Options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--server` | WebSocket server URL | `ws://localhost:8081` |
-| `--key` | Device key | (required) |
-| `--user` | Install as user agent (not system) | false |
-| `--version` | Show installer version | - |
-| `--help` | Show help | - |
+| `--server` | Server URL | `http://localhost:8080` |
+| `--key` | Device key | (none; required unless `--register` is used) |
+| `--register` | Register the device with the server and obtain a key | (off) |
+| `--install-dir` | Installation directory | `/opt/ourway` |
+| `--skip-service` | Don't install as a service | (off) |
+| `--version` | Agent version to install | `1.0.0` |
+| `-h`, `--help` | Show help | - |
+
+The script installs the binary to `/opt/ourway/ourway-agent`, writes the agent config to `/opt/ourway/config/device.json`, and (unless `--skip-service` is passed) starts it as a systemd service (`/etc/systemd/system/ourway-agent.service`) on Linux or a launchd daemon (`/Library/LaunchDaemons/com.ourway.agent.plist`) on macOS.
 
 ---
 
@@ -276,13 +280,13 @@ git clone https://github.com/ourway-rmm/ourway.git
 cd ourway
 
 # Start all services
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # Check status
-docker compose ps
+docker compose -f docker/docker-compose.yml ps
 
 # View logs
-docker compose logs -f server
+docker compose -f docker/docker-compose.yml logs -f server
 ```
 
 This creates:
@@ -306,7 +310,7 @@ docker volume ls | grep ourway
 Override environment variables in `docker-compose.yml` or pass them at runtime:
 
 ```bash
-JWT_SECRET="my-custom-secret" docker compose up -d
+JWT_SECRET="my-custom-secret" docker compose -f docker/docker-compose.yml up -d
 ```
 
 ### Build Tags
@@ -314,7 +318,7 @@ JWT_SECRET="my-custom-secret" docker compose up -d
 Pass build-time version information:
 
 ```bash
-VERSION=1.0.0 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose build server
+VERSION=1.0.0 GIT_COMMIT=$(git rev-parse --short HEAD) docker compose -f docker/docker-compose.yml build server
 ```
 
 ---
@@ -352,9 +356,9 @@ GOOS=windows GOARCH=amd64 go build -o ourway-cli-windows-amd64.exe .
 |-----------|-----------------|--------|
 | Server (env) | `/etc/ourway/server.env` | Shell environment variables |
 | Server (systemd) | `/etc/systemd/system/ourway-server.service` | systemd unit file |
-| Agent (env) | `/etc/ourway/agent.conf` (Linux) or `~/.ourway/agent.conf` (macOS) | Shell environment variables |
+| Agent (config) | `/opt/ourway/config/device.json` (written by the installer); the agent also reads `OURWAY_SERVER` and `OURWAY_DEVICE_KEY` environment variables | JSON / env |
 | Agent (systemd) | `/etc/systemd/system/ourway-agent.service` | systemd unit file |
-| Agent (launchd) | `~/Library/LaunchAgents/com.ourway.agent.plist` | launchd plist |
+| Agent (launchd) | `/Library/LaunchDaemons/com.ourway.agent.plist` (installer script) or `~/Library/LaunchAgents/com.ourway.agent.plist` (`ourway-agent --install`) | launchd plist |
 | Web (nginx) | `/etc/nginx/conf.d/ourway.conf` or `docker/nginx.conf` | Nginx configuration |
 
 ---
@@ -425,7 +429,7 @@ sudo rm -rf /etc/ourway
 
 ```bash
 cd ourway
-docker compose down
-docker compose down -v  # Also remove volumes (deletes database!)
-docker compose down --rmi all  # Also remove images
+docker compose -f docker/docker-compose.yml down
+docker compose -f docker/docker-compose.yml down -v  # Also remove volumes (deletes database!)
+docker compose -f docker/docker-compose.yml down --rmi all  # Also remove images
 ```

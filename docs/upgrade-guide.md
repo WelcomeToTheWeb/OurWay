@@ -95,9 +95,6 @@ sudo cp ourway-server /opt/ourway/server/ourway-server
 
 Option B: Download release binary
 ```bash
-# Check current version
-ourway-server --version
-
 # Download new version (example: 2.0.0)
 curl -L https://releases.ourway.io/server/v2.0.0/ourway-server-linux-amd64 \
   -o /opt/ourway/server/ourway-server
@@ -119,9 +116,6 @@ sudo systemctl start ourway-server
 ```bash
 # Check health
 curl http://localhost:8080/health
-
-# Check version
-ourway-server --version
 
 # Check logs for migration messages
 journalctl -u ourway-server -f
@@ -318,12 +312,12 @@ ls /var/www/ourway/
 
 ### RBAC issues after upgrade
 
-Existing users should be auto-assigned the Admin role. If not:
+Existing users keep their current roles after the upgrade (2.0 does not auto-assign roles). If a user has no role:
 
 ```bash
 # Manually assign admin role via API
-curl -X POST http://localhost:8080/api/v2/users/<user-id>/roles \
+curl -X PUT http://localhost:8080/api/users/<user-id>/roles \
   -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \
-  -d '{"role_id": "<admin-role-id>"}'
+  -d '{"roles": ["admin"]}'
 ```

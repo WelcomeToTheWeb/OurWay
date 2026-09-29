@@ -117,7 +117,7 @@ The agent is a lightweight Go binary deployed on each managed device.
 
 - Collect system metrics (CPU, RAM, disk, network, processes)
 - Send heartbeats every 15 seconds
-- Send metrics every 60 seconds (2 seconds in streaming mode)
+- Send metrics every 60 seconds
 - Maintain persistent WebSocket connection to server
 - Support platform-specific service installation
 
@@ -197,6 +197,7 @@ PostgreSQL 16 is used for persistent storage.
 | `value` | FLOAT | Current value |
 | `threshold` | FLOAT | Alert threshold |
 | `resolved` | BOOLEAN (indexed, default: false) | Resolution status |
+| `acknowledged` | BOOLEAN (default: false) | Acknowledgment status |
 | `created_at` | TIMESTAMP | Creation timestamp |
 
 ---
@@ -248,7 +249,7 @@ PostgreSQL 16 is used for persistent storage.
        ↓
 4. Save alert to database
        ↓
-5. (Future) Broadcast alert notification to users
+5. Publish an `alert_created` webhook event; the web dashboard loads alerts via the REST API
 ```
 
 ### Authentication Flow
@@ -389,13 +390,17 @@ func (e *Engine) Evaluate(m models.Metrics, deviceID, deviceName string) {
 }
 ```
 
+### Alert Workflow
+
+- **Deduplication**: The same alert (device + metric + severity) is not re-fired within the deduplication window (5 minutes by default)
+- **Acknowledgment and assignment**: Alerts can be marked as acknowledged and assigned to a user
+- **Auto-resolution**: An alert is marked resolved automatically when its metric drops back to or below the warning threshold
+
 ### Future Enhancements
 
 - Per-device custom thresholds
-- Alert deduplication (don't repeat within a time window)
 - Alert escalation
 - Email/SMS/Slack notifications
-- Alert acknowledgment workflow
 
 ---
 
@@ -472,7 +477,7 @@ func (e *Engine) Evaluate(m models.Metrics, deviceID, deviceName string) {
 
 ### Key Design Decisions
 
-1. **Streaming vs Snapshots**: Agents send snapshots every 60 seconds by default. When a user opens a device detail page, the server tells the agent to switch to streaming mode (2-second intervals). When the user leaves, it reverts. This minimizes bandwidth and processing while providing real-time data when needed.
+1. **Snapshot Metrics**: Agents send a full metrics snapshot every 60 seconds. The server relays them to the dashboard in real time over WebSocket; there is no high-frequency streaming mode, which keeps bandwidth and processing minimal.
 
 2. **Alerting**: Threshold-based rules are evaluated server-side every time metrics are received. This is simple, fast, and doesn't require a separate alerting system.
 
@@ -480,7 +485,7 @@ func (e *Engine) Evaluate(m models.Metrics, deviceID, deviceName string) {
 
 4. **Cross-platform Agent**: Uses Go's build tags for OS-specific code. gopsutil handles 80% of the work cross-platform. The agent is a single static binary per platform.
 
-5. **WebSocket over REST for real-time**: REST is used for CRUD operations. WebSocket is used for real-time bidirectional communication (heartbeats, metrics streaming, alerts). This avoids polling and provides instant updates.
+5. **WebSocket over REST for real-time**: REST is used for CRUD operations. WebSocket is used for real-time bidirectional communication (heartbeats, metrics, status updates). This avoids polling and provides instant updates.
 
 6. **No message queue**: The current architecture uses in-memory channels and direct database writes. For scale-out, a message queue (e.g., Redis, RabbitMQ) can be added later.
 
@@ -490,16 +495,12 @@ func (e *Engine) Evaluate(m models.Metrics, deviceID, deviceName string) {
 
 ### Current Limitations (MVP)
 
-- Single server process (no horizontal scaling)
-- In-memory WebSocket hub (connections lost on restart)
 - No message queue (direct database writes)
 - No read replicas
 
 ### Future Scaling Path
 
-1. **Horizontal scaling**: Multiple server instances behind a load balancer with shared WebSocket state (Redis pub/sub)
-2. **Database scaling**: Read replicas for analytics, connection pooling (PgBouncer)
-3. **Metrics storage**: Time-series database (InfluxDB, TimescaleDB) for historical metrics
-4. **Message queue**: RabbitMQ or Redis for decoupling agent ingestion from processing
-5. **Caching**: Redis for device status and recent metrics
-6. **CDN**: Static assets served from CDN for global users
+1. **Database scaling**: Read replicas for analytics, connection pooling (PgBouncer)
+2. **Metrics storage**: Time-series database (InfluxDB, TimescaleDB) for historical metrics
+3. **Message queue**: RabbitMQ or Redis for decoupling agent ingestion from processing
+4. **CDN**: Static assets served from CDN for global users

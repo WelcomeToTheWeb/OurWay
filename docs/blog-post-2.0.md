@@ -24,7 +24,7 @@ Patch management was the #1 request from our community, and we listened. OurWay 
 4. **Deploy** — Roll out updates with batching and scheduling
 5. **Reboot** — Automatic reboot management
 6. **Verify** — Get success/failure reports per device
-7. **Rollback** — One-click rollback for failed deployments
+7. **Rollback** — Roll back failed deployments via the API
 
 Supports Windows Update, macOS Software Update, apt, yum, and more.
 
@@ -34,7 +34,7 @@ We know security is non-negotiable. That's why 2.0 includes:
 
 - **Role-Based Access Control**: Define who can see what, who can make changes, and who can administer the platform. Four built-in roles (Admin, Manager, Technician, Viewer) plus custom roles.
 - **SSO Integration**: Log in with Google, Microsoft, or Apple. Just-in-time provisioning means new users get accounts automatically.
-- **API v2**: A new, versioned API with rate limiting, scoped API keys, and webhook support.
+- **API v2**: Versioned endpoints for webhooks and API keys, plus rate limiting and scoped API keys.
 
 ### A Faster, More Beautiful Interface
 
@@ -52,10 +52,10 @@ Whether you're managing 10 devices or 10,000, OurWay 2.0 handles it. We've imple
 
 - Redis-backed rate limiting and caching
 - Horizontal scaling support (multiple servers behind a load balancer)
-- Time-series metrics storage with configurable retention
+- Time-series metrics storage with tiered retention
 - WebSocket state sharing for real-time communication at scale
 
-Our load testing validated 10,000+ concurrent devices with sub-300ms remote session latency.
+Our built-in scale load tests simulate 10,000+ concurrent devices.
 
 ## Getting Started
 

@@ -42,7 +42,6 @@ The OurWay agent is a lightweight, cross-platform Go binary that collects system
 │  │  • Connect/Reconnect with backoff             │   │
 │  │  • Heartbeat timer (15s)                      │   │
 │  │  • Metrics timer (60s default)                │   │
-│  │  • Stream mode (2s when viewing)              │   │
 │  └───────────────────────────────────────────────┘   │
 │                                                       │
 │  ┌───────────────────────────────────────────────┐   │
@@ -176,7 +175,6 @@ Collected via: `gopsutil/host.Uptime()`, `gopsutil/load.Avg()`
 | Mode | Interval | Trigger |
 |------|----------|---------|
 | Normal | 60s | Automatic, runs continuously |
-| Streaming | 2s (configurable) | Server requests when user views device |
 | Heartbeat | 15s | Automatic liveness signal |
 
 ---
@@ -222,7 +220,7 @@ Sent every 15 seconds to indicate the agent is alive.
 
 #### metrics
 
-Sent every 60 seconds (or 2 seconds in streaming mode) with full system metrics.
+Sent every 60 seconds (configurable via `OURWAY_METRICS_INTERVAL`) with full system metrics.
 
 ```json
 {
@@ -290,28 +288,24 @@ Sent when the agent status changes.
 
 ### Server → Agent Messages
 
-#### stream
+The server sends the following message types to the agent, each wrapped in
+the standard envelope:
 
-Server requests the agent to switch to streaming mode (higher frequency metrics).
+| Type | Description |
+|------|-------------|
+| `session_start` | Start a remote session (begin screen capture) |
+| `session_end` | End the remote session |
+| `session_quality` | Change screen-capture video quality (1–100) |
+| `input` | Forward keyboard/mouse input from the session viewer |
+| `file_push` | Download a file pushed by the server |
+| `file_pull` | Upload a file from the device to the server |
+| `scan_updates` | Run a software update scan |
+| `deploy_updates` | Deploy approved software updates |
+| `rollback_updates` | Roll back a software deployment |
+| `reboot` | Reboot the device |
 
-```json
-{
-  "type": "stream",
-  "interval": 2
-}
-```
-
-- `interval`: Streaming interval in seconds (default: 2)
-
-#### stream_end
-
-Server requests the agent to stop streaming and return to normal mode.
-
-```json
-{
-  "type": "stream_end"
-}
-```
+The agent also still handles `stream`, `stream_end`, and `command` messages,
+but the server does not currently send them.
 
 ### Reconnection Behavior
 
@@ -326,42 +320,11 @@ The agent uses exponential backoff for reconnection:
 
 ## Streaming Mode
 
-Streaming mode provides real-time, high-frequency metrics when a user is viewing a specific device in the web dashboard.
-
-### How It Works
-
-```
-User opens device detail page
-    ↓
-Frontend sends "stream_start" via WebSocket
-    ↓
-Server identifies the device's agent connection
-    ↓
-Server sends {"type": "stream", "interval": 2} to the agent
-    ↓
-Agent increases metrics frequency to 2 seconds
-    ↓
-User closes device detail page (or leaves for 30s)
-    ↓
-Server sends {"type": "stream_end"} to the agent
-    ↓
-Agent reverts to 60-second metrics interval
-```
-
-### Benefits
-
-- **Low overhead**: Normal operation uses minimal resources (1 metrics report per minute)
-- **Real-time when needed**: 2-second granularity when actively monitoring
-- **Automatic**: No user intervention required
-
-### Configuration
-
-The streaming interval can be customized in the agent configuration:
-
-```bash
-# Default: 2 seconds
-# Can be changed by modifying the client code or adding a config option
-```
+The agent's configuration includes a stream interval (default 2 seconds) and
+the agent retains handling for `stream`/`stream_end` messages that would
+switch it to a higher-frequency metrics interval. The server does not
+currently send any such messages, so streaming mode is never active and the
+agent always reports metrics at the normal interval (default 60 seconds).
 
 ---
 
@@ -482,7 +445,7 @@ OurWay Agent v1.0.0
 Usage: ourway-agent [flags]
 
 Flags:
-  --server string       WebSocket server URL (default "ws://localhost:8081")
+  --server string       WebSocket server URL (default "ws://localhost:8080")
   --key string          Device key
   --install             Install as a service and exit
   --uninstall           Uninstall service and exit
@@ -525,4 +488,4 @@ curl http://localhost:8080/health
 #### High CPU usage by agent
 
 - Increase the metrics interval: `export OURWAY_METRICS_INTERVAL="120s"`
-- Check for streaming mode: if a device page is open, the agent sends metrics every 2 seconds
+- The agent has no active streaming mode; metrics are sent at the configured interval (default 60s)
