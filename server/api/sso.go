@@ -71,8 +71,9 @@ func (h *SSOHandler) Authorize(c *gin.Context) {
 	rand.Read(stateBytes)
 	state := hex.EncodeToString(stateBytes)
 
-	// Store state in session cookie
-	c.SetCookie("sso_state", state, 300, "/", "", false, true)
+	// Store state in session cookie. Secure=true: this is a CSRF state
+	// cookie on a flow that must not be replayable over plaintext HTTP.
+	c.SetCookie("sso_state", state, 300, "/", "", true, true)
 
 	redirectURI := h.redirect + "/api/auth/sso/" + providerName + "/callback"
 	authorizeURL := h.oauth.AuthorizeURL(provider, redirectURI, state)

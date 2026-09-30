@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Webhook, TestTube2, RefreshCw, ExternalLink } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import {
   createWebhook,
   listWebhooks,
@@ -13,14 +14,14 @@ import {
 } from '../api/webhooks';
 
 const EVENT_TYPES = [
-  { value: 'device_registered', label: 'Device Registered' },
-  { value: 'device_online', label: 'Device Online' },
-  { value: 'device_offline', label: 'Device Offline' },
-  { value: 'alert_created', label: 'Alert Created' },
-  { value: 'alert_resolved', label: 'Alert Resolved' },
-  { value: 'patch_deployed', label: 'Patch Deployed' },
-  { value: 'session_started', label: 'Session Started' },
-  { value: 'session_frame', label: 'Session Frame' },
+  { value: 'device_registered', key: 'deviceRegistered' },
+  { value: 'device_online', key: 'deviceOnline' },
+  { value: 'device_offline', key: 'deviceOffline' },
+  { value: 'alert_created', key: 'alertCreated' },
+  { value: 'alert_resolved', key: 'alertResolved' },
+  { value: 'patch_deployed', key: 'patchDeployed' },
+  { value: 'session_started', key: 'sessionStarted' },
+  { value: 'session_frame', key: 'sessionFrame' },
 ];
 
 function parseEvents(events: string): string {
@@ -32,6 +33,7 @@ function parseEvents(events: string): string {
 }
 
 export function Webhooks() {
+  const { t } = useTranslation();
   const [webhooks, setWebhooks] = useState<WebhookType[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -73,7 +75,7 @@ export function Webhooks() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this webhook?')) return;
+    if (!confirm(t('webhooks.deleteConfirm'))) return;
     try {
       await deleteWebhook(id);
       loadWebhooks();
@@ -127,34 +129,34 @@ export function Webhooks() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Webhooks</h1>
-          <p className="text-sm text-text-secondary">Receive event notifications at your HTTP endpoint</p>
+          <h1 className="text-2xl font-bold text-text-primary">{t('webhooks.title')}</h1>
+          <p className="text-sm text-text-secondary">{t('webhooks.subtitle')}</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
           className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent-dark"
         >
           <Plus className="h-4 w-4" />
-          Add Webhook
+          {t('webhooks.addWebhook')}
         </button>
       </div>
 
       {showForm && (
         <div className="mb-6 rounded-2xl border border-bg-border bg-bg-card p-6">
-          <h2 className="mb-4 text-lg font-semibold text-text-primary">Add Webhook</h2>
+          <h2 className="mb-4 text-lg font-semibold text-text-primary">{t('webhooks.addWebhook')}</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-xs font-medium text-text-secondary">Name</label>
+              <label className="mb-1 block text-xs font-medium text-text-secondary">{t('common.name')}</label>
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
-                placeholder="Webhook name"
+                placeholder={t('webhooks.namePlaceholder')}
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-text-secondary">URL</label>
+              <label className="mb-1 block text-xs font-medium text-text-secondary">{t('webhooks.url')}</label>
               <input
                 type="url"
                 value={form.url}
@@ -165,7 +167,7 @@ export function Webhooks() {
             </div>
           </div>
           <div className="mt-4">
-            <label className="mb-2 block text-xs font-medium text-text-secondary">Events</label>
+            <label className="mb-2 block text-xs font-medium text-text-secondary">{t('webhooks.events')}</label>
             <div className="grid grid-cols-3 gap-2">
               {EVENT_TYPES.map((e) => (
                 <label
@@ -184,7 +186,7 @@ export function Webhooks() {
                     }}
                     className="accent-accent"
                   />
-                  {e.label}
+                  {t(`webhooks.types.${e.key}`)}
                 </label>
               ))}
             </div>
@@ -193,18 +195,18 @@ export function Webhooks() {
             onClick={handleCreate}
             className="mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent-dark"
           >
-            Save
+            {t('common.save')}
           </button>
         </div>
       )}
 
       {loading ? (
-        <p className="text-sm text-text-secondary">Loading...</p>
+        <p className="text-sm text-text-secondary">{t('common.loading')}</p>
       ) : webhooks.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-bg-border py-12">
           <Webhook className="mb-3 h-10 w-10 text-text-muted" />
-          <p className="text-sm text-text-secondary">No webhooks configured</p>
-          <p className="text-xs text-text-muted">Add a webhook to receive event notifications</p>
+          <p className="text-sm text-text-secondary">{t('webhooks.none')}</p>
+          <p className="text-xs text-text-muted">{t('webhooks.noneDesc')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -218,7 +220,7 @@ export function Webhooks() {
                   <p className="font-medium text-text-primary">{w.name}</p>
                   <p className="text-xs text-text-secondary">{w.url}</p>
                   <p className="text-xs text-text-muted">
-                    Events: {parseEvents(w.events)}
+                    {t('webhooks.events')}: {parseEvents(w.events)}
                   </p>
                 </div>
               </div>
@@ -229,13 +231,13 @@ export function Webhooks() {
                     w.enabled ? 'bg-status-success/15 text-status-success' : 'bg-slate-700 text-text-secondary'
                   }`}
                 >
-                  {w.enabled ? 'Enabled' : 'Disabled'}
+                  {w.enabled ? t('common.enabled') : t('common.disabled')}
                 </button>
                 <button
                   onClick={() => handleTest(w.id)}
                   disabled={testing === w.id}
                   className="rounded-lg p-2 text-text-secondary hover:bg-accent/15 hover:text-accent"
-                  title="Send test event"
+                  title={t('webhooks.sendTestEvent')}
                 >
                   {testing === w.id ? (
                     <RefreshCw className="h-4 w-4 animate-spin" />
@@ -246,14 +248,14 @@ export function Webhooks() {
                 <button
                   onClick={() => handleViewDeliveries(w)}
                   className="rounded-lg p-2 text-text-secondary hover:bg-accent/15 hover:text-accent"
-                  title="View deliveries"
+                  title={t('webhooks.viewDeliveries')}
                 >
                   <ExternalLink className="h-4 w-4" />
                 </button>
                 <button
                   onClick={() => handleDelete(w.id)}
                   className="rounded-lg p-2 text-text-secondary hover:bg-status-error/15 hover:text-status-error"
-                  title="Delete"
+                  title={t('common.delete')}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -269,18 +271,18 @@ export function Webhooks() {
           <div className="w-full max-w-2xl rounded-2xl border border-bg-border bg-bg-card p-6">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-text-primary">
-                Delivery History — {selectedWebhook.name}
+                {t('webhooks.deliveryHistory')} — {selectedWebhook.name}
               </h2>
               <button
                 onClick={() => setSelectedWebhook(null)}
                 className="text-text-secondary hover:text-text-primary"
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
             <div className="max-h-96 overflow-y-auto">
               {deliveries.length === 0 ? (
-                <p className="text-sm text-text-secondary">No deliveries yet</p>
+                <p className="text-sm text-text-secondary">{t('webhooks.noDeliveries')}</p>
               ) : (
                 <div className="space-y-2">
                   {deliveries.map((d) => (
@@ -291,7 +293,7 @@ export function Webhooks() {
                       <div>
                         <p className="text-sm font-medium text-text-primary">{d.event}</p>
                         <p className="text-xs text-text-secondary">
-                          {new Date(d.created_at).toLocaleString()} — {d.attempts} attempt(s)
+                          {new Date(d.created_at).toLocaleString()} — {t('webhooks.attempts', { count: d.attempts })}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -310,7 +312,7 @@ export function Webhooks() {
                           <button
                             onClick={() => handleRetry(selectedWebhook.id, d.id)}
                             className="rounded-lg p-1.5 text-text-secondary hover:bg-accent/15 hover:text-accent"
-                            title="Retry"
+                            title={t('webhooks.retry')}
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
                           </button>

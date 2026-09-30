@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Search, Server, RefreshCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useDevices } from '../hooks/useDevices';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../auth/context';
@@ -7,6 +8,7 @@ import { DeviceCard } from '../components/DeviceCard';
 import { Grid } from 'react-window';
 
 export function Devices() {
+  const { t } = useTranslation();
   const { devices, loading, error, refresh } = useDevices();
   const { accessToken } = useAuth();
   // Realtime presence: WS status/heartbeat frames update the shared device
@@ -23,15 +25,15 @@ export function Devices() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Devices</h1>
-          <p className="text-sm text-text-secondary">{devices.length} monitored devices</p>
+          <h1 className="text-2xl font-semibold text-text-primary">{t('devices.title')}</h1>
+          <p className="text-sm text-text-secondary">{t('devices.count', { count: devices.length })}</p>
         </div>
         <button
           onClick={refresh}
           className="flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-text-primary transition-colors hover:bg-bg"
         >
           <RefreshCw className="h-4 w-4" />
-          Refresh
+          {t('common.refresh')}
         </button>
       </div>
 
@@ -41,7 +43,7 @@ export function Devices() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search devices by name or hostname..."
+          placeholder={t('devices.searchDevices')}
           className="w-full rounded-lg border border-bg-border bg-bg py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
         />
       </div>
@@ -55,7 +57,7 @@ export function Devices() {
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-16 text-text-secondary">
           <Server className="h-10 w-10 text-text-muted" />
-          <p className="mt-3 text-sm">{search ? 'No devices match your search' : 'No devices found'}</p>
+          <p className="mt-3 text-sm">{search ? t('devices.noMatch') : t('devices.none')}</p>
         </div>
       ) : filtered.length > 20 ? (
         <div className="rounded-xl border border-bg-border bg-bg-card">

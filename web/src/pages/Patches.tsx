@@ -17,45 +17,39 @@ import {
   approveUpdate,
 } from '../api/patching';
 import { getDevices } from '../api/devices';
+import { useTranslation } from 'react-i18next';
 import type { Device } from '../types/device';
 import type { SoftwareUpdate } from '../types/patch';
 
 const statusConfig: Record<
   SoftwareUpdate['status'],
-  { label: string; className: string; icon: typeof Check }
+  { className: string; icon: typeof Check }
 > = {
   detected: {
-    label: 'Detected',
     className: 'bg-status-warning/15 text-status-warning ring-1 ring-inset ring-status-warning/30',
     icon: Clock,
   },
   approved: {
-    label: 'Approved',
     className: 'bg-accent/15 text-accent ring-1 ring-inset ring-accent/30',
     icon: Check,
   },
   downloading: {
-    label: 'Downloading',
     className: 'bg-accent/15 text-accent ring-1 ring-inset ring-accent/30',
     icon: Download,
   },
   installing: {
-    label: 'Installing',
     className: 'bg-accent/15 text-accent ring-1 ring-inset ring-accent/30',
     icon: Activity,
   },
   installed: {
-    label: 'Installed',
     className: 'bg-status-online/15 text-status-online ring-1 ring-inset ring-status-online/30',
     icon: Check,
   },
   failed: {
-    label: 'Failed',
     className: 'bg-status-error/15 text-status-error ring-1 ring-inset ring-status-error/30',
     icon: X,
   },
   skipped: {
-    label: 'Skipped',
     className: 'bg-bg text-text-secondary ring-1 ring-inset ring-bg-border',
     icon: Clock,
   },
@@ -70,6 +64,7 @@ function formatSize(bytes: number): string {
 }
 
 export function Patches() {
+  const { t } = useTranslation();
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>('');
   const [updates, setUpdates] = useState<SoftwareUpdate[]>([]);
@@ -183,9 +178,9 @@ export function Patches() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Patch Management</h1>
+          <h1 className="text-2xl font-semibold text-text-primary">{t('patches.managementTitle')}</h1>
           <p className="text-sm text-text-secondary">
-            {detectedCount} updates detected • {failedCount} failed
+            {t('patches.subtitle', { detected: detectedCount, failed: failedCount })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -195,7 +190,7 @@ export function Patches() {
             className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-bg disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${scanning ? 'animate-spin' : ''}`} />
-            Scan
+            {t('patches.scanShort')}
           </button>
           <button
             onClick={handleDeploy}
@@ -203,14 +198,14 @@ export function Patches() {
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80 disabled:opacity-50"
           >
             <Play className={`h-3.5 w-3.5 ${deploying ? 'animate-spin' : ''}`} />
-            Deploy Now
+            {t('patches.deployNow')}
           </button>
         </div>
       </div>
 
       {/* Device selector */}
       <div className="flex items-center gap-4">
-        <label className="text-sm text-text-secondary">Device:</label>
+        <label className="text-sm text-text-secondary">{t('patches.device')}:</label>
         <select
           value={selectedDevice}
           onChange={(e) => setSelectedDevice(e.target.value)}
@@ -232,7 +227,7 @@ export function Patches() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search updates..."
+            placeholder={t('patches.searchUpdates')}
             className="w-full rounded-lg border border-bg-border bg-bg py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
           />
         </div>
@@ -241,14 +236,14 @@ export function Patches() {
           onChange={(e) => setStatusFilter(e.target.value)}
           className="rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
         >
-          <option value="all">All statuses</option>
-          <option value="detected">Detected</option>
-          <option value="approved">Approved</option>
-          <option value="downloading">Downloading</option>
-          <option value="installing">Installing</option>
-          <option value="installed">Installed</option>
-          <option value="failed">Failed</option>
-          <option value="skipped">Skipped</option>
+          <option value="all">{t('patches.allStatuses')}</option>
+          <option value="detected">{t('patches.statuses.detected')}</option>
+          <option value="approved">{t('patches.statuses.approved')}</option>
+          <option value="downloading">{t('patches.statuses.downloading')}</option>
+          <option value="installing">{t('patches.statuses.installing')}</option>
+          <option value="installed">{t('patches.statuses.installed')}</option>
+          <option value="failed">{t('patches.statuses.failed')}</option>
+          <option value="skipped">{t('patches.statuses.skipped')}</option>
         </select>
       </div>
 
@@ -263,12 +258,12 @@ export function Patches() {
             <Package className="h-8 w-8 text-text-muted" />
           </div>
           <p className="mt-4 text-sm font-medium text-text-primary">
-            {selectedDeviceName ? 'No updates found' : 'Select a device to view updates'}
+            {selectedDeviceName ? t('patches.noUpdates') : t('patches.selectDevice')}
           </p>
           <p className="mt-1 text-xs text-text-muted">
             {selectedDeviceName
-              ? 'All systems appear to be up to date'
-              : 'Choose a device from the dropdown above'}
+              ? t('patches.upToDate')
+              : t('patches.chooseDevice')}
           </p>
         </div>
       ) : (
@@ -303,13 +298,13 @@ export function Patches() {
                       className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80"
                     >
                       <Check className="h-3.5 w-3.5" />
-                      Approve
+                      {t('patches.approve')}
                     </button>
                   )}
                   {update.status === 'installing' && (
                     <span className="flex items-center gap-1.5 text-xs text-accent">
                       <Activity className="h-3.5 w-3.5 animate-spin" />
-                      Installing...
+                      {t('patches.installing')}
                     </span>
                   )}
                   {update.status === 'failed' && update.error_message && (
@@ -320,7 +315,7 @@ export function Patches() {
                   <span
                     className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${cfg.className}`}
                   >
-                    {cfg.label}
+                    {t(`patches.statuses.${update.status}`)}
                   </span>
                 </div>
               </div>

@@ -25,7 +25,7 @@ var (
 
 // CLI flags
 var (
-	flagServer = flag.String("server", "http://localhost:8081", "OurWay server URL")
+	flagServer = flag.String("server", "http://localhost:8080", "OurWay server URL")
 	flagConfig = flag.String("config", "", "Path to config file")
 )
 
@@ -75,7 +75,7 @@ func printUsage() {
 	fmt.Println("  help       Show this help message")
 	fmt.Println()
 	fmt.Println("Flags:")
-	fmt.Println("  --server   OurWay server URL (default http://localhost:8081)")
+	fmt.Println("  --server   OurWay server URL (default http://localhost:8080)")
 	fmt.Println("  --config   Path to config file")
 }
 

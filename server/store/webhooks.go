@@ -94,11 +94,19 @@ func (s *WebhookDeliveryStore) Update(delivery *models.WebhookDelivery) error {
 	return s.db.Save(delivery).Error
 }
 
-// FindPending returns pending deliveries that are due for retry.
+// FindPending returns pending deliveries that are due for retry. Rows whose
+// next_retry_at is NULL get a 60s grace period based on created_at so a
+// delivery that was just persisted (e.g. right after its first attempt
+// failed) is not immediately re-picked up by the retry loop in the same
+// second.
 func (s *WebhookDeliveryStore) FindPending() ([]models.WebhookDelivery, error) {
 	var deliveries []models.WebhookDelivery
 	now := time.Now()
-	err := s.db.Where("status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?)", "pending", now).Find(&deliveries).Error
+	graceCutoff := now.Add(-60 * time.Second)
+	err := s.db.Where(
+		"status = ? AND ((next_retry_at IS NULL AND created_at <= ?) OR next_retry_at <= ?)",
+		"pending", graceCutoff, now,
+	).Find(&deliveries).Error
 	return deliveries, err
 }
 

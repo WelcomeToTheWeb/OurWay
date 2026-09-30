@@ -89,6 +89,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 	agentGroup := r.Group("/api/agent")
 	{
 		agentGroup.POST("/register", deviceHandler.RegisterDevice)
+		agentGroup.GET("/me", deviceHandler.GetSelf)
 		agentGroup.POST("/heartbeat", deviceHandler.Heartbeat)
 		agentGroup.POST("/metrics", deviceHandler.ReportMetrics)
 		agentGroup.POST("/updates", agentPatchHandler.ReportUpdate)
@@ -97,12 +98,26 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		agentGroup.GET("/files/:transfer_id/download", agentFileHandler.DownloadForAgent)
 		agentGroup.POST("/files/:transfer_id/upload", agentFileHandler.UploadFromAgent)
 
-		// Agent binary download (no auth)
+		// Agent binary download (no auth: the installer needs the binary
+		// before the device is registered). os and arch are whitelisted so
+		// the query parameters can never be used for path traversal.
 		agentGroup.GET("/binary", func(c *gin.Context) {
 			osName := c.Query("os")
 			arch := c.Query("arch")
 			if osName == "" || arch == "" {
 				c.JSON(400, gin.H{"error": "missing os and/or arch parameter"})
+				return
+			}
+			switch osName {
+			case "linux", "darwin", "windows":
+			default:
+				c.JSON(400, gin.H{"error": "unsupported os", "supported": []string{"linux", "darwin", "windows"}})
+				return
+			}
+			switch arch {
+			case "amd64", "arm64", "arm":
+			default:
+				c.JSON(400, gin.H{"error": "unsupported arch", "supported": []string{"amd64", "arm64", "arm"}})
 				return
 			}
 			filename := fmt.Sprintf("ourway-agent-%s-%s", osName, arch)

@@ -1,10 +1,12 @@
 import { Server, CheckCircle, XCircle, Bell, Activity } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useDevices } from '../hooks/useDevices';
 import { DeviceCard } from '../components/DeviceCard';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../auth/context';
 
 export function Dashboard() {
+  const { t } = useTranslation();
   const { devices, loading, error } = useDevices();
   const { accessToken } = useAuth();
   const { connected } = useWebSocket(accessToken);
@@ -29,34 +31,34 @@ export function Dashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">Dashboard</h1>
-          <p className="text-sm text-text-secondary">Overview of your monitored devices</p>
+          <h1 className="text-2xl font-semibold text-text-primary">{t('dashboard.title')}</h1>
+          <p className="text-sm text-text-secondary">{t('dashboard.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span
             className={`h-2 w-2 rounded-full ${connected ? 'bg-status-online animate-pulse' : 'bg-status-offline'}`}
           />
           <span className="text-xs text-text-secondary">
-            {connected ? 'Live' : 'Offline'}
+            {connected ? t('dashboard.live') : t('common.offline')}
           </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={Server} label="Total Devices" value={devices.length} color="text-accent" />
-        <StatCard icon={CheckCircle} label="Online" value={online} color="text-status-online" />
-        <StatCard icon={XCircle} label="Offline" value={offline} color="text-status-offline" />
-        <StatCard icon={Bell} label="Alerts" value={alerts} color="text-status-error" />
+        <StatCard icon={Server} label={t('dashboard.totalDevices')} value={devices.length} color="text-accent" />
+        <StatCard icon={CheckCircle} label={t('common.online')} value={online} color="text-status-online" />
+        <StatCard icon={XCircle} label={t('common.offline')} value={offline} color="text-status-offline" />
+        <StatCard icon={Bell} label={t('dashboard.activeAlerts')} value={alerts} color="text-status-error" />
       </div>
 
       <div>
         <h2 className="text-sm font-medium text-text-muted uppercase tracking-wide mb-4">
-          Devices
+          {t('devices.title')}
         </h2>
         {devices.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-16 text-text-secondary">
             <Server className="h-10 w-10 text-text-muted" />
-            <p className="mt-3 text-sm">No devices yet</p>
+            <p className="mt-3 text-sm">{t('dashboard.noDevices')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

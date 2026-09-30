@@ -136,7 +136,7 @@ export function Users() {
                         </span>
                       ))}
                       {user.roles.length === 0 && (
-                        <span className="text-xs text-text-muted">No roles</span>
+                        <span className="text-xs text-text-muted">{t('users.noRoles')}</span>
                       )}
                     </div>
                   </td>
@@ -254,7 +254,7 @@ export function Users() {
               />
               <input
                 type="password"
-                placeholder="Password"
+                placeholder={t('auth.password')}
                 value={newForm.password}
                 onChange={(e) => setNewForm({ ...newForm, password: e.target.value })}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"

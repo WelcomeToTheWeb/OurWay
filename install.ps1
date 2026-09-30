@@ -3,7 +3,7 @@
 # Or: .\install.ps1 -Server "wss://yourserver.com" -Key "YOUR_DEVICE_KEY"
 
 param(
-    [string]$Server = "http://localhost:8081",
+    [string]$Server = "http://localhost:8080",
     [string]$Key = "",
     [string]$InstallDir = "C:\Program Files\OurWay\Agent",
     [string]$Version = "1.0.0",

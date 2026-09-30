@@ -211,6 +211,12 @@ func (h *PatchHandler) DeployNow(c *gin.Context) {
 
 	deploymentID, err := h.deployer.DeployToDevices(c.Request.Context(), req.DeviceIDs)
 	if err != nil {
+		// None of the requested devices have approved updates: this is a
+		// client error, not a server failure.
+		if errors.Is(err, patching.ErrNoApprovedUpdates) {
+			c.JSON(400, gin.H{"error": "no approved updates for the requested devices"})
+			return
+		}
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}

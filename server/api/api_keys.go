@@ -70,7 +70,9 @@ func (h *APIKeyHandler) CreateKey(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"key": key})
+	// key_value carries the plaintext secret exactly once; it is never
+	// returned by list/get (see the Key field's json:"-" tag).
+	c.JSON(http.StatusCreated, gin.H{"key": key, "key_value": key.Key})
 }
 
 // ListKeys lists all API keys for the user.
@@ -221,7 +223,9 @@ func (h *APIKeyHandler) RotateKey(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"key": key, "message": "API key rotated"})
+	// key_value carries the new plaintext secret exactly once (same
+	// convention as CreateKey).
+	c.JSON(http.StatusOK, gin.H{"key": key, "key_value": key.Key, "message": "API key rotated"})
 }
 
 // parseExpiration parses a human-readable expiration string.
@@ -276,6 +280,19 @@ func APIKeyMiddleware(store *store.Store, jwtAuth *auth.JWTAuth) gin.HandlerFunc
 				c.Set("user_id", key.UserID)
 				c.Set("api_key_id", key.ID)
 				c.Set("api_key_scopes", key.Scopes)
+
+				// Load the user's roles so role-protected routes (RequireRole /
+				// RequireAnyRole) work for API-key requests the same way they do
+				// for JWT requests. On load failure the request proceeds with
+				// no roles, so role-gated routes return 403.
+				roles := []string{}
+				if user, err := store.Users.GetByID(key.UserID); err == nil && user != nil {
+					roles = make([]string, 0, len(user.Roles))
+					for _, r := range user.Roles {
+						roles = append(roles, r.Name)
+					}
+				}
+				c.Set("roles", roles)
 
 				// Update last used timestamp (best effort)
 				go store.APIKeys.UpdateLastUsed(key.ID)

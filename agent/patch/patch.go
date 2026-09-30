@@ -25,19 +25,39 @@ type Update struct {
 // Handler manages patch operations for the agent.
 type Handler struct {
 	deviceKey  string
+	deviceID   string
 	serverURL  string
 	httpClient *http.Client
 }
 
-// NewHandler creates a new patch handler.
-func NewHandler(deviceKey, serverURL string) *Handler {
+// NewHandler creates a new patch handler. deviceID is this agent's own
+// device ID (resolved at startup); server payloads addressed to a
+// different device are refused. An empty deviceID disables the check with
+// a warning — the WebSocket connection is already key-authenticated, so
+// this is defense in depth, not the primary trust boundary.
+func NewHandler(deviceKey, serverURL, deviceID string) *Handler {
 	return &Handler{
 		deviceKey: deviceKey,
+		deviceID:  deviceID,
 		serverURL: strings.TrimSuffix(serverURL, "/ws"),
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
 	}
+}
+
+// verifyDeviceID checks that a server payload is addressed to this device.
+// It fails open (with a warning) when this agent's own ID is unknown,
+// since the connection itself is already key-authenticated.
+func (h *Handler) verifyDeviceID(op, payloadDeviceID string) bool {
+	if h.deviceID == "" {
+		log.Printf("%s: warning: own device ID unknown; skipping device_id verification", op)
+		return true
+	}
+	if payloadDeviceID != h.deviceID {
+		return false
+	}
+	return true
 }
 
 // ScanUpdates scans the device for available software updates.
@@ -51,6 +71,11 @@ func (h *Handler) ScanUpdates(ctx context.Context, data interface{}) {
 	}
 
 	deviceID, _ := payload["device_id"].(string)
+
+	if !h.verifyDeviceID("scan_updates", deviceID) {
+		log.Printf("scan_updates: payload device_id %q does not match this device (%q); ignoring", deviceID, h.deviceID)
+		return
+	}
 
 	log.Printf("scan_updates: scanning for updates")
 
@@ -92,6 +117,15 @@ func (h *Handler) DeployUpdates(ctx context.Context, data interface{}) {
 
 	deploymentID, _ := payload["deployment_id"].(string)
 	deviceID, _ := payload["device_id"].(string)
+
+	// Refuse payloads addressed to a different device. The report is sent
+	// under THIS device's ID (the server validates report device_id
+	// against the key owner), so the deployment's failure is recorded.
+	if !h.verifyDeviceID("deploy_updates", deviceID) {
+		log.Printf("deploy_updates: payload device_id %q does not match this device (%q); refusing", deviceID, h.deviceID)
+		h.reportResultWithMessage(h.deviceID, deploymentID, false, "deploy payload addressed to a different device; refused")
+		return
+	}
 
 	// Parse the approved updates list sent by the server. The deploy must
 	// install exactly these packages — never a full OS upgrade — so that
@@ -180,9 +214,11 @@ func scanLinuxUpdates() ([]Update, error) {
 }
 
 func deployLinuxUpdates(deploymentID string, updates []Update) error {
-	// No explicit list (server sent none): fall back to a full upgrade.
+	// An empty list is never a request for a full upgrade: it means the
+	// server sent nothing to install, and running `apt-get upgrade` /
+	// `yum update` here would upgrade the whole OS unrequested.
 	if len(updates) == 0 {
-		return deployFullLinuxUpgrade()
+		return fmt.Errorf("no updates provided; refusing to run a full OS upgrade")
 	}
 
 	// Record the currently installed versions so a later rollback can
@@ -318,29 +354,6 @@ func currentPackageVersion(source, name string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// deployFullLinuxUpgrade runs a full system upgrade (fallback when the
-// server sends no explicit update list).
-func deployFullLinuxUpgrade() error {
-	// Try apt first
-	var aptErr error
-	cmd := exec.Command("apt-get", "-y", "upgrade")
-	if output, err := cmd.CombinedOutput(); err == nil {
-		return nil
-	} else {
-		aptErr = err
-		log.Printf("apt-get upgrade: %s", string(output))
-	}
-
-	// Try yum as fallback
-	cmd = exec.Command("yum", "-y", "update")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("yum update: %s", string(output))
-		return fmt.Errorf("linux update failed: apt-get upgrade: %v; yum update: %v", aptErr, err)
-	}
-
-	return nil
-}
-
 // macOS package management
 func scanMacOSUpdates() ([]Update, error) {
 	updates := []Update{}
@@ -384,8 +397,10 @@ func scanMacOSUpdates() ([]Update, error) {
 }
 
 func deployMacOSUpdates(updates []Update) error {
+	// An empty list is never a request for a full upgrade (see
+	// deployLinuxUpdates).
 	if len(updates) == 0 {
-		return deployFullMacOSUpgrade()
+		return fmt.Errorf("no updates provided; refusing to run a full OS upgrade")
 	}
 
 	var firstErr error
@@ -407,25 +422,6 @@ func deployMacOSUpdates(updates []Update) error {
 		}
 	}
 	return firstErr
-}
-
-// deployFullMacOSUpgrade runs all system + homebrew upgrades (fallback when
-// the server sends no explicit update list).
-func deployFullMacOSUpgrade() error {
-	// Run system updates
-	cmd := exec.Command("softwareupdate", "-ia", "--no-scan")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("softwareupdate: %s", string(output))
-		return fmt.Errorf("macos softwareupdate failed: %v", err)
-	}
-
-	// Run homebrew update
-	cmd = exec.Command("brew", "upgrade")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("brew upgrade: %s", string(output))
-	}
-
-	return nil
 }
 
 // Windows package management
@@ -471,25 +467,14 @@ func scanWindowsUpdates() ([]Update, error) {
 }
 
 func deployWindowsUpdates(updates []Update) error {
+	// wuauclt cannot install individual updates, and an empty list is
+	// never a request for a full upgrade (see deployLinuxUpdates). Refuse
+	// in both cases instead of silently triggering a full install.
 	if len(updates) > 0 {
-		// wuauclt cannot install individual updates; do not silently fall
-		// back to a full install — report a failure instead.
 		log.Printf("windows: per-update install not supported (%d updates); refusing full install", len(updates))
 		return fmt.Errorf("windows: per-update install not supported")
 	}
-	return deployFullWindowsUpgrade()
-}
-
-// deployFullWindowsUpgrade triggers a Windows Update scan/install (fallback
-// when the server sends no explicit update list).
-func deployFullWindowsUpgrade() error {
-	// Use wuauclt to trigger Windows Update
-	cmd := exec.Command("wuauclt", "/detectnow", "/reportnow")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("wuauclt: %s", string(output))
-		return fmt.Errorf("windows update failed: wuauclt: %v", err)
-	}
-	return nil
+	return fmt.Errorf("no updates provided; refusing to run a full OS upgrade")
 }
 
 // RollbackUpdates rolls back the most recent deployment on the device.
@@ -507,6 +492,13 @@ func (h *Handler) RollbackUpdates(ctx context.Context, data interface{}) {
 
 	deploymentID, _ := payload["deployment_id"].(string)
 	deviceID, _ := payload["device_id"].(string)
+
+	// Refuse payloads addressed to a different device (see DeployUpdates).
+	if !h.verifyDeviceID("rollback_updates", deviceID) {
+		log.Printf("rollback_updates: payload device_id %q does not match this device (%q); refusing", deviceID, h.deviceID)
+		h.reportResultWithMessage(h.deviceID, deploymentID, false, "rollback payload addressed to a different device; refused")
+		return
+	}
 
 	log.Printf("rollback_updates: rolling back deployment %s", deploymentID)
 

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { listTransfers, pushFile, pullFile, uploadFile, downloadFile } from '../api/files';
 import { getDevices } from '../api/devices';
+import { useTranslation } from 'react-i18next';
 import type { Device } from '../types/device';
 import type { FileTransfer } from '../types/file';
 
@@ -40,6 +41,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export function FileTransfer() {
+  const { t } = useTranslation();
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>('');
   const [transfers, setTransfers] = useState<FileTransfer[]>([]);
@@ -60,13 +62,13 @@ export function FileTransfer() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState('');
 
-  const handleDownload = async (t: FileTransfer) => {
-    setDownloadingId(t.id);
+  const handleDownload = async (transfer: FileTransfer) => {
+    setDownloadingId(transfer.id);
     setDownloadError('');
     try {
-      await downloadFile(t.id, t.filename);
+      await downloadFile(transfer.id, transfer.filename);
     } catch {
-      setDownloadError(`Failed to download ${t.filename}`);
+      setDownloadError(t('fileTransfer.failedDownload', { file: transfer.filename }));
     } finally {
       setDownloadingId(null);
     }
@@ -182,22 +184,22 @@ export function FileTransfer() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">File Transfer</h1>
+          <h1 className="text-2xl font-semibold text-text-primary">{t('fileTransfer.title')}</h1>
           <p className="text-sm text-text-secondary">
-            {transfers.length} total transfers
+            {t('fileTransfer.totalTransfers', { count: transfers.length })}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 rounded-full bg-status-online/10 px-2 py-0.5 text-xs text-status-online">
             <span className="h-2 w-2 rounded-full bg-status-online animate-pulse" />
-            Auto-refreshing
+            {t('fileTransfer.autoRefreshing')}
           </span>
         </div>
       </div>
 
       {/* Device selector */}
       <div className="flex items-center gap-4">
-        <label className="text-sm text-text-secondary">Device:</label>
+        <label className="text-sm text-text-secondary">{t('fileTransfer.device')}:</label>
         <select
           value={selectedDevice}
           onChange={(e) => setSelectedDevice(e.target.value)}
@@ -220,8 +222,8 @@ export function FileTransfer() {
               <FolderUp className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">Push File</h3>
-              <p className="text-xs text-text-secondary">Upload a file to the device</p>
+              <h3 className="text-sm font-semibold text-text-primary">{t('fileTransfer.pushTitle')}</h3>
+              <p className="text-xs text-text-secondary">{t('fileTransfer.pushDesc')}</p>
             </div>
           </div>
 
@@ -238,7 +240,7 @@ export function FileTransfer() {
           >
             <Upload className="mx-auto h-8 w-8 text-text-secondary" />
             <p className="mt-2 text-sm text-text-primary">
-              Drop a file here or click to browse
+              {t('fileTransfer.dropHere')}
             </p>
             <input
               type="file"
@@ -250,7 +252,7 @@ export function FileTransfer() {
               htmlFor="push-file"
               className="mt-2 inline-block cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80"
             >
-              Browse
+              {t('fileTransfer.browse')}
             </label>
           </div>
 
@@ -266,7 +268,7 @@ export function FileTransfer() {
 
           <div className="mt-4">
             <label className="block text-xs text-text-secondary">
-              Destination path (optional)
+              {t('fileTransfer.destinationLabel')}
             </label>
             <input
               type="text"
@@ -280,7 +282,7 @@ export function FileTransfer() {
           {pushing && (
             <div className="mt-3 flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-accent" />
-              <span className="text-xs text-accent">Uploading...</span>
+              <span className="text-xs text-accent">{t('fileTransfer.uploading')}</span>
             </div>
           )}
         </div>
@@ -292,15 +294,15 @@ export function FileTransfer() {
               <FolderDown className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">Pull File</h3>
-              <p className="text-xs text-text-secondary">Download a file from the device</p>
+              <h3 className="text-sm font-semibold text-text-primary">{t('fileTransfer.pullTitle')}</h3>
+              <p className="text-xs text-text-secondary">{t('fileTransfer.pullDesc')}</p>
             </div>
           </div>
 
           <div className="mt-4 space-y-3">
             <div>
               <label className="block text-xs text-text-secondary">
-                File path on device
+                {t('fileTransfer.pullPathLabel')}
               </label>
               <input
                 type="text"
@@ -320,7 +322,7 @@ export function FileTransfer() {
               ) : (
                 <Download className="h-4 w-4" />
               )}
-              Pull File
+              {t('fileTransfer.pullTitle')}
             </button>
           </div>
         </div>
@@ -332,14 +334,14 @@ export function FileTransfer() {
           <p className="mb-2 text-sm text-status-error">{downloadError}</p>
         )}
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-text-primary">Transfer History</h2>
+          <h2 className="text-lg font-semibold text-text-primary">{t('fileTransfer.history')}</h2>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search files..."
+              placeholder={t('fileTransfer.searchFiles')}
               className="w-64 rounded-lg border border-bg-border bg-bg py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
             />
           </div>
@@ -353,27 +355,27 @@ export function FileTransfer() {
           <div className="mt-4 flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-12 text-text-secondary">
             <File className="h-10 w-10 text-text-muted" />
             <p className="mt-3 text-sm font-medium text-text-primary">
-              No transfers yet
+              {t('fileTransfer.noTransfers')}
             </p>
             <p className="mt-1 text-xs text-text-muted">
-              Push or pull a file to get started
+              {t('fileTransfer.noTransfersDesc')}
             </p>
           </div>
         ) : (
           <div className="mt-4 space-y-3">
-            {filtered.map((t) => {
-              const isPush = t.direction === 'push';
-              const Icon = t.status === 'completed' ? Check : t.status === 'failed' ? X : Clock;
+            {filtered.map((tr) => {
+              const isPush = tr.direction === 'push';
+              const Icon = tr.status === 'completed' ? Check : tr.status === 'failed' ? X : Clock;
               const statusColor =
-                t.status === 'completed'
+                tr.status === 'completed'
                   ? 'bg-status-online/15 text-status-online'
-                  : t.status === 'failed'
+                  : tr.status === 'failed'
                     ? 'bg-status-error/15 text-status-error'
                     : 'bg-accent/15 text-accent';
 
               return (
                 <div
-                  key={t.id}
+                  key={tr.id}
                   className="flex items-center justify-between rounded-xl border border-bg-border bg-bg-card p-4 transition-colors hover:border-accent/50"
                 >
                   <div className="flex items-center gap-4">
@@ -385,43 +387,43 @@ export function FileTransfer() {
                       {isPush ? <Upload className="h-5 w-5" /> : <Download className="h-5 w-5" />}
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-text-primary">{t.filename}</p>
+                      <p className="text-sm font-medium text-text-primary">{tr.filename}</p>
                       <p className="text-xs text-text-secondary">
-                        {t.size_bytes > 0 ? formatSize(t.size_bytes) : 'Unknown size'}
-                        {t.destination && ` • To: ${t.destination}`}
-                        {t.source_path && ` • From: ${t.source_path}`}
+                        {tr.size_bytes > 0 ? formatSize(tr.size_bytes) : t('fileTransfer.unknownSize')}
+                        {tr.destination && ` • ${t('fileTransfer.to')}: ${tr.destination}`}
+                        {tr.source_path && ` • ${t('fileTransfer.from')}: ${tr.source_path}`}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {t.status !== 'completed' && t.status !== 'failed' && (
+                    {tr.status !== 'completed' && tr.status !== 'failed' && (
                       <span className="flex items-center gap-1.5 text-xs text-accent">
                         <Activity className="h-3.5 w-3.5 animate-spin" />
-                        {t.progress}%
+                        {tr.progress}%
                       </span>
                     )}
-                    {t.status === 'failed' && t.error_message && (
-                      <span className="max-w-xs truncate text-xs text-status-error" title={t.error_message}>
-                        {t.error_message}
+                    {tr.status === 'failed' && tr.error_message && (
+                      <span className="max-w-xs truncate text-xs text-status-error" title={tr.error_message}>
+                        {tr.error_message}
                       </span>
                     )}
-                    {t.status === 'completed' && (
+                    {tr.status === 'completed' && (
                       <button
-                        onClick={() => handleDownload(t)}
-                        disabled={downloadingId === t.id}
+                        onClick={() => handleDownload(tr)}
+                        disabled={downloadingId === tr.id}
                         className="text-sm text-accent hover:text-accent-dark transition-colors disabled:opacity-50"
-                        title="Download file"
+                        title={t('fileTransfer.downloadFile')}
                       >
-                        {downloadingId === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        {downloadingId === tr.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       </button>
                     )}
                     <span
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${statusColor}`}
                     >
                       <Icon className="h-3 w-3" />
-                      {t.status}
+                      {tr.status}
                     </span>
-                    <span className="text-xs text-text-muted">{timeAgo(t.created_at)}</span>
+                    <span className="text-xs text-text-muted">{timeAgo(tr.created_at)}</span>
                   </div>
                 </div>
               );

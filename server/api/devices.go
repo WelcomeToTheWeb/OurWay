@@ -139,6 +139,27 @@ func (h *DeviceHandler) Heartbeat(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// GetSelf returns this device's record to an agent that authenticated with
+// its X-Device-Key. The agent uses it at startup to learn its own device
+// ID, which it then uses to verify that deploy/scan/rollback payloads are
+// addressed to it.
+// GET /api/agent/me
+func (h *DeviceHandler) GetSelf(c *gin.Context) {
+	deviceKey := c.GetHeader("X-Device-Key")
+	if deviceKey == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing device key"})
+		return
+	}
+
+	device, err := h.store.Devices.GetByKey(deviceKey)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid device key"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"device": device})
+}
+
 // ReportMetrics handles agent metrics reporting.
 func (h *DeviceHandler) ReportMetrics(c *gin.Context) {
 	deviceKey := c.GetHeader("X-Device-Key")

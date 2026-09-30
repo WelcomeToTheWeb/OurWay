@@ -43,11 +43,15 @@ func NewEngine(alertStore store.AlertStoreInterface) *Engine {
 
 // SetThresholds updates the thresholds for a metric.
 func (e *Engine) SetThresholds(metric string, t Thresholds) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.thresholds[metric] = t
 }
 
 // SetDedupWindow sets the alert deduplication window.
 func (e *Engine) SetDedupWindow(d time.Duration) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.dedupWindow = d
 }
 

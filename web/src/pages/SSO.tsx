@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, KeyRound } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { listSSOProvidersAdmin, createSSOProvider, deleteSSOProvider, type SSOProviderFull } from '../api/sso';
 
 const PROVIDERS = [
@@ -9,6 +10,7 @@ const PROVIDERS = [
 ];
 
 export function SSO() {
+  const { t } = useTranslation();
   const [providers, setProviders] = useState<SSOProviderFull[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -47,7 +49,7 @@ export function SSO() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this SSO provider?')) return;
+    if (!confirm(t('sso.deleteConfirm'))) return;
     try {
       await deleteSSOProvider(id);
       loadProviders();
@@ -60,24 +62,24 @@ export function SSO() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">SSO Providers</h1>
-          <p className="text-sm text-text-secondary">Configure single sign-on authentication providers</p>
+          <h1 className="text-2xl font-bold text-text-primary">{t('sso.title')}</h1>
+          <p className="text-sm text-text-secondary">{t('sso.subtitle')}</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
           className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent-dark"
         >
           <Plus className="h-4 w-4" />
-          Add Provider
+          {t('sso.addProvider')}
         </button>
       </div>
 
       {showForm && (
         <div className="mb-6 rounded-2xl border border-bg-border bg-bg-card p-6">
-          <h2 className="mb-4 text-lg font-semibold text-text-primary">Add SSO Provider</h2>
+          <h2 className="mb-4 text-lg font-semibold text-text-primary">{t('sso.addProviderTitle')}</h2>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-xs font-medium text-text-secondary">Provider</label>
+              <label className="mb-1 block text-xs font-medium text-text-secondary">{t('sso.provider')}</label>
               <select
                 value={form.name}
                 onChange={(e) => {
@@ -88,29 +90,29 @@ export function SSO() {
               >
                 {PROVIDERS.map((p) => (
                   <option key={p.name} value={p.name}>
-                    {p.label}
+                    {t(`sso.${p.name}`)}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-text-secondary">Client ID</label>
+              <label className="mb-1 block text-xs font-medium text-text-secondary">{t('sso.clientId')}</label>
               <input
                 type="text"
                 value={form.client_id || ''}
                 onChange={(e) => setForm({ ...form, client_id: e.target.value })}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
-                placeholder="Enter client ID"
+                placeholder={t('sso.clientIdPlaceholder')}
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-text-secondary">Client Secret</label>
+              <label className="mb-1 block text-xs font-medium text-text-secondary">{t('sso.clientSecret')}</label>
               <input
                 type="password"
                 value={form.client_secret || ''}
                 onChange={(e) => setForm({ ...form, client_secret: e.target.value })}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
-                placeholder="Enter client secret"
+                placeholder={t('sso.clientSecretPlaceholder')}
               />
             </div>
             <div className="flex items-end">
@@ -118,7 +120,7 @@ export function SSO() {
                 onClick={handleCreate}
                 className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent-dark"
               >
-                Save
+                {t('common.save')}
               </button>
             </div>
           </div>
@@ -126,12 +128,12 @@ export function SSO() {
       )}
 
       {loading ? (
-        <p className="text-sm text-text-secondary">Loading...</p>
+        <p className="text-sm text-text-secondary">{t('common.loading')}</p>
       ) : providers.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-bg-border py-12">
           <KeyRound className="mb-3 h-10 w-10 text-text-muted" />
-          <p className="text-sm text-text-secondary">No SSO providers configured</p>
-          <p className="text-xs text-text-muted">Add a provider to enable single sign-on</p>
+          <p className="text-sm text-text-secondary">{t('sso.none')}</p>
+          <p className="text-xs text-text-muted">{t('sso.noneDesc')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -143,7 +145,7 @@ export function SSO() {
                 </div>
                 <div>
                   <p className="font-medium text-text-primary capitalize">{p.name}</p>
-                  <p className="text-xs text-text-secondary">Client ID: {p.client_id}</p>
+                  <p className="text-xs text-text-secondary">{t('sso.clientInfo', { id: p.client_id })}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -152,7 +154,7 @@ export function SSO() {
                     p.enabled ? 'bg-status-success/15 text-status-success' : 'bg-slate-700 text-text-secondary'
                   }`}
                 >
-                  {p.enabled ? 'Enabled' : 'Disabled'}
+                  {p.enabled ? t('common.enabled') : t('common.disabled')}
                 </span>
                 <button
                   onClick={() => handleDelete(p.id)}

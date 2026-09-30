@@ -20,6 +20,7 @@ import {
   Network,
   MousePointer2,
   RefreshCw,
+  Key,
 } from 'lucide-react';
 import { getDevice, deleteDevice, rebootDevice } from '../api/devices';
 import { startSession } from '../api/sessions';
@@ -402,6 +403,18 @@ export function DeviceDetail() {
             label="Architecture"
             value={device.arch}
           />
+          {device.device_key && (
+            <InfoRow
+              label="Device Key"
+              icon={Key}
+              value={
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs">{device.device_key}</span>
+                  <CopyButton text={device.device_key} />
+                </div>
+              }
+            />
+          )}
         </div>
 
         {/* Timestamps */}

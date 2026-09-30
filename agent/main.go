@@ -69,6 +69,23 @@ func main() {
 	log.Printf("Server: %s", cfg.ServerURL)
 	log.Printf("Device key: %s", cfg.DeviceKey)
 
+	// Resolve this agent's device ID so the patch handler can verify that
+	// deploy/scan/rollback payloads are addressed to this device. Use the
+	// configured value if present, otherwise fetch it from the server.
+	deviceID := cfg.DeviceID
+	if deviceID == "" {
+		deviceID, err = client.ResolveDeviceID(config.HTTPBaseURL(cfg.ServerURL), cfg.DeviceKey)
+		if err != nil {
+			// The WebSocket connection is key-authenticated, so a failed
+			// lookup is not fatal — the patch handler proceeds without a
+			// verified ID (and logs a warning per payload).
+			log.Printf("Warning: could not resolve device ID: %v", err)
+		}
+	}
+	if deviceID != "" {
+		log.Printf("Device ID: %s", deviceID)
+	}
+
 	// Create collector manager
 	collectorMgr := collector.NewCollectorManager()
 
@@ -84,6 +101,7 @@ func main() {
 		client.WithHeartbeatInterval(cfg.Heartbeat),
 		client.WithMetricsInterval(cfg.MetricsInterval),
 		client.WithStreamInterval(cfg.StreamInterval),
+		client.WithDeviceID(deviceID),
 		client.WithMetricsFunc(func() (interface{}, error) {
 			return collectorMgr.CollectAll()
 		}),

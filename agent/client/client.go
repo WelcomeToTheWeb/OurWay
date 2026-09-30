@@ -23,6 +23,7 @@ import (
 type Client struct {
 	serverURL    string
 	deviceKey    string
+	deviceID     string
 	heartbeatSec time.Duration
 	metricsSec   time.Duration
 	streamSec    time.Duration
@@ -63,7 +64,17 @@ func WithMetricsFunc(f func() (interface{}, error)) Option {
 	}
 }
 
-// New creates a new WebSocket client.
+// WithDeviceID sets this agent's own device ID, used by the patch handler
+// to verify that server payloads are addressed to this device.
+func WithDeviceID(id string) Option {
+	return func(c *Client) {
+		c.deviceID = id
+	}
+}
+
+// New creates a new WebSocket client. The device ID (used to verify
+// inbound patch payloads) must be set with WithDeviceID before the first
+// message is processed.
 func New(serverURL, deviceKey string, opts ...Option) *Client {
 	c := &Client{
 		serverURL:    serverURL,
@@ -73,12 +84,45 @@ func New(serverURL, deviceKey string, opts ...Option) *Client {
 		streamSec:    2 * time.Second,
 		sessionMgr:   session.NewSessionManager(deviceKey),
 		fileHandler:  files.NewHandler(deviceKey, config.HTTPBaseURL(serverURL)),
-		patchHandler: patch.NewHandler(deviceKey, config.HTTPBaseURL(serverURL)),
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
+	c.patchHandler = patch.NewHandler(deviceKey, config.HTTPBaseURL(serverURL), c.deviceID)
 	return c
+}
+
+// ResolveDeviceID fetches this device's ID from the server using the
+// device key (GET /api/agent/me).
+func ResolveDeviceID(baseURL, deviceKey string) (string, error) {
+	req, err := http.NewRequest("GET", baseURL+"/api/agent/me", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("X-Device-Key", deviceKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("server returned %d for /api/agent/me", resp.StatusCode)
+	}
+
+	var out struct {
+		Device struct {
+			ID string `json:"id"`
+		} `json:"device"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	if out.Device.ID == "" {
+		return "", fmt.Errorf("server response missing device id")
+	}
+	return out.Device.ID, nil
 }
 
 // Run starts the client and blocks until the context is cancelled.
@@ -118,7 +162,7 @@ func (c *Client) connect(ctx context.Context) error {
 	// Ensure the URL has a path
 	serverURL := c.serverURL
 	if serverURL == "" {
-		serverURL = "ws://localhost:8081"
+		serverURL = "ws://localhost:8080"
 	}
 	u, err := url.Parse(serverURL)
 	if err != nil {

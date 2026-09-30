@@ -290,25 +290,25 @@ export function Settings() {
             </p>
           )}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-text-secondary">Current Password</label>
+            <label className="text-xs font-medium text-text-secondary">{t('settings.password.currentPassword')}</label>
             <input
               type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 pr-10 text-sm text-text-primary focus:border-accent focus:outline-none"
-              placeholder="Enter current password"
+              placeholder={t('settings.password.enterCurrentPassword')}
               required
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-text-secondary">New Password</label>
+            <label className="text-xs font-medium text-text-secondary">{t('settings.password.newPassword')}</label>
             <div className="relative">
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 pr-10 text-sm text-text-primary focus:border-accent focus:outline-none"
-                placeholder="Enter new password"
+                placeholder={t('settings.password.enterNewPassword')}
               />
               <button
                 type="button"
@@ -345,8 +345,8 @@ export function Settings() {
         <div className="mt-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-text-primary">Email alerts</p>
-              <p className="text-xs text-text-muted">Receive alerts via email</p>
+              <p className="text-sm font-medium text-text-primary">{t('settings.notifications.emailAlerts')}</p>
+              <p className="text-xs text-text-muted">{t('settings.notifications.emailAlertsDesc')}</p>
             </div>
             <button
               type="button"
@@ -360,8 +360,8 @@ export function Settings() {
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-text-primary">In-app notifications</p>
-              <p className="text-xs text-text-muted">Show toast notifications in the browser</p>
+              <p className="text-sm font-medium text-text-primary">{t('settings.notifications.inAppNotifications')}</p>
+              <p className="text-xs text-text-muted">{t('settings.notifications.inAppNotificationsDesc')}</p>
             </div>
             <button
               type="button"
@@ -372,8 +372,8 @@ export function Settings() {
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-text-primary">Critical alerts only</p>
-              <p className="text-xs text-text-muted">Only notify for critical severity alerts</p>
+              <p className="text-sm font-medium text-text-primary">{t('settings.notifications.criticalOnly')}</p>
+              <p className="text-xs text-text-muted">{t('settings.notifications.criticalOnlyDesc')}</p>
             </div>
             <button
               type="button"
@@ -395,16 +395,16 @@ export function Settings() {
             <Palette className="h-5 w-5 text-accent" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">Appearance</h2>
-            <p className="text-xs text-text-secondary">Customize the look and feel</p>
+            <h2 className="text-sm font-medium text-text-primary">{t('settings.appearance.title')}</h2>
+            <p className="text-xs text-text-secondary">{t('settings.appearance.subtitle')}</p>
           </div>
         </div>
 
         <div className="mt-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-text-primary">Theme</p>
-              <p className="text-xs text-text-muted">Choose your preferred color scheme</p>
+              <p className="text-sm font-medium text-text-primary">{t('settings.appearance.theme')}</p>
+              <p className="text-xs text-text-muted">{t('settings.appearance.themeDesc')}</p>
             </div>
             <select
               value={theme}
@@ -412,9 +412,9 @@ export function Settings() {
               className="rounded-lg border border-bg-border bg-bg px-3 py-1.5 text-sm text-text-primary"
               aria-label="Theme selection"
             >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
+              <option value="dark">{t('settings.appearance.dark')}</option>
+              <option value="light">{t('settings.appearance.light')}</option>
+              <option value="system">{t('settings.appearance.system')}</option>
             </select>
           </div>
           <div className="flex items-center justify-between">
@@ -459,20 +459,20 @@ export function Settings() {
             <Key className="h-5 w-5 text-accent" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">Keyboard Shortcuts</h2>
-            <p className="text-xs text-text-secondary">Quick navigation and actions</p>
+            <h2 className="text-sm font-medium text-text-primary">{t('settings.keyboardShortcuts.title')}</h2>
+            <p className="text-xs text-text-secondary">{t('settings.keyboardShortcuts.subtitle')}</p>
           </div>
         </div>
 
         <div className="mt-4 space-y-2">
           {[
-            { keys: ['g', 'd'], desc: 'Go to Devices' },
-            { keys: ['g', 'a'], desc: 'Go to Alerts' },
-            { keys: ['g', 'f'], desc: 'Go to Files' },
-            { keys: ['g', 'p'], desc: 'Go to Patches' },
-            { keys: ['g', 'u'], desc: 'Go to Users' },
-            { keys: ['g', 's'], desc: 'Go to Settings' },
-            { keys: ['g', 'h'], desc: 'Go to Dashboard' },
+            { keys: ['g', 'd'], desc: t('settings.keyboardShortcuts.goToDevices') },
+            { keys: ['g', 'a'], desc: t('settings.keyboardShortcuts.goToAlerts') },
+            { keys: ['g', 'f'], desc: t('settings.keyboardShortcuts.goToFiles') },
+            { keys: ['g', 'p'], desc: t('settings.keyboardShortcuts.goToPatches') },
+            { keys: ['g', 'u'], desc: t('settings.keyboardShortcuts.goToUsers') },
+            { keys: ['g', 's'], desc: t('settings.keyboardShortcuts.goToSettings') },
+            { keys: ['g', 'h'], desc: t('settings.keyboardShortcuts.goToDashboard') },
           ].map((shortcut, i) => (
             <div key={i} className="flex items-center justify-between">
               <span className="text-sm text-text-secondary">{shortcut.desc}</span>
@@ -499,8 +499,8 @@ export function Settings() {
               <Key className="h-5 w-5 text-accent" />
             </div>
             <div>
-              <h2 className="text-sm font-medium text-text-primary">API Keys</h2>
-              <p className="text-xs text-text-secondary">Manage your API keys for programmatic access</p>
+              <h2 className="text-sm font-medium text-text-primary">{t('settings.api.keysTitle')}</h2>
+              <p className="text-xs text-text-secondary">{t('settings.api.keysSubtitle')}</p>
             </div>
           </div>
           <button
@@ -509,7 +509,7 @@ export function Settings() {
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent-dark"
           >
             <Plus className="h-3.5 w-3.5" />
-            New Key
+            {t('settings.api.newKey')}
           </button>
         </div>
 
@@ -517,8 +517,8 @@ export function Settings() {
           <div className="mt-4 rounded-lg border border-status-online/30 bg-status-online/10 p-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-status-online">API Key Created</p>
-                <p className="text-xs text-text-muted">Copy this key now — it won't be shown again</p>
+                <p className="text-xs font-medium text-status-online">{t('settings.api.keyCreated')}</p>
+                <p className="text-xs text-text-muted">{t('settings.api.keyCreatedDesc')}</p>
               </div>
               <button
                 type="button"
@@ -530,14 +530,14 @@ export function Settings() {
             </div>
             <div className="mt-2 flex items-center gap-2">
               <code className="flex-1 rounded bg-bg px-3 py-2 text-xs font-mono text-text-primary">
-                {createdKey.key}
+                {createdKey.key ?? 'owk_••••••••'}
               </code>
               <button
                 type="button"
-                onClick={() => navigator.clipboard.writeText(createdKey.key)}
+                onClick={() => navigator.clipboard.writeText(createdKey.key ?? '')}
                 className="rounded bg-bg-secondary px-3 py-2 text-xs text-text-primary transition-colors hover:bg-bg"
               >
-                Copy
+                {t('settings.api.copy')}
               </button>
             </div>
           </div>
@@ -545,21 +545,21 @@ export function Settings() {
 
         {showKeyForm && (
           <div className="mt-4 rounded-lg border border-bg-border bg-bg p-4">
-            <h3 className="text-sm font-medium text-text-primary">Create New API Key</h3>
+            <h3 className="text-sm font-medium text-text-primary">{t('settings.api.createKeyTitle')}</h3>
             <div className="mt-3 space-y-3">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-text-secondary">Name</label>
+                <label className="text-xs font-medium text-text-secondary">{t('common.name')}</label>
                 <input
                   type="text"
                   value={newKeyName}
                   onChange={(e) => setNewKeyName(e.target.value)}
-                  placeholder="e.g. Production Key"
+                  placeholder={t('settings.api.namePlaceholder')}
                   className="w-full rounded-lg border border-bg-border bg-bg-card px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
                 />
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-text-secondary">Scopes</label>
+                  <label className="text-xs font-medium text-text-secondary">{t('settings.api.scopes')}</label>
                   <div className="flex items-center gap-3">
                     {['read', 'write'].map((scope) => (
                       <label key={scope} className="flex items-center gap-1.5 text-xs text-text-secondary">
@@ -581,18 +581,18 @@ export function Settings() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-medium text-text-secondary">Expires</label>
+                  <label className="text-xs font-medium text-text-secondary">{t('settings.api.expires')}</label>
                   <select
                     value={newKeyExpires}
                     onChange={(e) => setNewKeyExpires(e.target.value)}
                     className="rounded-lg border border-bg-border bg-bg-card px-3 py-1.5 text-xs text-text-primary"
                   >
-                    <option value="never">Never</option>
-                    <option value="1h">1 hour</option>
-                    <option value="24h">24 hours</option>
-                    <option value="7d">7 days</option>
-                    <option value="30d">30 days</option>
-                    <option value="90d">90 days</option>
+                    <option value="never">{t('settings.api.never')}</option>
+                    <option value="1h">{t('settings.api.oneHour')}</option>
+                    <option value="24h">{t('settings.api.twentyFourHours')}</option>
+                    <option value="7d">{t('settings.api.sevenDays')}</option>
+                    <option value="30d">{t('settings.api.thirtyDays')}</option>
+                    <option value="90d">{t('settings.api.ninetyDays')}</option>
                   </select>
                 </div>
               </div>
@@ -603,14 +603,14 @@ export function Settings() {
                   className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-accent-dark"
                 >
                   <Key className="h-3.5 w-3.5" />
-                  Create Key
+                  {t('settings.api.createKey')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowKeyForm(false)}
                   className="rounded-lg bg-bg-secondary px-4 py-2 text-xs text-text-primary transition-colors hover:bg-bg"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </div>
@@ -624,8 +624,8 @@ export function Settings() {
         ) : apiKeys.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed border-bg-border p-8 text-center">
             <Key className="mx-auto h-8 w-8 text-text-muted" />
-            <p className="mt-2 text-sm text-text-secondary">No API keys yet</p>
-            <p className="text-xs text-text-muted">Create a key to access the OurWay API programmatically</p>
+            <p className="mt-2 text-sm text-text-secondary">{t('settings.api.noKeys')}</p>
+            <p className="text-xs text-text-muted">{t('settings.api.noKeysDesc')}</p>
           </div>
         ) : (
           <div className="mt-4 space-y-2">
@@ -636,8 +636,10 @@ export function Settings() {
                   <div>
                     <p className="text-sm font-medium text-text-primary">{key.name}</p>
                     <p className="text-xs text-text-muted">
-                      {key.key.substring(0, 8)}...{key.key.substring(key.key.length - 4)}
-                      {key.revoked_at && ' (revoked)'}
+                      {key.key
+                        ? `${key.key.substring(0, 8)}...${key.key.substring(key.key.length - 4)}`
+                        : 'owk_••••••••'}
+                      {key.revoked_at && ` ${t('settings.api.revoked')}`}
                     </p>
                   </div>
                 </div>
@@ -647,13 +649,13 @@ export function Settings() {
                   </span>
                   {key.expires_at && (
                     <span className="rounded-full bg-bg-secondary px-2 py-0.5 text-[10px] text-text-secondary">
-                      expires {new Date(key.expires_at).toLocaleDateString()}
+                      {t('settings.api.expiresOn', { date: new Date(key.expires_at).toLocaleDateString() })}
                     </span>
                   )}
                   <button
                     type="button"
                     onClick={() => handleRotateKey(key.id)}
-                    title="Rotate key"
+                    title={t('settings.api.rotateKey')}
                     className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-text-primary"
                   >
                     <RotateCw className="h-3.5 w-3.5" />
@@ -662,7 +664,7 @@ export function Settings() {
                     <button
                       type="button"
                       onClick={() => handleRevokeKey(key.id)}
-                      title="Revoke key"
+                      title={t('settings.api.revokeKey')}
                       className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-status-warning"
                     >
                       <XCircle className="h-3.5 w-3.5" />
@@ -671,7 +673,7 @@ export function Settings() {
                   <button
                     type="button"
                     onClick={() => handleDeleteKey(key.id)}
-                    title="Delete key"
+                    title={t('settings.api.deleteKey')}
                     className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-status-error"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -690,8 +692,8 @@ export function Settings() {
             <Trash2 className="h-5 w-5 text-status-error" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">Danger Zone</h2>
-            <p className="text-xs text-text-secondary">Irreversible actions</p>
+            <h2 className="text-sm font-medium text-text-primary">{t('settings.dangerZone.title')}</h2>
+            <p className="text-xs text-text-secondary">{t('settings.dangerZone.subtitle')}</p>
           </div>
         </div>
 
@@ -702,8 +704,8 @@ export function Settings() {
           {hasRole('admin') && (
             <div className="flex items-center justify-between rounded-lg border border-bg-border p-3">
               <div>
-                <p className="text-sm font-medium text-text-primary">Clear all monitoring data</p>
-                <p className="text-xs text-text-muted">Delete all metrics history and alerts</p>
+                <p className="text-sm font-medium text-text-primary">{t('settings.dangerZone.clearData')}</p>
+                <p className="text-xs text-text-muted">{t('settings.dangerZone.clearDataDesc')}</p>
               </div>
               <button
                 type="button"
@@ -712,14 +714,14 @@ export function Settings() {
                 className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-bg hover:text-status-error disabled:opacity-50"
               >
                 <Database className="h-3.5 w-3.5" />
-                {clearingData ? 'Clearing…' : 'Clear Data'}
+                {clearingData ? t('settings.dangerZone.clearing') : t('settings.dangerZone.clearDataButton')}
               </button>
             </div>
           )}
           <div className="flex items-center justify-between rounded-lg border border-bg-border p-3">
             <div>
-              <p className="text-sm font-medium text-text-primary">Delete account</p>
-              <p className="text-xs text-text-muted">Permanently delete your account and all devices</p>
+              <p className="text-sm font-medium text-text-primary">{t('settings.dangerZone.deleteAccount')}</p>
+              <p className="text-xs text-text-muted">{t('settings.dangerZone.deleteAccountDesc')}</p>
             </div>
             <button
               type="button"
@@ -728,7 +730,7 @@ export function Settings() {
               className="flex items-center gap-1.5 rounded-lg bg-status-error px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-status-error/80 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              {deletingAccount ? 'Deleting…' : 'Delete Account'}
+              {deletingAccount ? t('settings.dangerZone.deleting') : t('settings.dangerZone.deleteAccountButton')}
             </button>
           </div>
         </div>

@@ -1,11 +1,13 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MonitorSmartphone } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/context';
 import { listSSOProviders, authorizeProvider, type SSOProvider } from '../api/sso';
 import { getAuthStatus } from '../api/auth';
 
 export function Login() {
+  const { t } = useTranslation();
   const { login, register, isAuthenticated, setToken } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -113,8 +115,8 @@ export function Login() {
             <MonitorSmartphone className="h-7 w-7 text-text-primary" />
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-text-primary">OurWay</h1>
-            <p className="text-sm text-text-secondary">Remote Monitoring & Management</p>
+            <h1 className="text-2xl font-bold text-text-primary">{t('app.name')}</h1>
+            <p className="text-sm text-text-secondary">{t('app.tagline')}</p>
           </div>
         </div>
 
@@ -131,25 +133,25 @@ export function Login() {
             )}
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">Username</label>
+              <label className="text-xs font-medium text-text-secondary">{t('auth.username')}</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder="Enter your username"
+                placeholder={t('auth.usernamePlaceholder')}
                 required
               />
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">Password</label>
+              <label className="text-xs font-medium text-text-secondary">{t('auth.password')}</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder="Enter your password"
+                placeholder={t('auth.passwordPlaceholder')}
                 required
               />
             </div>
@@ -159,7 +161,7 @@ export function Login() {
               disabled={loading}
               className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
             >
-              {loading ? 'Signing in...' : 'Sign in'}
+              {loading ? t('auth.signingIn') : t('auth.signIn')}
             </button>
 
             {/* SSO Buttons */}
@@ -167,7 +169,7 @@ export function Login() {
               <div className="flex flex-col gap-3 pt-2">
                 <div className="relative flex items-center">
                   <div className="flex-1 border-t border-bg-border" />
-                  <span className="px-3 text-xs text-text-muted">or sign in with</span>
+                  <span className="px-3 text-xs text-text-muted">{t('auth.orSignInWith')}</span>
                   <div className="flex-1 border-t border-bg-border" />
                 </div>
 
@@ -179,7 +181,7 @@ export function Login() {
                     className="flex w-full items-center justify-center gap-2 rounded-lg border border-bg-border bg-bg px-4 py-2.5 text-sm text-text-primary transition-colors hover:bg-slate-800"
                   >
                     <ProviderIcon provider={p.name} />
-                    Sign in with {providerDisplayName(p.name)}
+                    {t('auth.signInWith', { provider: providerDisplayName(p.name) })}
                   </button>
                 ))}
               </div>
@@ -198,37 +200,37 @@ export function Login() {
             )}
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">Username</label>
+              <label className="text-xs font-medium text-text-secondary">{t('auth.username')}</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder="Enter your username"
+                placeholder={t('auth.usernamePlaceholder')}
                 required
               />
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">Email</label>
+              <label className="text-xs font-medium text-text-secondary">{t('auth.email')}</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder="Enter your email"
+                placeholder={t('auth.emailPlaceholder')}
                 required
               />
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">Password</label>
+              <label className="text-xs font-medium text-text-secondary">{t('auth.password')}</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder="Enter your password"
+                placeholder={t('auth.passwordPlaceholder')}
                 required
               />
             </div>
@@ -238,7 +240,7 @@ export function Login() {
               disabled={loading}
               className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
             >
-              {loading ? 'Creating account...' : 'Get started'}
+              {loading ? t('auth.creatingAccount') : t('auth.getStarted')}
             </button>
           </form>
         )}

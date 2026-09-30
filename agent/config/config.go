@@ -15,6 +15,7 @@ const Version = "1.0.0"
 type Config struct {
 	ServerURL       string        `json:"server_url"`
 	DeviceKey       string        `json:"device_key"`
+	DeviceID        string        `json:"device_id"`
 	Heartbeat       time.Duration `json:"heartbeat"`
 	MetricsInterval time.Duration `json:"metrics_interval"`
 	StreamInterval  time.Duration `json:"stream_interval"`
@@ -46,6 +47,9 @@ func Load() (*Config, error) {
 	if v := os.Getenv("OURWAY_DEVICE_KEY"); v != "" {
 		cfg.DeviceKey = v
 	}
+	if v := os.Getenv("OURWAY_DEVICE_ID"); v != "" {
+		cfg.DeviceID = v
+	}
 	if v := os.Getenv("OURWAY_HEARTBEAT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err == nil {
@@ -62,6 +66,7 @@ func Load() (*Config, error) {
 	// Parse command-line flags (override env vars)
 	server := flag.String("server", cfg.ServerURL, "Server WebSocket URL")
 	key := flag.String("key", cfg.DeviceKey, "Device key")
+	deviceID := flag.String("device-id", cfg.DeviceID, "Device ID (optional; fetched from the server when empty)")
 	install := flag.Bool("install", false, "Install as a service and exit")
 	uninstall := flag.Bool("uninstall", false, "Uninstall service and exit")
 	version := flag.Bool("version", false, "Print version and exit")
@@ -70,6 +75,7 @@ func Load() (*Config, error) {
 
 	cfg.ServerURL = *server
 	cfg.DeviceKey = *key
+	cfg.DeviceID = *deviceID
 	cfg.Install = *install
 	cfg.Uninstall = *uninstall
 	cfg.ShowVersion = *version

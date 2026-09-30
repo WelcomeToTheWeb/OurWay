@@ -5,7 +5,7 @@
 set -euo pipefail
 
 VERSION="1.0.0"
-SERVER="ws://localhost:8081"
+SERVER="ws://localhost:8080"
 KEY=""
 INSTALL_MODE="system"
 

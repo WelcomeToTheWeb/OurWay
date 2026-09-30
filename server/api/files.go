@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"time"
 
@@ -11,6 +12,10 @@ import (
 	"ourway/server/models"
 	"ourway/server/store"
 )
+
+// maxUploadSize caps uploaded files at 1 GiB so a malicious or mistaken
+// upload cannot exhaust server memory.
+const maxUploadSize = 1 << 30
 
 // FileHandler handles file transfer API endpoints.
 type FileHandler struct {
@@ -42,9 +47,15 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	}
 	defer f.Close()
 
-	// Read entire file
-	data := make([]byte, file.Size)
-	if _, err := f.Read(data); err != nil {
+	if file.Size > maxUploadSize {
+		c.JSON(413, gin.H{"error": "file too large (max 1 GiB)"})
+		return
+	}
+
+	// Read entire file (io.ReadAll: a single f.Read may return a short
+	// read, which would silently truncate the stored file).
+	data, err := io.ReadAll(f)
+	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to read file"})
 		return
 	}
@@ -97,11 +108,13 @@ func (h *FileHandler) PushFile(c *gin.Context) {
 		return
 	}
 
-	// Get transfer details
+	// Get transfer details. The transfer must already exist (created by
+	// /api/files/upload); we do not fabricate a phantom transfer here,
+	// which would point the agent at a file that is never stored.
 	transfer, err := h.service.GetTransfer(req.TransferID)
 	if err != nil {
-		// Transfer might not exist yet (just uploaded), create it
-		transfer = nil
+		c.JSON(404, gin.H{"error": "transfer not found"})
+		return
 	}
 
 	for _, deviceID := range req.DeviceIDs {
@@ -110,22 +123,7 @@ func (h *FileHandler) PushFile(c *gin.Context) {
 			dest = "/home/" // default destination
 		}
 
-		var transferID string
-		var filename string
-		var size int64
-
-		if transfer != nil {
-			transferID = transfer.ID
-			filename = transfer.Filename
-			size = transfer.SizeBytes
-		} else {
-			transferID = uuid.New().String()
-			filename = "uploaded_file"
-			size = 0
-		}
-
-		_, err := h.service.PushFile(c.Request.Context(), transferID, deviceID, dest, filename, size)
-		if err != nil {
+		if _, err := h.service.PushFile(c.Request.Context(), transfer.ID, deviceID, dest, transfer.Filename, transfer.SizeBytes); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
@@ -235,8 +233,15 @@ func (h *AgentFileHandler) UploadFromAgent(c *gin.Context) {
 	}
 	defer f.Close()
 
-	data := make([]byte, file.Size)
-	if _, err := f.Read(data); err != nil {
+	if file.Size > maxUploadSize {
+		c.JSON(413, gin.H{"error": "file too large (max 1 GiB)"})
+		return
+	}
+
+	// Read entire file (io.ReadAll: a single f.Read may return a short
+	// read, which would silently truncate the stored file).
+	data, err := io.ReadAll(f)
+	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to read file"})
 		return
 	}

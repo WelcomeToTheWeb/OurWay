@@ -15,6 +15,7 @@ import {
   listDeployments,
   deployNow,
 } from '../api/patching';
+import { useTranslation } from 'react-i18next';
 import type { PatchPolicy, PatchDeployment } from '../types/patch';
 
 function timeAgo(dateStr: string): string {
@@ -32,6 +33,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export function PatchPolicies() {
+  const { t } = useTranslation();
   const [policies, setPolicies] = useState<PatchPolicy[]>([]);
   const [deployments, setDeployments] = useState<PatchDeployment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,9 +120,9 @@ export function PatchPolicies() {
       <div>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-text-primary">Patch Policies</h1>
+            <h1 className="text-2xl font-semibold text-text-primary">{t('patchPolicies.title')}</h1>
             <p className="text-sm text-text-secondary">
-              {policies.length} active policy{policies.length !== 1 ? 'ies' : ''}
+              {t('patchPolicies.activePolicies', { count: policies.length })}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -130,36 +132,36 @@ export function PatchPolicies() {
               className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80 disabled:opacity-50"
             >
               <Play className="h-3.5 w-3.5" />
-              Deploy Now
+              {t('patches.deployNow')}
             </button>
             <button
               onClick={() => setShowCreate(!showCreate)}
               className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-bg"
             >
               <Plus className="h-3.5 w-3.5" />
-              New Policy
+              {t('patchPolicies.newPolicy')}
             </button>
           </div>
         </div>
 
         {showCreate && (
           <div className="mt-4 rounded-xl border border-bg-border bg-bg-card p-6">
-            <h3 className="text-sm font-semibold text-text-primary">Create Policy</h3>
+            <h3 className="text-sm font-semibold text-text-primary">{t('patchPolicies.createPolicy')}</h3>
             <div className="mt-4 grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-text-secondary">Name</label>
+                <label className="block text-xs text-text-secondary">{t('common.name')}</label>
                 <input
                   type="text"
                   value={newPolicy.name}
                   onChange={(e) =>
                     setNewPolicy({ ...newPolicy, name: e.target.value })
                   }
-                  placeholder="e.g. Windows Production Servers"
+                  placeholder={t('patchPolicies.namePlaceholder')}
                   className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs text-text-secondary">Schedule</label>
+                <label className="block text-xs text-text-secondary">{t('patchPolicies.schedule')}</label>
                 <select
                   value={newPolicy.schedule}
                   onChange={(e) =>
@@ -167,13 +169,13 @@ export function PatchPolicies() {
                   }
                   className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
                 >
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
+                  <option value="daily">{t('patchPolicies.daily')}</option>
+                  <option value="weekly">{t('patchPolicies.weekly')}</option>
+                  <option value="monthly">{t('patchPolicies.monthly')}</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-text-secondary">Scope</label>
+                <label className="block text-xs text-text-secondary">{t('patchPolicies.scope')}</label>
                 <select
                   value={newPolicy.scope}
                   onChange={(e) =>
@@ -181,14 +183,14 @@ export function PatchPolicies() {
                   }
                   className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
                 >
-                  <option value="all">All devices</option>
-                  <option value="tags">By tag</option>
-                  <option value="devices">Specific devices</option>
+                  <option value="all">{t('patchPolicies.allDevices')}</option>
+                  <option value="tags">{t('patchPolicies.byTag')}</option>
+                  <option value="devices">{t('patchPolicies.specificDevices')}</option>
                 </select>
               </div>
               <div>
                 <label className="block text-xs text-text-secondary">
-                  Max devices per batch
+                  {t('patchPolicies.maxBatch')}
                 </label>
                 <input
                   type="number"
@@ -213,7 +215,7 @@ export function PatchPolicies() {
                   }
                   className="h-4 w-4 accent-accent"
                 />
-                Auto reboot if needed
+                {t('patchPolicies.autoRebootIfNeeded')}
               </label>
               <label className="flex items-center gap-2 text-sm text-text-primary">
                 <input
@@ -227,7 +229,7 @@ export function PatchPolicies() {
                   }
                   className="h-4 w-4 accent-accent"
                 />
-                Require approval
+                {t('patchPolicies.requireApproval')}
               </label>
             </div>
             <div className="mt-4 flex items-center gap-2">
@@ -236,13 +238,13 @@ export function PatchPolicies() {
                 disabled={creating || !newPolicy.name}
                 className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80 disabled:opacity-50"
               >
-                Create Policy
+                {t('patchPolicies.createPolicy')}
               </button>
               <button
                 onClick={() => setShowCreate(false)}
                 className="rounded-lg bg-bg-secondary px-4 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-bg"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             </div>
           </div>
@@ -252,10 +254,10 @@ export function PatchPolicies() {
           <div className="mt-4 flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-12 text-text-secondary">
             <Shield className="h-10 w-10 text-text-muted" />
             <p className="mt-3 text-sm font-medium text-text-primary">
-              No policies defined
+              {t('patchPolicies.none')}
             </p>
             <p className="mt-1 text-xs text-text-muted">
-              Create a policy to automate patch management
+              {t('patchPolicies.noneDesc')}
             </p>
           </div>
         ) : (
@@ -276,17 +278,17 @@ export function PatchPolicies() {
                       </p>
                       <p className="text-xs text-text-secondary">
                         {policy.scope === 'all'
-                          ? 'All devices'
+                          ? t('patchPolicies.allDevices')
                           : policy.scope === 'tags'
-                            ? `Tag: ${policy.scope_value}`
-                            : `Devices: ${policy.scope_value}`}
+                            ? t('patchPolicies.scopeTag', { value: policy.scope_value })
+                            : t('patchPolicies.scopeDevices', { value: policy.scope_value })}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="flex items-center gap-1 text-xs text-text-secondary">
                       <Calendar className="h-3.5 w-3.5" />
-                      {policy.schedule}
+                      {t(`patchPolicies.${policy.schedule}`)}
                     </span>
                   </div>
                 </div>
@@ -294,16 +296,16 @@ export function PatchPolicies() {
                   {policy.approval_required && (
                     <span className="flex items-center gap-1">
                       <Check className="h-3 w-3 text-status-online" />
-                      Approval required
+                      {t('patchPolicies.approvalRequired')}
                     </span>
                   )}
                   {policy.auto_reboot && (
                     <span className="flex items-center gap-1">
                       <RefreshCw className="h-3 w-3 text-accent" />
-                      Auto reboot
+                      {t('patchPolicies.autoReboot')}
                     </span>
                   )}
-                  <span>Batch: {policy.max_devices_per_batch}</span>
+                  <span>{t('patchPolicies.batch', { count: policy.max_devices_per_batch })}</span>
                 </div>
               </div>
             ))}
@@ -313,10 +315,10 @@ export function PatchPolicies() {
 
       {/* Deployments section */}
       <div>
-        <h2 className="text-lg font-semibold text-text-primary">Recent Deployments</h2>
+        <h2 className="text-lg font-semibold text-text-primary">{t('patchPolicies.deployments')}</h2>
         {deployments.length === 0 ? (
           <div className="mt-4 rounded-xl border border-bg-border bg-bg-card p-8 text-center text-sm text-text-secondary">
-            No deployments yet. Click "Deploy Now" to start your first deployment.
+            {t('patchPolicies.noDeployments')}
           </div>
         ) : (
           <div className="mt-4 space-y-3">
@@ -353,12 +355,12 @@ export function PatchPolicies() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-text-primary">
-                          Deployment {dep.id.slice(0, 8)}
+                          {t('patchPolicies.deployment', { id: dep.id.slice(0, 8) })}
                         </p>
                         <p className="text-xs text-text-secondary">
-                          {dep.devices_success}/{dep.devices_total} devices
+                          {t('patchPolicies.devicesCount', { success: dep.devices_success, total: dep.devices_total })}
                           {dep.devices_failed > 0 &&
-                            ` • ${dep.devices_failed} failed`}
+                            ` • ${t('patchPolicies.failedCount', { count: dep.devices_failed })}`}
                         </p>
                       </div>
                     </div>
@@ -374,7 +376,7 @@ export function PatchPolicies() {
                                 : 'bg-bg text-text-secondary'
                         }`}
                       >
-                        {dep.status}
+                        {t(`patchPolicies.deployStatuses.${dep.status}`)}
                       </span>
                       <p className="mt-1 text-xs text-text-muted">
                         {timeAgo(dep.created_at)}
@@ -390,7 +392,7 @@ export function PatchPolicies() {
                         />
                       </div>
                       <p className="mt-1 text-xs text-text-secondary">
-                        {progress}% complete
+                        {t('patchPolicies.percentComplete', { progress })}
                       </p>
                     </div>
                   )}

@@ -4,7 +4,7 @@
 # Invoke-WebRequest -Uri "https://ourway.example.com/install.ps1" -UseBasicParsing | Invoke-Expression
 
 param(
-    [string]$Server = "http://localhost:8081",
+    [string]$Server = "http://localhost:8080",
     [string]$Key = "",
     [string]$InstallDir = "C:\Program Files\OurWay\Agent",
     [string]$Version = "1.0.0"

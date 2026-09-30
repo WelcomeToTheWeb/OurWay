@@ -62,24 +62,28 @@ func (h *Handler) HandlePush(ctx context.Context, data interface{}) {
 	req, err := http.NewRequest("GET", downloadURL, nil)
 	if err != nil {
 		log.Printf("file push: create request error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("create request: %v", err))
 		return
 	}
 	req.Header.Set("X-Device-Key", h.deviceKey)
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		log.Printf("file push: download error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("download: %v", err))
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		log.Printf("file push: download returned %d", resp.StatusCode)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("download returned %d", resp.StatusCode))
 		return
 	}
 
 	// Ensure destination directory exists
 	if err := os.MkdirAll(destination, 0755); err != nil {
 		log.Printf("file push: mkdir error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("create destination: %v", err))
 		return
 	}
 
@@ -94,6 +98,7 @@ func (h *Handler) HandlePush(ctx context.Context, data interface{}) {
 	destDir, err := filepath.Abs(destination)
 	if err != nil {
 		log.Printf("file push: resolve destination error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("resolve destination: %v", err))
 		return
 	}
 	destPath := filepath.Join(destDir, safeName)
@@ -107,6 +112,7 @@ func (h *Handler) HandlePush(ctx context.Context, data interface{}) {
 	out, err := os.Create(destPath)
 	if err != nil {
 		log.Printf("file push: create file error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("create file: %v", err))
 		return
 	}
 	defer out.Close()
@@ -120,6 +126,7 @@ func (h *Handler) HandlePush(ctx context.Context, data interface{}) {
 		if n > 0 {
 			if _, werr := out.Write(buf[:n]); werr != nil {
 				log.Printf("file push: write error: %v", werr)
+				h.reportProgress(transferID, "failed", 0, fmt.Sprintf("write file: %v", werr))
 				return
 			}
 			written += int64(n)
@@ -134,6 +141,7 @@ func (h *Handler) HandlePush(ctx context.Context, data interface{}) {
 		}
 		if err != nil {
 			log.Printf("file push: read error: %v", err)
+			h.reportProgress(transferID, "failed", 0, fmt.Sprintf("read download: %v", err))
 			return
 		}
 	}
@@ -189,6 +197,7 @@ func (h *Handler) HandlePull(ctx context.Context, data interface{}) {
 	f, err := os.Open(sourcePath)
 	if err != nil {
 		log.Printf("file pull: open file error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("open source file: %v", err))
 		return
 	}
 	defer f.Close()
@@ -197,6 +206,7 @@ func (h *Handler) HandlePull(ctx context.Context, data interface{}) {
 	info, err := f.Stat()
 	if err != nil {
 		log.Printf("file pull: stat file error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("stat source file: %v", err))
 		return
 	}
 	size := info.Size()
@@ -208,6 +218,7 @@ func (h *Handler) HandlePull(ctx context.Context, data interface{}) {
 	_, err = io.Copy(part, f)
 	if err != nil {
 		log.Printf("file pull: copy error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("read source file: %v", err))
 		return
 	}
 	writer.Close()
@@ -217,6 +228,7 @@ func (h *Handler) HandlePull(ctx context.Context, data interface{}) {
 	req, err := http.NewRequest("POST", uploadURL, &body)
 	if err != nil {
 		log.Printf("file pull: create request error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("create request: %v", err))
 		return
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -229,12 +241,14 @@ func (h *Handler) HandlePull(ctx context.Context, data interface{}) {
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
 		log.Printf("file pull: upload error: %v", err)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("upload: %v", err))
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		log.Printf("file pull: upload returned %d", resp.StatusCode)
+		h.reportProgress(transferID, "failed", 0, fmt.Sprintf("upload returned %d", resp.StatusCode))
 		return
 	}
 

@@ -2,6 +2,7 @@ package patching
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -12,6 +13,12 @@ import (
 	"ourway/server/store"
 	"ourway/server/ws"
 )
+
+// ErrNoApprovedUpdates is returned by DeployToDevices when none of the
+// requested devices have approved updates. The API maps it to HTTP 400 so
+// the UI does not start a deployment that has nothing to deploy (an empty
+// update list used to trigger a full OS upgrade on the agent side).
+var ErrNoApprovedUpdates = errors.New("no approved updates for the requested devices")
 
 // Deployer deploys patches to devices.
 type Deployer struct {
@@ -39,10 +46,35 @@ func (d *Deployer) FinalizeTimedOut() {
 	}
 }
 
-// DeployToDevices deploys approved updates to devices.
+// DeployToDevices deploys approved updates to devices. It first filters the
+// requested devices down to those that actually have approved updates, so a
+// deployment is never started with an empty update set (which the agent
+// would interpret as a request for a full OS upgrade).
 func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Pre-filter to devices that have at least one approved update, and
+	// remember the updates per device so the deploy loop below does not
+	// re-query them.
+	updatesByDevice := make(map[string][]models.SoftwareUpdate, len(deviceIDs))
+	targets := make([]string, 0, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		updates, err := d.store.SoftwareUpdates.ListByDeviceAndStatus(deviceID, "approved")
+		if err != nil {
+			log.Printf("patching: failed to list updates for device %s: %v", deviceID, err)
+			continue
+		}
+		if len(updates) == 0 {
+			continue
+		}
+		updatesByDevice[deviceID] = updates
+		targets = append(targets, deviceID)
+	}
+	if len(targets) == 0 {
+		return "", ErrNoApprovedUpdates
+	}
+	deviceIDs = targets
 
 	// Create deployment record (tracking the targeted devices so rollback can find them)
 	deployment := &models.PatchDeployment{
@@ -69,12 +101,9 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 			continue
 		}
 
-		// Get the approved updates for THIS device only (never cross-device)
-		updates, err := d.store.SoftwareUpdates.ListByDeviceAndStatus(deviceID, "approved")
-		if err != nil {
-			log.Printf("patching: failed to list updates for device %s: %v", deviceID, err)
-			continue
-		}
+		// The approved updates for THIS device only (never cross-device),
+		// pre-fetched above.
+		updates := updatesByDevice[deviceID]
 
 		// Send deploy command
 		if err := d.hub.SendToDevice(device.DeviceKey, "deploy_updates", map[string]interface{}{
