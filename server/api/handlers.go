@@ -52,6 +52,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 	agentFileHandler := NewAgentFileHandler(store, fileService)
 	agentPatchHandler := NewAgentPatchHandler(store, deployer)
 	ssoHandler := NewSSOHandler(store, jwtAuth, webURL)
+	installerHandler := NewInstallerHandler(installersDir)
 	apiKeyHandler := CreateAPIKeyHandler(store, jwtAuth)
 	webhookDispatcher := webhooks.NewDispatcher(store)
 	webhookHandler := NewWebhookHandler(store, webhookDispatcher)
@@ -135,6 +136,14 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 			}
 			c.File(path)
 		})
+	}
+
+	// Installer download routes (public: onboarding happens before a tech
+	// has an account, so the artifacts are downloadable without auth).
+	installerGroup := r.Group("/api/v2/installers")
+	{
+		installerGroup.GET("", installerHandler.List)
+		installerGroup.GET("/:name", installerHandler.Download)
 	}
 
 	// Protected routes (JWT or API key auth required, rate limited)

@@ -38,7 +38,21 @@ GOOS=windows GOARCH=amd64 go build -C agent \
     -ldflags "-s -w -X main.Version=${VERSION} -X 'main.BuildTime=${BUILD_TIME}' -X main.GitCommit=${GIT_COMMIT}" \
     -o ../dist/agents/ourway-agent-windows-amd64.exe .
 
-# Build installer CLI for all platforms
+# Build Windows arm64
+echo "Building Windows arm64 agent..."
+GOOS=windows GOARCH=arm64 go build -C agent \
+    -ldflags "-s -w -X main.Version=${VERSION} -X 'main.BuildTime=${BUILD_TIME}' -X main.GitCommit=${GIT_COMMIT}" \
+    -o ../dist/agents/ourway-agent-windows-arm64.exe .
+
+# Build installer CLI for all platforms.
+# For each platform, the matching agent binary is copied into
+# cmd/ourway-installer/assets/agent and embedded into the installer
+# (//go:embed) so the installer is fully self-contained.
+# NOTE: assets/agent is overwritten on every iteration and is NOT restored
+# afterwards — the agent for the LAST built platform (windows/arm64) is
+# what remains in the working tree. That's fine: the checked-in placeholder
+# is only a git-tracking stub, and every built installer carries the
+# correct binary for its own platform.
 echo ""
 echo "Building installer CLI..."
 for os in linux darwin windows; do
@@ -48,9 +62,10 @@ for os in linux darwin windows; do
             suffix=".exe"
         fi
         echo "  ${os}/${arch}..."
+        cp "dist/agents/ourway-agent-${os}-${arch}${suffix}" cmd/ourway-installer/assets/agent
         GOOS=$os GOARCH=$arch go build -C cmd/ourway-installer \
-            -ldflags "-s -w -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
-            -o ../dist/agents/ourway-installer-${os}-${arch}${suffix} . 2>/dev/null || true
+            -ldflags "-s -w -X main.version=${VERSION} -X 'main.buildTime=${BUILD_TIME}' -X main.gitCommit=${GIT_COMMIT}" \
+            -o ../../dist/agents/ourway-installer-${os}-${arch}${suffix} .
     done
 done
 

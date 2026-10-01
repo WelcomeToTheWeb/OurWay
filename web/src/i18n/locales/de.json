@@ -77,7 +77,12 @@
     "uptime": "Betriebszeit",
     "details": "Details",
     "reboot": "Neustart",
-    "rebootConfirm": "Möchten Sie dieses Gerät wirklich neu starten?"
+    "rebootConfirm": "Möchten Sie dieses Gerät wirklich neu starten?",
+    "installerDesc": "Laden Sie den Installer für den Gerätetyp herunter und führen Sie ihn auf dem Gerät aus.",
+    "installerNone": "Auf diesem Server sind keine Installer verfügbar",
+    "installerError": "Installer konnten nicht geladen werden",
+    "installerScript": "Skript",
+    "installerDownloadFailed": "Download von {{file}} fehlgeschlagen"
   },
   "alerts": {
     "title": "Alarme",

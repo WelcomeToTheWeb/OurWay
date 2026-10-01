@@ -6,13 +6,14 @@ import (
 
 // Config holds all server configuration loaded from environment variables.
 type Config struct {
-	ServerPort   string
-	DatabaseURL  string
-	JWTSecret    string
-	WSPath       string
-	RedisURL     string
-	RedisEnabled bool
-	WebURL       string
+	ServerPort    string
+	DatabaseURL   string
+	JWTSecret     string
+	WSPath        string
+	RedisURL      string
+	RedisEnabled  bool
+	WebURL        string
+	InstallersDir string
 }
 
 // Load reads configuration from environment variables, applying defaults.
@@ -21,13 +22,14 @@ func Load() *Config {
 	redisEnabled := getEnv("REDIS_ENABLED", "false") == "true"
 
 	return &Config{
-		ServerPort:   getEnv("SERVER_PORT", ":8080"),
-		DatabaseURL:  getEnv("DATABASE_URL", "postgresql://postgres:ourway@localhost:5432/ourway?sslmode=disable"),
-		JWTSecret:    getEnv("JWT_SECRET", "ourway-secret-key"),
-		WSPath:       getEnv("WS_PATH", "/ws"),
-		RedisURL:     redisURL,
-		RedisEnabled: redisEnabled,
-		WebURL:       getEnv("WEB_URL", "http://localhost:3000"),
+		ServerPort:    getEnv("SERVER_PORT", ":8080"),
+		DatabaseURL:   getEnv("DATABASE_URL", "postgresql://postgres:ourway@localhost:5432/ourway?sslmode=disable"),
+		JWTSecret:     getEnv("JWT_SECRET", "ourway-secret-key"),
+		WSPath:        getEnv("WS_PATH", "/ws"),
+		RedisURL:      redisURL,
+		RedisEnabled:  redisEnabled,
+		WebURL:        getEnv("WEB_URL", "http://localhost:3000"),
+		InstallersDir: getEnv("INSTALLERS_DIR", "./dist/agents"),
 	}
 }
 

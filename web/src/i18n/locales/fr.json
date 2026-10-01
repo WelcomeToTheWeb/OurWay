@@ -77,7 +77,12 @@
     "uptime": "Temps de fonctionnement",
     "details": "Détails",
     "reboot": "Redémarrer",
-    "rebootConfirm": "Êtes-vous sûr de vouloir redémarrer cet appareil ?"
+    "rebootConfirm": "Êtes-vous sûr de vouloir redémarrer cet appareil ?",
+    "installerDesc": "Téléchargez l'installateur pour le type d'appareil, puis exécutez-le sur cet appareil.",
+    "installerNone": "Aucun installateur disponible sur ce serveur",
+    "installerError": "Impossible de charger les installateurs",
+    "installerScript": "script",
+    "installerDownloadFailed": "Échec du téléchargement de {{file}}"
   },
   "alerts": {
     "title": "Alertes",

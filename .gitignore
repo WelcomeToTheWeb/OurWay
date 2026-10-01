@@ -1,0 +1,6 @@
+# Stale committed build artifact of the installer (rebuilt into dist/agents/ by docker/build-agents.sh)
+cmd/ourway-installer/ourway-installer
+
+# NOTE: cmd/ourway-installer/assets/agent is intentionally NOT gitignored.
+# It is the tracked placeholder that //go:embed uses; docker/build-agents.sh
+# overwrites it with the real agent binary at build time.

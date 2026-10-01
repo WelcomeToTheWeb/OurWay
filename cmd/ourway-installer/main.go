@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,6 +20,15 @@ var (
 	buildTime = "unknown"
 	gitCommit = "unknown"
 )
+
+// embeddedAgent holds the agent binary embedded in the installer so the
+// installer is fully self-contained. docker/build-agents.sh overwrites
+// assets/agent with the matching agent binary before building each
+// platform's installer. The checked-in placeholder is a few bytes; a real
+// embedded binary is >1KB.
+//
+//go:embed assets/agent
+var embeddedAgent []byte
 
 var (
 	flagServer      = flag.String("server", "http://localhost:8080", "OurWay server URL")
@@ -176,7 +186,23 @@ func registerDevice(osName, arch string) string {
 }
 
 func installBinary(osName, arch, installDir, binName string) string {
-	// Check for local binary first
+	// 1. Use the agent binary embedded in this installer (self-contained).
+	// The checked-in placeholder is tiny; a real embedded binary is >1KB.
+	if len(embeddedAgent) > 1024 {
+		fmt.Printf("Using embedded agent binary (%.1f MB)\n", float64(len(embeddedAgent))/1024/1024)
+		binaryPath := filepath.Join(installDir, binName)
+		if err := os.MkdirAll(installDir, 0755); err != nil {
+			fmt.Printf("Error creating install dir: %v\n", err)
+			return ""
+		}
+		if err := os.WriteFile(binaryPath, embeddedAgent, 0755); err != nil {
+			fmt.Printf("Error writing embedded binary: %v\n", err)
+			return ""
+		}
+		return binaryPath
+	}
+
+	// 2. Check for local binary first
 	localPaths := []string{
 		filepath.Join("dist", "agents", fmt.Sprintf("ourway-agent-%s-%s", osName, arch)),
 		"./ourway-agent",
@@ -197,7 +223,7 @@ func installBinary(osName, arch, installDir, binName string) string {
 		}
 	}
 
-	// Download from server
+	// 3. Download from server (fallback; the endpoint may not exist)
 	binaryPath := filepath.Join(installDir, binName)
 	os.MkdirAll(installDir, 0755)
 
@@ -303,9 +329,16 @@ WantedBy=multi-user.target
 		fmt.Println("Service installed and started")
 
 	case "windows":
-		cmdStr := fmt.Sprintf("sc.exe create OurWayAgent binPath=\"%s --server %s --key %s\" start=auto", binaryPath, server, key)
-		run("powershell", "-Command", cmdStr)
-		run("sc.exe", "start", "OurWayAgent")
+		// Use New-Service instead of sc.exe: the install dir contains a
+		// space (C:\Program Files\OurWay\Agent), which breaks sc.exe
+		// argument parsing when invoked through `powershell -Command`.
+		// PowerShell single-quoted strings escape ' by doubling it.
+		psq := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
+		psScript := fmt.Sprintf(
+			"New-Service -Name OurWayAgent -BinaryPathName '%s --server %s --key %s' -StartupType Automatic -DisplayName 'OurWay RMM Agent'; Start-Service OurWayAgent",
+			psq(binaryPath), psq(server), psq(key),
+		)
+		run("powershell", "-NoProfile", "-Command", psScript)
 		fmt.Println("Service installed and started")
 	}
 }

@@ -27,6 +27,9 @@ func main() {
 	cfg := config.Load()
 	log.Printf("Starting OurWay server on %s", cfg.ServerPort)
 
+	// Single source of truth for the installer download directory.
+	api.SetInstallersDir(cfg.InstallersDir)
+
 	// Server lifecycle context: background workers started with this
 	// context stop when it is cancelled during shutdown.
 	ctx, cancel := context.WithCancel(context.Background())

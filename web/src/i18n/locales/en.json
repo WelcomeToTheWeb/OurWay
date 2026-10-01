@@ -77,7 +77,12 @@
     "uptime": "Uptime",
     "details": "Details",
     "reboot": "Reboot",
-    "rebootConfirm": "Are you sure you want to reboot this device?"
+    "rebootConfirm": "Are you sure you want to reboot this device?",
+    "installerDesc": "Download the installer for the machine type, then run it on that machine.",
+    "installerNone": "No installers available on this server",
+    "installerError": "Could not load installers",
+    "installerScript": "script",
+    "installerDownloadFailed": "Failed to download {{file}}"
   },
   "alerts": {
     "title": "Alerts",

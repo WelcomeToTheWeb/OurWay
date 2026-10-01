@@ -5,6 +5,7 @@ import { useDevices } from '../hooks/useDevices';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../auth/context';
 import { DeviceCard } from '../components/DeviceCard';
+import { InstallerPanel } from '../components/InstallerPanel';
 import { Grid } from 'react-window';
 
 export function Devices() {
@@ -36,6 +37,8 @@ export function Devices() {
           {t('common.refresh')}
         </button>
       </div>
+
+      <InstallerPanel />
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary" />
