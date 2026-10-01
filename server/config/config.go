@@ -6,13 +6,13 @@ import (
 
 // Config holds all server configuration loaded from environment variables.
 type Config struct {
-	ServerPort  string
-	DatabaseURL string
-	JWTSecret   string
-	WSPath      string
-	RedisURL    string
+	ServerPort   string
+	DatabaseURL  string
+	JWTSecret    string
+	WSPath       string
+	RedisURL     string
 	RedisEnabled bool
-	WebURL      string
+	WebURL       string
 }
 
 // Load reads configuration from environment variables, applying defaults.

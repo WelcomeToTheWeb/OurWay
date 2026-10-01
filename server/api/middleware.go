@@ -94,7 +94,9 @@ func RequireAnyRole(roles ...string) gin.HandlerFunc {
 }
 
 // DeviceKeyMiddleware validates the device API key from the X-Device-Key header.
-func DeviceKeyMiddleware(store interface{ GetDeviceByKey(string) (interface{}, error) }) gin.HandlerFunc {
+func DeviceKeyMiddleware(store interface {
+	GetDeviceByKey(string) (interface{}, error)
+}) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		deviceKey := c.GetHeader("X-Device-Key")
 		if deviceKey == "" {

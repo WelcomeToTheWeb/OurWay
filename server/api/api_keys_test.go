@@ -35,17 +35,17 @@ func TestAPIKeyCreate(t *testing.T) {
 		Key struct {
 			ID     string `json:"id"`
 			Name   string `json:"name"`
-			Key    string `json:"key"`
 			Scopes string `json:"scopes"`
 		} `json:"key"`
+		KeyValue string `json:"key_value"`
 	}
 	json.NewDecoder(resp.Body).Decode(&result)
 
 	if result.Key.Name != "Test Key" {
 		t.Errorf("expected name 'Test Key', got '%s'", result.Key.Name)
 	}
-	if result.Key.Key == "" {
-		t.Error("expected non-empty key")
+	if result.KeyValue == "" {
+		t.Error("expected non-empty key_value")
 	}
 }
 
@@ -109,15 +109,14 @@ func TestAPIKeyAuth(t *testing.T) {
 	defer resp.Body.Close()
 
 	var createResult struct {
-		Key struct {
-			Key string `json:"key"`
-		} `json:"key"`
+		Key      struct{} `json:"key"`
+		KeyValue string   `json:"key_value"`
 	}
 	json.NewDecoder(resp.Body).Decode(&createResult)
 
 	// Use API key to access protected endpoint
 	req, _ = http.NewRequest("GET", ts.URL+"/api/devices", nil)
-	req.Header.Set("X-API-Key", createResult.Key.Key)
+	req.Header.Set("X-API-Key", createResult.KeyValue)
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
@@ -148,9 +147,9 @@ func TestAPIKeyRevoke(t *testing.T) {
 
 	var createResult struct {
 		Key struct {
-			ID  string `json:"id"`
-			Key string `json:"key"`
+			ID string `json:"id"`
 		} `json:"key"`
+		KeyValue string `json:"key_value"`
 	}
 	json.NewDecoder(resp.Body).Decode(&createResult)
 
@@ -169,7 +168,7 @@ func TestAPIKeyRevoke(t *testing.T) {
 
 	// Try to use revoked key
 	req, _ = http.NewRequest("GET", ts.URL+"/api/devices", nil)
-	req.Header.Set("X-API-Key", createResult.Key.Key)
+	req.Header.Set("X-API-Key", createResult.KeyValue)
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
@@ -199,12 +198,12 @@ func TestAPIKeyRotate(t *testing.T) {
 
 	var createResult struct {
 		Key struct {
-			ID  string `json:"id"`
-			Key string `json:"key"`
+			ID string `json:"id"`
 		} `json:"key"`
+		KeyValue string `json:"key_value"`
 	}
 	json.NewDecoder(resp.Body).Decode(&createResult)
-	oldKey := createResult.Key.Key
+	oldKey := createResult.KeyValue
 
 	// Rotate the key
 	req, _ = http.NewRequest("POST", ts.URL+"/api/v2/api-keys/"+createResult.Key.ID+"/rotate", nil)
@@ -216,12 +215,11 @@ func TestAPIKeyRotate(t *testing.T) {
 	defer resp.Body.Close()
 
 	var rotateResult struct {
-		Key struct {
-			Key string `json:"key"`
-		} `json:"key"`
+		Key      struct{} `json:"key"`
+		KeyValue string   `json:"key_value"`
 	}
 	json.NewDecoder(resp.Body).Decode(&rotateResult)
-	newKey := rotateResult.Key.Key
+	newKey := rotateResult.KeyValue
 
 	if oldKey == newKey {
 		t.Error("expected different key after rotation")

@@ -7,9 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
-	"ourway/server/models"
 	"ourway/server/store"
 	"ourway/server/ws"
 )
@@ -58,26 +55,6 @@ func (s *Scanner) ScanDevices(ctx context.Context) error {
 
 	log.Printf("patching: scan sent to %d online devices", scanned)
 	return nil
-}
-
-// ReportUpdate receives an update report from a device.
-func (s *Scanner) ReportUpdate(deviceID string, update map[string]interface{}) error {
-	softwareUpdate := &models.SoftwareUpdate{
-		ID:       uuid.New().String(),
-		DeviceID: deviceID,
-		Source:   update["source"].(string),
-		Title:    update["title"].(string),
-		Version:  update["version"].(string),
-		Status:   "detected",
-	}
-
-	if size, ok := update["size_bytes"]; ok {
-		if sizeFloat, ok := size.(float64); ok {
-			softwareUpdate.SizeBytes = int64(sizeFloat)
-		}
-	}
-
-	return s.store.SoftwareUpdates.Create(softwareUpdate)
 }
 
 // ScanAll periodically scans all devices.

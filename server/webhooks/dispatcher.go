@@ -113,13 +113,16 @@ func (d *Dispatcher) deliver(ctx context.Context, webhook *models.Webhook, deliv
 		return
 	}
 
+	// Apply user-configured custom headers first so the reserved headers
+	// below always win: a custom "X-OurWay-Signature" or "Content-Type"
+	// must not clobber the computed values and defeat HMAC auth.
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-OurWay-Event", delivery.Event)
 	if webhook.Secret != "" {
 		req.Header.Set("X-OurWay-Signature", signPayload(webhook.Secret, payload))
-	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
 	}
 
 	resp, err := d.client.Do(req)

@@ -72,11 +72,11 @@ func (c *ProcessCollector) Collect() (map[string]interface{}, error) {
 			memUsed = memInfo.RSS
 		}
 
-			infos = append(infos, procInfo{
-				p:      p,
-				cpu:    cpuPercent,
-				memory: memUsed,
-			})
+		infos = append(infos, procInfo{
+			p:      p,
+			cpu:    cpuPercent,
+			memory: memUsed,
+		})
 	}
 
 	// Drop handles for processes that have exited.
@@ -127,8 +127,8 @@ func (c *ProcessCollector) Collect() (map[string]interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"top_cpu":  topCPU,
-		"top_mem":  topMem,
-		"count":    len(procs),
+		"top_cpu": topCPU,
+		"top_mem": topMem,
+		"count":   len(procs),
 	}, nil
 }

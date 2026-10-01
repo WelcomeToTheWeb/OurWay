@@ -9,14 +9,14 @@ import (
 
 // RebootHandler handles reboot API endpoints.
 type RebootHandler struct {
-	store   *store.Store
+	store    *store.Store
 	rebooter *patching.Rebooter
 }
 
 // NewRebootHandler creates a new reboot handler.
 func NewRebootHandler(store *store.Store, rebooter *patching.Rebooter) *RebootHandler {
 	return &RebootHandler{
-		store:   store,
+		store:    store,
 		rebooter: rebooter,
 	}
 }

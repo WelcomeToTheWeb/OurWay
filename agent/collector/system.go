@@ -1,8 +1,8 @@
 package collector
 
 import (
-	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/host"
+	"github.com/shirou/gopsutil/v4/load"
 )
 
 // Uptime returns the system uptime in seconds.

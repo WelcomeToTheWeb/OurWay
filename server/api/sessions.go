@@ -81,6 +81,12 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 	// Create offer
 	offerJSON, err := h.gateway.CreateOffer(session.ID)
 	if err != nil {
+		// The peer connection was already registered in the gateway, so
+		// close it to avoid leaking the Pion PC (ICE agents, timers) and
+		// the gateway map entry.
+		if closeErr := h.gateway.CloseSession(session.ID); closeErr != nil {
+			log.Printf("sessions: failed to close session %s after offer error: %v", session.ID, closeErr)
+		}
 		c.JSON(500, gin.H{"error": "failed to create offer"})
 		return
 	}

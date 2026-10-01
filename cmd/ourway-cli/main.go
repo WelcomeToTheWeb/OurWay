@@ -278,10 +278,10 @@ func cmdInstall() {
 
 	// Create or update device config
 	deviceConfig := map[string]interface{}{
-		"server_url":     *flagServer,
-		"device_name":    hostname,
+		"server_url":       *flagServer,
+		"device_name":      hostname,
 		"collect_interval": 30,
-		"log_level":      "info",
+		"log_level":        "info",
 	}
 	configData, _ := json.MarshalIndent(deviceConfig, "", "  ")
 	if err := os.WriteFile(filepath.Join(configDir, "device.json"), configData, 0644); err != nil {

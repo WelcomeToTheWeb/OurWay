@@ -3,9 +3,9 @@
 package session
 
 import (
-	"fmt"
 	"log"
 	"os/exec"
+	"strconv"
 )
 
 // xdotoolKeyMap maps browser KeyboardEvent.key values to the key names
@@ -69,7 +69,11 @@ func synthesizeKey(key, event string) {
 
 // synthesizeMouse moves the pointer or clicks/scrolls using xdotool.
 // It is a no-op with a log line if xdotool is not installed.
+// x and y are 0-100 percentages of the captured frame (the web client
+// contract) and are converted to absolute screen pixels here, because
+// xdotool mousemove expects screen coordinates.
 func synthesizeMouse(event string, x, y float64, button string, delta float64) {
+	px, py := toScreenCoords(x, y)
 	bin, err := xdotoolPath()
 	if err != nil {
 		log.Printf("session: xdotool not found; cannot synthesize mouse %q (install xdotool)", event)
@@ -77,7 +81,7 @@ func synthesizeMouse(event string, x, y float64, button string, delta float64) {
 	}
 	switch event {
 	case "move":
-		if err := exec.Command(bin, "mousemove", fmt.Sprintf("%.0f", x), fmt.Sprintf("%.0f", y)).Run(); err != nil {
+		if err := exec.Command(bin, "mousemove", strconv.Itoa(px), strconv.Itoa(py)).Run(); err != nil {
 			log.Printf("session: xdotool mousemove failed: %v", err)
 		}
 	case "click":

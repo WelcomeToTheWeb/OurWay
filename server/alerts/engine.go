@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -173,8 +174,10 @@ func (e *Engine) checkThreshold(metric string, value float64, deviceID, deviceNa
 	}
 
 	if err := e.alertStore.Create(alert); err != nil {
-		// Log but don't fail
-		_ = err
+		// The alert was not persisted; do not publish an event for an
+		// alert that does not exist.
+		log.Printf("alerts: failed to create alert %s: %v", alert.ID, err)
+		return
 	}
 
 	events.Publish("alert_created", map[string]interface{}{

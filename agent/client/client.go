@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
 
 	"ourway/agent/config"
 	"ourway/agent/files"
@@ -189,6 +188,55 @@ func (c *Client) connect(ctx context.Context) error {
 
 	log.Printf("connected to server as %s", c.deviceKey)
 
+	// Single-writer pattern: nhooyr.io/websocket allows one reader and one
+	// writer only. Every outbound frame (heartbeat, metrics) is enqueued
+	// on sendCh and written by this one goroutine, so writes can never
+	// interleave and corrupt the connection.
+	sendCh := make(chan []byte, 16)
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case data, ok := <-sendCh:
+				if !ok {
+					return
+				}
+				if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
+					log.Printf("websocket write: %v", err)
+					// The connection is broken; stop writing. The read
+					// loop will surface the error and tear down the
+					// connection.
+					return
+				}
+			}
+		}
+	}()
+	// Close sendCh last so the writer goroutine always exits (no leak)
+	// when connect() returns.
+	defer func() {
+		close(sendCh)
+		<-writerDone
+	}()
+
+	// enqueue marshals msg as JSON and queues it for the writer goroutine.
+	// If the queue is full the frame is dropped with a log line so the
+	// callers (heartbeat loop, metrics) never block.
+	enqueue := func(msg interface{}) {
+		data, err := json.Marshal(msg)
+		if err != nil {
+			log.Printf("marshal outbound message: %v", err)
+			return
+		}
+		select {
+		case sendCh <- data:
+		default:
+			log.Printf("websocket send queue full; dropping frame")
+		}
+	}
+
 	// Set up timers
 	heartbeatTimer := time.NewTimer(c.heartbeatSec)
 	defer heartbeatTimer.Stop()
@@ -197,7 +245,7 @@ func (c *Client) connect(ctx context.Context) error {
 
 	// Send initial metrics immediately if we have a metrics func
 	if c.metricsFunc != nil {
-		go c.sendMetrics(ctx, conn)
+		go c.sendMetrics(ctx, sendCh)
 	}
 
 	// Track streaming mode
@@ -227,21 +275,18 @@ func (c *Client) connect(ctx context.Context) error {
 			return nil
 
 		case <-heartbeatTimer.C:
-			msg := map[string]interface{}{
+			enqueue(map[string]interface{}{
 				"type": "heartbeat",
 				"payload": map[string]interface{}{
 					"device_key": c.deviceKey,
 					"timestamp":  time.Now().Unix(),
 				},
-			}
-			if err := wsjson.Write(ctx, conn, msg); err != nil {
-				return fmt.Errorf("send heartbeat: %w", err)
-			}
+			})
 			heartbeatTimer.Reset(c.heartbeatSec)
 
 		case <-metricsTimer.C:
 			if c.metricsFunc != nil {
-				go c.sendMetrics(ctx, conn)
+				go c.sendMetrics(ctx, sendCh)
 			}
 			metricsTimer.Reset(currentInterval)
 
@@ -289,7 +334,7 @@ func (c *Client) connect(ctx context.Context) error {
 	}
 }
 
-func (c *Client) sendMetrics(ctx context.Context, conn *websocket.Conn) {
+func (c *Client) sendMetrics(ctx context.Context, sendCh chan []byte) {
 	if c.metricsFunc == nil {
 		return
 	}
@@ -312,7 +357,15 @@ func (c *Client) sendMetrics(ctx context.Context, conn *websocket.Conn) {
 		},
 	}
 
-	if err := wsjson.Write(ctx, conn, msg); err != nil {
+	encoded, err := json.Marshal(msg)
+	if err != nil {
 		log.Printf("error sending metrics: %v", err)
+		return
+	}
+
+	select {
+	case sendCh <- encoded:
+	default:
+		log.Printf("websocket send queue full; dropping metrics frame")
 	}
 }

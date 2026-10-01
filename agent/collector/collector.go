@@ -34,27 +34,27 @@ type NetworkInfo struct {
 
 // ProcessInfo represents information about a running process.
 type ProcessInfo struct {
-	PID      int32   `json:"pid"`
-	Name     string  `json:"name"`
-	CPU      float64 `json:"cpu"`
-	Memory   uint64 `json:"memory"`
+	PID    int32   `json:"pid"`
+	Name   string  `json:"name"`
+	CPU    float64 `json:"cpu"`
+	Memory uint64  `json:"memory"`
 }
 
 // Metrics holds all collected system metrics.
 type Metrics struct {
-	CPU          float64         `json:"cpu"`
-	CPUPerCore   []float64       `json:"cpu_per_core"`
-	RAM          float64         `json:"ram"`
-	RAMUsed      uint64          `json:"ram_used"`
-	RAMTotal     uint64          `json:"ram_total"`
-	Swap         float64         `json:"swap"`
-	SwapUsed     uint64          `json:"swap_used"`
-	SwapTotal    uint64          `json:"swap_total"`
-	Disks        []DiskInfo      `json:"disks"`
+	CPU          float64                `json:"cpu"`
+	CPUPerCore   []float64              `json:"cpu_per_core"`
+	RAM          float64                `json:"ram"`
+	RAMUsed      uint64                 `json:"ram_used"`
+	RAMTotal     uint64                 `json:"ram_total"`
+	Swap         float64                `json:"swap"`
+	SwapUsed     uint64                 `json:"swap_used"`
+	SwapTotal    uint64                 `json:"swap_total"`
+	Disks        []DiskInfo             `json:"disks"`
 	Network      map[string]NetworkInfo `json:"network"`
-	TopProcesses []ProcessInfo   `json:"top_processes"`
-	Uptime       uint64          `json:"uptime"`
-	LoadAvg      []float64       `json:"load_avg"`
+	TopProcesses []ProcessInfo          `json:"top_processes"`
+	Uptime       uint64                 `json:"uptime"`
+	LoadAvg      []float64              `json:"load_avg"`
 }
 
 // CollectorManager manages all registered collectors.

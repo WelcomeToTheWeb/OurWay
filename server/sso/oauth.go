@@ -131,14 +131,14 @@ type OAuthTokens struct {
 
 // UserInfo represents user info from an OAuth provider.
 type UserInfo struct {
-	Subject             string `json:"sub"`
-	Name                string `json:"name"`
-	GivenName           string `json:"given_name"`
-	FamilyName          string `json:"family_name"`
-	Email               string `json:"email"`
-	EmailVerified       bool   `json:"email_verified"`
-	Picture             string `json:"picture"`
-	UserPrincipalName   string `json:"upn"`
+	Subject           string `json:"sub"`
+	Name              string `json:"name"`
+	GivenName         string `json:"given_name"`
+	FamilyName        string `json:"family_name"`
+	Email             string `json:"email"`
+	EmailVerified     bool   `json:"email_verified"`
+	Picture           string `json:"picture"`
+	UserPrincipalName string `json:"upn"`
 }
 
 // HandleCallback handles the OAuth callback and returns a JWT access token
@@ -239,5 +239,3 @@ func (h *OAuthHandler) findOrCreateUser(ctx context.Context, provider *models.SS
 
 	return user, nil
 }
-
-

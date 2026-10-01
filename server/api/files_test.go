@@ -112,6 +112,43 @@ func TestUploadFile(t *testing.T) {
 	}
 }
 
+func TestUploadFileTooLarge(t *testing.T) {
+	ts, _, token, _ := setupFileTest(t)
+
+	// Shrink the limit so the test does not need to stream a gigabyte.
+	oldLimit := maxUploadSize
+	maxUploadSize = 64
+	defer func() { maxUploadSize = oldLimit }()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", "big.txt")
+	if err != nil {
+		t.Fatalf("failed to create form file: %v", err)
+	}
+	if _, err := part.Write(bytes.Repeat([]byte("x"), 128)); err != nil {
+		t.Fatalf("failed to write form file: %v", err)
+	}
+	writer.Close()
+
+	req, err := http.NewRequest("POST", ts.URL+"/api/files/upload", body)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 413 {
+		t.Errorf("expected 413 for oversized upload, got %d", resp.StatusCode)
+	}
+}
+
 func TestListTransfers(t *testing.T) {
 	ts, _, token, _ := setupFileTest(t)
 

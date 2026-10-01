@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"time"
@@ -14,8 +15,9 @@ import (
 )
 
 // maxUploadSize caps uploaded files at 1 GiB so a malicious or mistaken
-// upload cannot exhaust server memory.
-const maxUploadSize = 1 << 30
+// upload cannot exhaust server memory. It is a var (not const) so tests
+// can shrink the limit without streaming a gigabyte.
+var maxUploadSize int64 = 1 << 30
 
 // FileHandler handles file transfer API endpoints.
 type FileHandler struct {
@@ -53,10 +55,16 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	}
 
 	// Read entire file (io.ReadAll: a single f.Read may return a short
-	// read, which would silently truncate the stored file).
-	data, err := io.ReadAll(f)
+	// read, which would silently truncate the stored file). The read is
+	// bounded because FileHeader.Size is -1 for chunked/unknown-length
+	// bodies, so the pre-check above is only a fast path.
+	data, err := io.ReadAll(io.LimitReader(f, maxUploadSize+1))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to read file"})
+		return
+	}
+	if int64(len(data)) > maxUploadSize {
+		c.JSON(413, gin.H{"error": "file too large (max 1 GiB)"})
 		return
 	}
 
@@ -74,11 +82,14 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	if uploader == "" {
 		uploader = "00000000-0000-0000-0000-000000000000"
 	}
+	// Use the actual byte count: FileHeader.Size is -1 for chunked
+	// uploads, so file.Size is not trustworthy here.
+	size := int64(len(data))
 	transfer := &models.FileTransfer{
 		ID:         transferID,
 		UploaderID: uploader,
 		Filename:   file.Filename,
-		SizeBytes:  file.Size,
+		SizeBytes:  size,
 		Status:     "pending",
 		Direction:  "push",
 	}
@@ -90,7 +101,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"transfer_id": transferID,
 		"filename":    file.Filename,
-		"size_bytes":  file.Size,
+		"size_bytes":  size,
 	})
 }
 
@@ -239,10 +250,16 @@ func (h *AgentFileHandler) UploadFromAgent(c *gin.Context) {
 	}
 
 	// Read entire file (io.ReadAll: a single f.Read may return a short
-	// read, which would silently truncate the stored file).
-	data, err := io.ReadAll(f)
+	// read, which would silently truncate the stored file). The read is
+	// bounded because FileHeader.Size is -1 for chunked/unknown-length
+	// bodies, so the pre-check above is only a fast path.
+	data, err := io.ReadAll(io.LimitReader(f, maxUploadSize+1))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to read file"})
+		return
+	}
+	if int64(len(data)) > maxUploadSize {
+		c.JSON(413, gin.H{"error": "file too large (max 1 GiB)"})
 		return
 	}
 
@@ -308,10 +325,18 @@ func (h *FileHandler) DownloadFile(c *gin.Context) {
 	c.File(filePath)
 }
 
-// Cleanup periodically removes old uploaded files.
-func (h *FileHandler) Cleanup() {
+// Cleanup periodically removes old uploaded files. It sweeps the staging
+// directory every interval and returns when ctx is cancelled, so callers
+// can stop it on shutdown.
+func (h *FileHandler) Cleanup(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 	for {
-		h.service.CleanupOldFiles(24 * time.Hour)
-		time.Sleep(time.Hour)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.service.CleanupOldFiles(24 * time.Hour)
+		}
 	}
 }

@@ -176,11 +176,15 @@ func (h *Hub) Run() {
 			}
 			h.mu.RUnlock()
 
-			// Publish to Redis for other instances
+			// Publish to Redis for other instances. Fire-and-forget: run in
+			// a goroutine so a slow/stalled Redis can never block the Run
+			// loop (and thus register/unregister/broadcast processing).
 			if h.redis != nil {
-				if err := h.redis.Publish("ws:broadcast", msg); err != nil {
-					log.Printf("ws: failed to publish broadcast: %v", err)
-				}
+				go func() {
+					if err := h.redis.Publish("ws:broadcast", msg); err != nil {
+						log.Printf("ws: failed to publish broadcast: %v", err)
+					}
+				}()
 			}
 		}
 	}
@@ -369,11 +373,17 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		conn.Close(websocket.StatusNormalClosure, "closing")
 	}()
 
-	// Sender goroutine
+	// Sender goroutine. Each write gets its own timeout so a blackholed
+	// connection (e.g. a sleeping laptop) can't block the writer forever.
+	// On write failure we close the conn so the read loop unblocks and the
+	// deferred unregister runs.
 	go func() {
-		ctx := context.Background()
 		for data := range client.SendCh {
-			if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
+			writeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := conn.Write(writeCtx, websocket.MessageText, data)
+			cancel()
+			if err != nil {
+				conn.Close(websocket.StatusInternalError, "write failed")
 				return
 			}
 		}
@@ -385,11 +395,17 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		// Devices are expected to send a 15s heartbeat; drop a device
 		// connection that goes silent for 60s (e.g. blackholed peer) so the
 		// client goroutines don't leak. User (browser) connections are
-		// receive-only and stay open without a deadline.
+		// receive-only and long-lived, but still get a generous 120s read
+		// deadline (restarted by every successful read, e.g. a
+		// heartbeat/ping) so a blackholed peer can't block this goroutine
+		// forever.
 		readCtx := ctx
 		var cancelRead context.CancelFunc
-		if clientType == "device" {
+		switch clientType {
+		case "device":
 			readCtx, cancelRead = context.WithTimeout(ctx, 60*time.Second)
+		case "user":
+			readCtx, cancelRead = context.WithTimeout(ctx, 120*time.Second)
 		}
 		_, data, err := conn.Read(readCtx)
 		if cancelRead != nil {

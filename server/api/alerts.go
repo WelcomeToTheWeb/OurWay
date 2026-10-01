@@ -65,11 +65,11 @@ func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 		return
 	}
 	events.Publish("alert_resolved", map[string]interface{}{
-		"alert_id":   id,
-		"device_id":  alert.DeviceID,
-		"device":     alert.DeviceName,
-		"severity":   alert.Severity,
-		"message":    alert.Message,
+		"alert_id":  id,
+		"device_id": alert.DeviceID,
+		"device":    alert.DeviceName,
+		"severity":  alert.Severity,
+		"message":   alert.Message,
 	})
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

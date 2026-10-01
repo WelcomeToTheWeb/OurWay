@@ -16,14 +16,14 @@ import (
 
 // ScaleConfig holds the configuration for the large-scale load test.
 type ScaleConfig struct {
-	ServerURL      string
-	DeviceCount    int
-	Duration       time.Duration
-	Concurrency    int
+	ServerURL         string
+	DeviceCount       int
+	Duration          time.Duration
+	Concurrency       int
 	HeartbeatInterval time.Duration
-	MetricsInterval time.Duration
-	ReportInterval  time.Duration
-	Timeout         time.Duration
+	MetricsInterval   time.Duration
+	ReportInterval    time.Duration
+	Timeout           time.Duration
 }
 
 // ScaleResults holds the results of the scale load test.
@@ -40,14 +40,14 @@ type ScaleResults struct {
 
 func main() {
 	var (
-		serverURL     = flag.String("url", "http://localhost:9090", "Server URL")
-		devices       = flag.Int("devices", 10000, "Number of simulated devices")
-		duration      = flag.Duration("duration", 5*time.Minute, "Test duration")
-		concurrency   = flag.Int("concurrency", 200, "Number of concurrent workers")
-		hbInterval    = flag.Duration("heartbeat-interval", 30*time.Second, "Heartbeat interval")
+		serverURL       = flag.String("url", "http://localhost:9090", "Server URL")
+		devices         = flag.Int("devices", 10000, "Number of simulated devices")
+		duration        = flag.Duration("duration", 5*time.Minute, "Test duration")
+		concurrency     = flag.Int("concurrency", 200, "Number of concurrent workers")
+		hbInterval      = flag.Duration("heartbeat-interval", 30*time.Second, "Heartbeat interval")
 		metricsInterval = flag.Duration("metrics-interval", 60*time.Second, "Metrics interval")
-		reportInterval = flag.Duration("report-interval", 30*time.Second, "Status report interval")
-		timeout       = flag.Duration("timeout", 10*time.Second, "HTTP request timeout")
+		reportInterval  = flag.Duration("report-interval", 30*time.Second, "Status report interval")
+		timeout         = flag.Duration("timeout", 10*time.Second, "HTTP request timeout")
 	)
 	flag.Parse()
 
@@ -105,7 +105,7 @@ func main() {
 			case <-ticker.C:
 				hbRate := float64(atomic.LoadInt64(&results.HeartbeatRequests)) / time.Since(registerStart).Seconds()
 				mRate := float64(atomic.LoadInt64(&results.MetricsRequests)) / time.Since(registerStart).Seconds()
-				fmt.Printf("  [REPORT] Heartbeats: %d (%.1f/s) | Metrics: %d (%.1f/s) | " +
+				fmt.Printf("  [REPORT] Heartbeats: %d (%.1f/s) | Metrics: %d (%.1f/s) | "+
 					"Failed: HB=%d M=%d\n",
 					atomic.LoadInt64(&results.HeartbeatRequests), hbRate,
 					atomic.LoadInt64(&results.MetricsRequests), mRate,
@@ -175,11 +175,11 @@ func registerDevices(client *http.Client, cfg ScaleConfig, count int) ([]string,
 			defer func() { <-sem }()
 
 			body := map[string]interface{}{
-				"name":       fmt.Sprintf("Scale Test Device %d", i),
-				"hostname":   fmt.Sprintf("scale-%d.local", i),
-				"os":         "linux",
-				"arch":       "amd64",
-				"version":    "1.0.0",
+				"name":     fmt.Sprintf("Scale Test Device %d", i),
+				"hostname": fmt.Sprintf("scale-%d.local", i),
+				"os":       "linux",
+				"arch":     "amd64",
+				"version":  "1.0.0",
 			}
 			bodyBytes, _ := json.Marshal(body)
 

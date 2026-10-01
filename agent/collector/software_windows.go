@@ -17,7 +17,7 @@ func collectSoftwarePackages() (map[string]string, error) {
 			"HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | "+
 			"Where-Object { $_.DisplayName -ne $null } | "+
 			"Format-List DisplayName, DisplayVersion")
-	
+
 	if out, err := cmd.Output(); err == nil {
 		lines := strings.Split(string(out), "\n")
 		var name, version string

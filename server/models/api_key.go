@@ -12,20 +12,20 @@ import (
 
 // APIKey represents a user API key for programmatic access.
 type APIKey struct {
-	ID          string    `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID      string    `gorm:"type:uuid;not null;index" json:"-"`
-	Name        string    `gorm:"not null" json:"name"`
+	ID     string `gorm:"type:uuid;primaryKey" json:"id"`
+	UserID string `gorm:"type:uuid;not null;index" json:"-"`
+	Name   string `gorm:"not null" json:"name"`
 	// Key is the plaintext secret. It is never serialized in API responses
 	// (json:"-") — create and rotate responses return it explicitly as
 	// "key_value" exactly once, so it is not re-exposed by list/get.
-	Key         string    `gorm:"uniqueIndex;not null" json:"-"`
-	KeyHash     string    `gorm:"uniqueIndex;not null" json:"-"`
-	Scopes      string    `gorm:"type:text;not null;default:'[]'" json:"scopes"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	ExpiresAt   *time.Time `json:"expires_at"`
-	RevokedAt   *time.Time `json:"revoked_at"`
-	RotatedAt   *time.Time `json:"rotated_at"`
-	CreatedAt   time.Time `json:"created_at"`
+	Key        string     `gorm:"uniqueIndex;not null" json:"-"`
+	KeyHash    string     `gorm:"uniqueIndex;not null" json:"-"`
+	Scopes     string     `gorm:"type:text;not null;default:'[]'" json:"scopes"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	RevokedAt  *time.Time `json:"revoked_at"`
+	RotatedAt  *time.Time `json:"rotated_at"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // BeforeCreate generates the key and hash before saving.

@@ -77,7 +77,7 @@ func (s *SoftwareUpdateStore) MarkInstalled(id string) error {
 	return s.db.Model(&models.SoftwareUpdate{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"status":      "installed",
+			"status":       "installed",
 			"installed_at": now,
 		}).Error
 }
@@ -87,8 +87,8 @@ func (s *SoftwareUpdateStore) MarkFailed(id string, errMsg string) error {
 	return s.db.Model(&models.SoftwareUpdate{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
-			"status":         "failed",
-			"error_message":  errMsg,
+			"status":        "failed",
+			"error_message": errMsg,
 		}).Error
 }
 

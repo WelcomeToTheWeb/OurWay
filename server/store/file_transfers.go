@@ -50,10 +50,10 @@ func (s *FileTransferStore) ListAll() ([]models.FileTransfer, error) {
 // UpdateStatus updates the status of a file transfer.
 func (s *FileTransferStore) UpdateStatus(id string, status string, progress int, errMsg string) error {
 	updates := map[string]interface{}{
-		"status":      status,
-		"progress":    progress,
+		"status":        status,
+		"progress":      progress,
 		"error_message": errMsg,
-		"updated_at":  time.Now(),
+		"updated_at":    time.Now(),
 	}
 	if status == "completed" || status == "failed" {
 		now := time.Now()

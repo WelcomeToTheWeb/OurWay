@@ -10,7 +10,7 @@ import (
 
 func TestUserList(t *testing.T) {
 	ts, _, jwtAuth := newTestServer(t)
-	
+
 	regResp := registerUser(t, ts.URL, "testuser", "test@example.com", "password123")
 	regBody, _ := io.ReadAll(regResp.Body)
 	regResp.Body.Close()
@@ -34,7 +34,7 @@ func TestUserList(t *testing.T) {
 
 	respBody, _ := io.ReadAll(resp.Body)
 	t.Logf("Users list raw: %s", string(respBody))
-	
+
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", resp.StatusCode, string(respBody))
 	}

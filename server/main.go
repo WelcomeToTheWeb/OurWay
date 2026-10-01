@@ -16,6 +16,7 @@ import (
 	"ourway/server/auth"
 	"ourway/server/cache"
 	"ourway/server/config"
+	"ourway/server/files"
 	"ourway/server/metrics"
 	"ourway/server/store"
 	"ourway/server/ws"
@@ -25,6 +26,11 @@ func main() {
 	// Load configuration
 	cfg := config.Load()
 	log.Printf("Starting OurWay server on %s", cfg.ServerPort)
+
+	// Server lifecycle context: background workers started with this
+	// context stop when it is cancelled during shutdown.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Initialize database store
 	st, err := store.New(cfg.DatabaseURL)
@@ -95,6 +101,15 @@ func main() {
 	// Setup API routes
 	router := api.SetupRouter(st, jwtAuth, hub, alertEngine, cfg.WebURL)
 
+	// Start periodic cleanup of staged upload files. This service uses the
+	// same default staging directory (/tmp/ourway-files) as the one created
+	// inside SetupRouter, and the goroutine stops when the server context
+	// is cancelled at shutdown.
+	fileService := files.NewService(st, hub, "")
+	fileHandler := api.NewFileHandler(st, fileService)
+	go fileHandler.Cleanup(ctx, time.Hour)
+	log.Println("File upload cleanup started")
+
 	// Register WebSocket endpoint
 	router.GET(cfg.WSPath, func(c *gin.Context) {
 		hub.ServeHTTP(c, st, jwtAuth)
@@ -102,8 +117,8 @@ func main() {
 
 	// Start HTTP server
 	srv := &http.Server{
-		Addr:      cfg.ServerPort,
-		Handler:   router,
+		Addr:    cfg.ServerPort,
+		Handler: router,
 		// No server-level Read/Write timeouts: WebSocket connections are
 		// long-lived and the http.Server timeouts would force-close them
 		// after 15s. Liveness is enforced by the agent's 15s heartbeat
@@ -128,9 +143,10 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down server...")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	cancel() // stop background workers (file cleanup)
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelShutdown()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
 

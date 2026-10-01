@@ -21,32 +21,32 @@ type RetentionPolicy struct {
 // DefaultRetentionPolicy returns sensible default retention settings.
 func DefaultRetentionPolicy() RetentionPolicy {
 	return RetentionPolicy{
-		Hot:  7 * 24 * time.Hour,    // 7 days full resolution
-		Warm: 30 * 24 * time.Hour,   // 30 days
+		Hot:  7 * 24 * time.Hour,   // 7 days full resolution
+		Warm: 30 * 24 * time.Hour,  // 30 days
 		Cold: 365 * 24 * time.Hour, // 365 days
 	}
 }
 
 // RetentionManager periodically enforces retention policies.
 type RetentionManager struct {
-	store     *store.MetricHistoryStore
-	policy    RetentionPolicy
-	ticker    *time.Ticker
-	stopCh    chan struct{}
-	ctx       context.Context
-	cancel    context.CancelFunc
+	store  *store.MetricHistoryStore
+	policy RetentionPolicy
+	ticker *time.Ticker
+	stopCh chan struct{}
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewRetentionManager creates a new retention manager.
 func NewRetentionManager(store *store.MetricHistoryStore, policy RetentionPolicy, checkInterval time.Duration) *RetentionManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &RetentionManager{
-		store:     store,
-		policy:    policy,
-		ticker:    time.NewTicker(checkInterval),
-		stopCh:    make(chan struct{}),
-		ctx:       ctx,
-		cancel:    cancel,
+		store:  store,
+		policy: policy,
+		ticker: time.NewTicker(checkInterval),
+		stopCh: make(chan struct{}),
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 

@@ -12,26 +12,85 @@ import (
 
 // SessionState tracks the state of a single WebRTC session.
 type SessionState struct {
-	ID         string
-	DeviceID   string
-	UserID     string
-	PC         *webrtc.PeerConnection
-	Status     string
-	DataCh     *webrtc.DataChannel
-	CreatedAt  time.Time
-	mu         sync.RWMutex
+	ID        string
+	DeviceID  string
+	UserID    string
+	PC        *webrtc.PeerConnection
+	Status    string
+	DataCh    *webrtc.DataChannel
+	CreatedAt time.Time
+	mu        sync.RWMutex
 }
+
+// pendingSessionTTL is how long a session may stay in "pending" state
+// before the reaper closes it. Browsers that close before answering leave
+// a live PeerConnection behind; this reclaims it.
+const pendingSessionTTL = 5 * time.Minute
 
 // Gateway manages WebRTC peer connections for remote sessions.
 type Gateway struct {
 	sessions map[string]*SessionState
 	mu       sync.RWMutex
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
-// NewGateway creates a new session gateway.
+// NewGateway creates a new session gateway and starts the background
+// reaper that closes abandoned pending sessions.
 func NewGateway() *Gateway {
-	return &Gateway{
+	g := &Gateway{
 		sessions: make(map[string]*SessionState),
+		stop:     make(chan struct{}),
+	}
+	go g.reap()
+	return g
+}
+
+// Stop shuts down the gateway's background reaper. Safe to call multiple
+// times.
+func (g *Gateway) Stop() {
+	g.stopOnce.Do(func() { close(g.stop) })
+}
+
+// reap periodically closes sessions that have been in "pending" state
+// for longer than pendingSessionTTL.
+func (g *Gateway) reap() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-g.stop:
+			return
+		case <-ticker.C:
+			g.reapStaleSessions()
+		}
+	}
+}
+
+// reapStaleSessions finds and closes sessions that are still "pending"
+// past the TTL. Session IDs are collected under the gateway lock first so
+// CloseSession (which also takes the lock) cannot deadlock.
+func (g *Gateway) reapStaleSessions() {
+	now := time.Now()
+
+	g.mu.Lock()
+	var stale []*SessionState
+	for _, s := range g.sessions {
+		s.mu.RLock()
+		pending := s.Status == "pending"
+		created := s.CreatedAt
+		s.mu.RUnlock()
+		if pending && now.Sub(created) > pendingSessionTTL {
+			stale = append(stale, s)
+		}
+	}
+	g.mu.Unlock()
+
+	for _, s := range stale {
+		log.Printf("sessions: reaping pending session %s older than %s", s.ID, pendingSessionTTL)
+		if err := g.CloseSession(s.ID); err != nil {
+			log.Printf("sessions: failed to reap session %s: %v", s.ID, err)
+		}
 	}
 }
 
