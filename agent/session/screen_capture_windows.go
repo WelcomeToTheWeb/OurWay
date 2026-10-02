@@ -56,6 +56,11 @@ func (c *windowsCapture) SetQuality(quality int) {
 		quality = 100
 	}
 	c.quality.Store(int32(quality))
+	// In helper mode the frames are encoded by the helper process, so
+	// the quality must be forwarded to it.
+	if h := c.helperRef(); h != nil {
+		_ = h.send(map[string]interface{}{"type": "quality", "quality": quality})
+	}
 }
 
 // Capture returns the most recent JPEG frame, waiting briefly for a
@@ -96,6 +101,11 @@ func (c *windowsCapture) startSession(ctx context.Context) error {
 		return nil
 	}
 	c.helper = h
+	// The helper idles until it receives "start": only then does its
+	// capture loop produce frames.
+	if err := h.send(map[string]interface{}{"type": "start"}); err != nil {
+		log.Printf("session: failed to start helper capture: %v", err)
+	}
 	return nil
 }
 

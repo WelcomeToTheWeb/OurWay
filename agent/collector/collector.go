@@ -1,7 +1,7 @@
 package collector
 
 import (
-	"fmt"
+	"log"
 )
 
 // Collector is the interface that all metric collectors must implement.
@@ -87,7 +87,10 @@ func (cm *CollectorManager) CollectAll() (*Metrics, error) {
 	for _, c := range cm.collectors {
 		data, err := c.Collect()
 		if err != nil {
-			return nil, fmt.Errorf("collector %s failed: %w", c.Name(), err)
+			// One flaky collector (e.g., a protected process on
+			// Windows) must not drop the entire metrics batch.
+			log.Printf("collector %s failed: %v", c.Name(), err)
+			continue
 		}
 
 		switch c.Name() {

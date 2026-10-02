@@ -7,10 +7,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"nhooyr.io/websocket"
 	"os"
 	"sync"
 	"time"
-	"nhooyr.io/websocket"
 
 	"ourway/agent/config"
 	"ourway/agent/files"

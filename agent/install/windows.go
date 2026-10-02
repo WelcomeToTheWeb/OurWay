@@ -30,6 +30,15 @@ func Install(cfg *config.Config) error {
 	}
 	fmt.Println("Service created")
 
+	// Automatic recovery: restart on the 1st-3rd failure (5s/10s/30s)
+	// and reset the failure counter after 1 day of stable uptime, so a
+	// crashed agent comes back without manual intervention.
+	if err := runCommand("sc.exe", "failure", ServiceName,
+		"reset=86400",
+		"actions=restart/5000/restart/10000/restart/30000"); err != nil {
+		fmt.Printf("Warning: could not set service recovery actions: %v\n", err)
+	}
+
 	// Start the service
 	if err := runCommand("sc.exe", "start", ServiceName); err != nil {
 		fmt.Printf("Warning: could not start service: %v\n", err)

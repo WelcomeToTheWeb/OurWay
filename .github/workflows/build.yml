@@ -27,7 +27,13 @@ jobs:
 
       - name: Build agents
         run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")
+          # On tag pushes use the exact tag (git describe can race the
+          # tag push and emit a vX.Y.Z-N-gSHA pseudo-version).
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")
+          fi
           GIT_COMMIT=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           mkdir -p dist/agents
@@ -57,7 +63,7 @@ jobs:
             cp "dist/agents/ourway-agent-${os}-${arch}${suffix}" cmd/ourway-installer/assets/agent
             GOOS=$os GOARCH=$arch go build -C cmd/ourway-installer \
               -ldflags "-s -w -X main.version=$VERSION -X 'main.buildTime=$BUILD_TIME' -X main.gitCommit=$GIT_COMMIT" \
-              -o "dist/agents/ourway-installer-${os}-${arch}${suffix}" .
+              -o "../dist/agents/ourway-installer-${os}-${arch}${suffix}" .
           done
 
           echo "Built agents and installers:"
