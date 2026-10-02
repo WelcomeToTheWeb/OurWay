@@ -27,6 +27,17 @@ The server reads configuration from environment variables. All variables have se
 | `REDIS_URL` | Redis connection URL | (none) | No |
 | `REDIS_ENABLED` | Enable Redis-backed rate limiting and distributed WebSocket pub/sub | `false` | No |
 | `WEB_URL` | Public URL of the web dashboard | `http://localhost:3000` | No |
+| `INSTALLERS_DIR` | Directory served by `GET /api/v2/installers` | `./dist/agents` | No |
+| `METRIC_RETENTION_DAYS` | How many days of metric history to keep; the retention manager deletes older rows hourly | `365` | No |
+
+### Health Check Endpoints
+
+- `GET /health` — liveness probe; returns `200` while the process is up.
+- `GET /ready` — readiness probe; pings PostgreSQL (and Redis when
+  `REDIS_ENABLED=true`) and returns `200` with `{"status":"ok",...}` when
+  all dependencies are reachable, `503` with the failing dependency
+  otherwise. Intended for Kubernetes probes and load balancer health
+  checks.
 
 ### JWT Token Details
 

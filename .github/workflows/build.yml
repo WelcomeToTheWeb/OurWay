@@ -77,10 +77,53 @@ jobs:
             dist/agents/ourway-agent-*
             dist/agents/ourway-installer-*
 
+  # Test gate: build, vet and test every Go module, plus the web
+  # build (tsc + vite). Images are only pushed when this is green.
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Server (build, vet, test)
+        run: |
+          go -C server build ./...
+          go -C server vet ./...
+          go -C server test ./...
+
+      - name: Agent (build, vet, test)
+        run: |
+          go -C agent build ./...
+          go -C agent vet ./...
+          go -C agent test ./...
+
+      - name: CLI and installer (build)
+        run: |
+          go -C cmd/ourway-cli build ./...
+          go -C cmd/ourway-installer build ./...
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Web (tsc + vite build)
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
+
   # Build and push server Docker image
   build-server-image:
     name: Build Server Image
-    needs: build-agents
+    needs: [build-agents, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -121,7 +164,7 @@ jobs:
   # Build and push web Docker image
   build-web-image:
     name: Build Web Image
-    needs: build-agents
+    needs: [build-agents, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -203,30 +203,30 @@ sc.exe stop OurWayAgent && sc.exe delete OurWayAgent
 ### MVP (v1.0)
 
 #### Phase 1: Foundation (Week 1-2)
-- [ ] Set up Go backend with Gin
-- [ ] Set up PostgreSQL with migrations
-- [ ] Create device model and CRUD API
-- [ ] Build basic React frontend with auth
-- [ ] WebSocket hub for real-time communication
+- [x] Set up Go backend with Gin
+- [x] Set up PostgreSQL with migrations
+- [x] Create device model and CRUD API
+- [x] Build basic React frontend with auth
+- [x] WebSocket hub for real-time communication
 
 #### Phase 2: Agent Core (Week 2-3)
-- [ ] Go agent with gopsutil integration
-- [ ] CPU, RAM, disk, network collectors
-- [ ] WebSocket client connecting to server
-- [ ] Heartbeat and metrics reporting
-- [ ] Platform-specific install scripts (Windows service, systemd, launchd)
+- [x] Go agent with gopsutil integration
+- [x] CPU, RAM, disk, network collectors
+- [x] WebSocket client connecting to server
+- [x] Heartbeat and metrics reporting
+- [x] Platform-specific install scripts (Windows service, systemd, launchd)
 
 #### Phase 3: Monitoring UI (Week 3-4)
-- [ ] Dashboard with device grid and status
-- [ ] Device detail page with charts
-- [ ] Real-time streaming mode
-- [ ] Alert configuration and display
+- [x] Dashboard with device grid and status
+- [x] Device detail page with charts
+- [ ] Real-time streaming mode (deferred — not shipped in 2.0)
+- [x] Alert configuration and display
 
 #### Phase 4: Polish & Release (Week 4-5)
-- [ ] Docker Compose setup
-- [ ] CLI tool for agent installation
-- [ ] Documentation
-- [ ] Testing and bug fixes
+- [x] Docker Compose setup
+- [x] CLI tool for agent installation
+- [x] Documentation
+- [x] Testing and bug fixes
 
 ### Version 2.0
 

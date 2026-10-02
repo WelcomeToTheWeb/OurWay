@@ -92,10 +92,15 @@ func main() {
 	// thresholds (the agent's primary reporting path).
 	hub.Alerts = alertEngine
 
-	// Initialize metrics retention manager
+	// Initialize metrics retention manager. The cold cutoff is
+	// configurable (METRIC_RETENTION_DAYS); hot/warm tiers stay fixed.
+	retentionPolicy := metrics.DefaultRetentionPolicy()
+	if days := cfg.MetricRetentionDays; days > 0 {
+		retentionPolicy.Cold = time.Duration(days) * 24 * time.Hour
+	}
 	retentionManager := metrics.NewRetentionManager(
 		st.MetricHistory,
-		metrics.DefaultRetentionPolicy(),
+		retentionPolicy,
 		time.Hour, // Check hourly
 	)
 	retentionManager.Start()

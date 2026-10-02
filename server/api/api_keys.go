@@ -212,6 +212,22 @@ func (h *APIKeyHandler) RotateKey(c *gin.Context) {
 		return
 	}
 
+	// The body is optional (older clients rotate without one), so only
+	// parse when present. When provided, expires follows the same
+	// convention as CreateKey.
+	if c.Request.ContentLength > 0 {
+		var req RotateKeyRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.Expires != "" && req.Expires != "never" {
+			if exp, err := parseExpiration(req.Expires); err == nil {
+				key.ExpiresAt = &exp
+			}
+		}
+	}
+
 	// Generate new key
 	key.Key = models.GenerateAPIKey()
 	key.KeyHash = models.HashAPIKey(key.Key)

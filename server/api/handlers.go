@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -254,9 +255,47 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		}
 	}
 
-	// Health check (no auth)
+	// Liveness (no auth): the process is up. Always 200.
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	// Readiness (no auth): dependencies are reachable. Intended for
+	// Kubernetes readiness probes and load balancer health checks.
+	r.GET("/ready", func(c *gin.Context) {
+		deps := gin.H{"db": "ok", "redis": "not_configured"}
+		status := http.StatusOK
+
+		if sqlDB, err := store.DB.DB(); err == nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+			err = sqlDB.PingContext(ctx)
+			cancel()
+			if err != nil {
+				deps["db"] = "error: " + err.Error()
+				status = http.StatusServiceUnavailable
+			}
+		} else {
+			deps["db"] = "error: " + err.Error()
+			status = http.StatusServiceUnavailable
+		}
+
+		if store.Cache != nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+			if err := store.Cache.GetClient().Ping(ctx).Err(); err != nil {
+				deps["redis"] = "error: " + err.Error()
+				status = http.StatusServiceUnavailable
+			} else {
+				deps["redis"] = "ok"
+			}
+			cancel()
+		}
+
+		if status != http.StatusOK {
+			deps["status"] = "degraded"
+		} else {
+			deps["status"] = "ok"
+		}
+		c.JSON(status, deps)
 	})
 
 	return r

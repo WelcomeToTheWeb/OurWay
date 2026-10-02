@@ -250,6 +250,70 @@ func TestAPIKeyRotate(t *testing.T) {
 	}
 }
 
+func TestAPIKeyRotateWithExpiration(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	registerUser(t, ts.URL, "testuser", "test@example.com", "password123")
+	token := loginUser(t, ts.URL, "testuser", "password123")
+
+	// Create API key
+	body := `{"name":"Test Key","scopes":["read"]}`
+	req, _ := http.NewRequest("POST", ts.URL+"/api/v2/api-keys", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("create request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var createResult struct {
+		Key struct {
+			ID string `json:"id"`
+		} `json:"key"`
+	}
+	json.NewDecoder(resp.Body).Decode(&createResult)
+
+	// Rotate with an expiration — the server must honour the expires
+	// field the web client sends (previously it was silently ignored).
+	req, _ = http.NewRequest("POST", ts.URL+"/api/v2/api-keys/"+createResult.Key.ID+"/rotate", bytes.NewBufferString(`{"expires":"7d"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("rotate request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from rotate, got %d", resp.StatusCode)
+	}
+
+	var rotateResult struct {
+		Key struct {
+			ExpiresAt *string `json:"expires_at"`
+		} `json:"key"`
+		KeyValue string `json:"key_value"`
+	}
+	json.NewDecoder(resp.Body).Decode(&rotateResult)
+	if rotateResult.KeyValue == "" {
+		t.Error("expected key_value in rotate response")
+	}
+	if rotateResult.Key.ExpiresAt == nil || *rotateResult.Key.ExpiresAt == "" {
+		t.Error("expected expires_at to be set after rotating with expires=7d")
+	}
+
+	// Body-less rotate (older clients) must still work and clear nothing.
+	req, _ = http.NewRequest("POST", ts.URL+"/api/v2/api-keys/"+createResult.Key.ID+"/rotate", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("rotate without body failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for body-less rotate, got %d", resp.StatusCode)
+	}
+}
+
 func TestAPIKeyExpiration(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	registerUser(t, ts.URL, "testuser", "test@example.com", "password123")

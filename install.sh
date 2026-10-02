@@ -18,6 +18,46 @@ success() { echo -e "${GREEN}[ok]${NC} $1"; }
 warn() { echo -e "${YELLOW}[warn]${NC} $1"; }
 error() { echo -e "${RED}[error]${NC} $1"; exit 1; }
 
+# --- Rollback state -------------------------------------------------
+# Tracks what the installer has created so a failure can roll back the
+# partial state instead of leaving it behind (failed installs used to
+# require manual cleanup).
+CREATED_INSTALL_DIR=false
+UNIT_FILE_WRITTEN=false
+PLIST_WRITTEN=false
+UNIT_FILE=""
+PLIST_FILE=""
+
+cleanup_partial() {
+    local os="$1"
+    if [ "$UNIT_FILE_WRITTEN" = true ] || [ "$PLIST_WRITTEN" = true ]; then
+        info "Rolling back service installation..."
+        case "$os" in
+            linux)
+                systemctl stop ourway-agent 2>/dev/null || true
+                systemctl disable ourway-agent 2>/dev/null || true
+                rm -f "${UNIT_FILE}" 2>/dev/null || true
+                systemctl daemon-reload 2>/dev/null || true
+                ;;
+            darwin)
+                launchctl unload "${PLIST_FILE}" 2>/dev/null || true
+                rm -f "${PLIST_FILE}" 2>/dev/null || true
+                ;;
+        esac
+    fi
+    if [ "$CREATED_INSTALL_DIR" = true ]; then
+        info "Removing partially created ${INSTALL_DIR}..."
+        rm -rf "${INSTALL_DIR}" 2>/dev/null || true
+    fi
+}
+
+on_error() {
+    local exit_code=$?
+    cleanup_partial "${OS:-linux}"
+    error "Installation failed (exit code ${exit_code}); partial state rolled back. Re-run the installer to try again."
+}
+trap on_error ERR
+
 # Default values
 SERVER="http://localhost:8080"
 DEVICE_KEY=""
@@ -170,6 +210,11 @@ else
     BINARY="${INSTALL_DIR}/${BIN_NAME}"
     SUFFIX=""
     DOWNLOAD_URL="https://github.com/WelcomeToTheWeb/OurWay/releases/download/v${VERSION}/ourway-agent-${OS}-${ARCH}${SUFFIX}"
+
+    if [ ! -d "${INSTALL_DIR}" ]; then
+        mkdir -p "${INSTALL_DIR}"
+        CREATED_INSTALL_DIR=true
+    fi
     
     info "Downloading agent binary from GitHub releases..."
     info "URL: ${DOWNLOAD_URL}"
@@ -194,6 +239,9 @@ chmod +x "${BINARY}"
 
 # Create installation directories
 if [ "${BINARY}" != "${INSTALL_DIR}/${BIN_NAME}" ]; then
+    if [ ! -d "${INSTALL_DIR}" ]; then
+        CREATED_INSTALL_DIR=true
+    fi
     mkdir -p "${INSTALL_DIR}"
     cp "${BINARY}" "${INSTALL_DIR}/${BIN_NAME}"
     chmod +x "${INSTALL_DIR}/${BIN_NAME}"
@@ -245,6 +293,7 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
+            UNIT_FILE_WRITTEN=true
             systemctl daemon-reload
             systemctl enable ourway-agent
             systemctl start ourway-agent
@@ -281,6 +330,7 @@ EOF
 </plist>
 EOF
 
+            PLIST_WRITTEN=true
             launchctl load -w "${PLIST_FILE}"
             success "Launchd service installed and started"
             ;;
