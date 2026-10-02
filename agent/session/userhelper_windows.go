@@ -11,13 +11,20 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// helperLogPath is where the spawned helper's stdout/stderr (Go log
+// output and panic traces) is appended; the helper runs without a
+// console, so without this its failures are invisible.
+const helperLogPath = `C:\ProgramData\OurWay\user-helper.log`
 
 // userHelper is the service-side handle to a spawned per-user helper
 // process. The helper runs this same binary with --user-helper in the
@@ -61,13 +68,41 @@ func (h *userHelper) close() {
 	}
 }
 
+// helperExitCode waits briefly for the helper to exit and returns its
+// exit code: 2 = Go panic, 0xC0000005 = access violation in native
+// code, 0xFFFFFFFF = terminated by us.
+func helperExitCode(pid int) (uint32, bool) {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return 0, false
+	}
+	defer windows.CloseHandle(h)
+	var code uint32
+	for range 20 {
+		if err := windows.GetExitCodeProcess(h, &code); err != nil {
+			return 0, false
+		}
+		if code != 259 { // STILL_ACTIVE
+			return code, true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return code, true
+}
+
 // readLoop consumes helper messages until the connection drops. Frame
 // data is stashed on the capture so Capture() can serve it.
 func (h *userHelper) readLoop(c *windowsCapture) {
 	defer func() {
 		close(h.closed)
 		h.close()
-		log.Printf("session: per-user helper connection closed")
+		extra := ""
+		if h.proc != nil {
+			if code, ok := helperExitCode(h.proc.Pid); ok {
+				extra = fmt.Sprintf(" (helper exit code %#x)", code)
+			}
+		}
+		log.Printf("session: per-user helper connection closed%s; helper output: %s", extra, helperLogPath)
 		c.mu.Lock()
 		if c.helper == h {
 			c.helper = nil
@@ -213,6 +248,33 @@ func findProcessInSession(sessionID uint32) (int, error) {
 	return 0, fmt.Errorf("no process found in session %d (scanned %d processes)", sessionID, scanned)
 }
 
+// createProcessAsUserProc calls advapi32!CreateProcessAsUser directly:
+// x/sys/windows.StartupInfo omits hStdError, which we need to capture
+// the helper's stderr.
+var createProcessAsUserProc = syscall.NewLazyDLL("advapi32.dll").NewProc("CreateProcessAsUser")
+
+// fullStartupInfo mirrors kernel32's STARTUPINFOW, including hStdError.
+type fullStartupInfo struct {
+	Cb            uint32
+	Reserved      *uint16
+	Desktop       *uint16
+	Title         *uint16
+	X             uint32
+	Y             uint32
+	XSize         uint32
+	YSize         uint32
+	XCountChars   uint32
+	YCountChars   uint32
+	FillAttribute uint32
+	Flags         uint32
+	ShowWindow    uint16
+	CbReserved2   uint16
+	Reserved2     *byte
+	StdInput      windows.Handle
+	StdOutput     windows.Handle
+	StdError      windows.Handle
+}
+
 // createProcessAsUser launches exe with the given command line as the
 // user of the active console session, on the interactive desktop.
 func createProcessAsUser(exe, cmdLine string) (int, error) {
@@ -256,7 +318,7 @@ func createProcessAsUser(exe, cmdLine string) (int, error) {
 	}
 	defer windows.DestroyEnvironmentBlock(envBlock)
 
-	var si windows.StartupInfo
+	var si fullStartupInfo
 	si.Cb = uint32(unsafe.Sizeof(si))
 	desktop, _ := windows.UTF16PtrFromString(`winsta0\default`)
 	si.Desktop = desktop
@@ -270,21 +332,34 @@ func createProcessAsUser(exe, cmdLine string) (int, error) {
 		return 0, err
 	}
 
+	// The helper has no console: capture its stdout/stderr (Go log
+	// output and panic traces) in a file so failures are diagnosable.
+	var logHandle windows.Handle
+	if f, ferr := os.OpenFile(helperLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); ferr == nil {
+		fmt.Fprintf(f, "\n=== user-helper spawned %s ===\n", time.Now().Format(time.RFC3339))
+		logHandle = windows.Handle(f.Fd())
+		defer f.Close()
+	}
+	if logHandle != 0 {
+		si.StdOutput = logHandle
+		si.StdError = logHandle
+	}
+
 	var pi windows.ProcessInformation
-	err = windows.CreateProcessAsUser(
-		token,
-		exe16,
-		cmd16,
-		nil, nil,
-		true,
-		windows.CREATE_UNICODE_ENVIRONMENT,
-		envBlock,
-		nil,
-		&si,
-		&pi,
+	r, _, cpaErr := createProcessAsUserProc.Call(
+		uintptr(token),
+		uintptr(unsafe.Pointer(exe16)),
+		uintptr(unsafe.Pointer(cmd16)),
+		0, 0,
+		1,
+		uintptr(windows.CREATE_UNICODE_ENVIRONMENT),
+		uintptr(unsafe.Pointer(envBlock)),
+		0,
+		uintptr(unsafe.Pointer(&si)),
+		uintptr(unsafe.Pointer(&pi)),
 	)
-	if err != nil {
-		return 0, fmt.Errorf("CreateProcessAsUser (token from %s): %w", tokenSource, err)
+	if r == 0 {
+		return 0, fmt.Errorf("CreateProcessAsUser (token from %s): %w", tokenSource, cpaErr)
 	}
 	windows.CloseHandle(pi.Process)
 	windows.CloseHandle(pi.Thread)
@@ -332,6 +407,14 @@ func RunUserHelper(addr string) int {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer func() {
+			if p := recover(); p != nil {
+				send(map[string]interface{}{
+					"type":    "error",
+					"message": fmt.Sprintf("capture goroutine panic: %v\n%s", p, debug.Stack()),
+				})
+			}
+		}()
 		// GDI+ is per-thread; pin this goroutine to one OS thread and
 		// start GDI+ exactly once there.
 		runtime.LockOSThread()
