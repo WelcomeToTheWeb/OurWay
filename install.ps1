@@ -42,6 +42,16 @@ if (-not $Key -and $Register) {
         $publicIP = (Invoke-RestMethod -Uri "https://api.ipify.org" -TimeoutSec 5 -UseBasicParsing).ToString()
     } catch { }
     
+    $privateIP = ""
+    try {
+        $addr = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
+            Where-Object { $_.OperationalStatus -eq 'Up' -and $_.NetworkInterfaceType -ne 'Tunnel' } |
+            ForEach-Object { $_.GetIPAddresses() } |
+            Where-Object { $_.AddressFamily -eq 'InterNetwork' -and -not $_.IsDnsLinkLocal } |
+            Select-Object -First 1
+        if ($addr) { $privateIP = $addr.IPAddress.ToString() }
+    } catch { }
+    
     $payload = @{
         name = $hostname
         hostname = $hostname
@@ -50,6 +60,7 @@ if (-not $Key -and $Register) {
         agent_version = $Version
     }
     if ($publicIP) { $payload["public_ip"] = $publicIP }
+    if ($privateIP) { $payload["private_ip"] = $privateIP }
     
     try {
         $response = Invoke-RestMethod -Uri "$Server/api/agent/register" -Method POST -Body ($payload | ConvertTo-Json) -ContentType "application/json" -UseBasicParsing

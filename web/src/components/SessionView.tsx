@@ -56,14 +56,18 @@ export function SessionView({ session, offer, onClose }: SessionViewProps) {
         // Handle connection state
         pc.onconnectionstatechange = () => {
           if (cancelled) return;
+          // The screen stream rides the WebSocket, not this
+          // PeerConnection — the PC is only a data-channel transport, so
+          // a data-channel-only ICE/STUN failure (no TURN, hairpin NAT)
+          // must not end the session. Only an explicit close does;
+          // failures are logged while the WS stream carries on.
           switch (pc.connectionState) {
             case 'connected':
               setStatus('active');
               break;
             case 'failed':
             case 'disconnected':
-              setStatus('ended');
-              setError('Connection lost');
+              console.warn('WebRTC data channel unavailable; using WebSocket stream only');
               break;
             case 'closed':
               setStatus('ended');

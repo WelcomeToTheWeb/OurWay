@@ -476,6 +476,25 @@ func (h *Hub) handleDeviceMessage(_ *Client, msg Message, store *store.Store, de
 		if err := store.Devices.UpdateLastSeen(dev.ID); err != nil {
 			log.Printf("ws: heartbeat update failed: %v", err)
 		}
+		// Agents report their IPs in every heartbeat; refresh the stored
+		// record when they change (registration only happens at install
+		// time, so this is the only path that keeps them current).
+		if p, ok := msg.Payload.(map[string]interface{}); ok {
+			changed := false
+			if ip, ok := p["private_ip"].(string); ok && ip != "" && ip != dev.PrivateIP {
+				dev.PrivateIP = ip
+				changed = true
+			}
+			if ip, ok := p["public_ip"].(string); ok && ip != "" && ip != dev.PublicIP {
+				dev.PublicIP = ip
+				changed = true
+			}
+			if changed {
+				if err := store.Devices.Update(dev); err != nil {
+					log.Printf("ws: heartbeat IP update failed: %v", err)
+				}
+			}
+		}
 		if wasOffline {
 			events.Publish("device_online", map[string]interface{}{
 				"device_id": dev.ID,

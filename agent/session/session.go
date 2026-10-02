@@ -16,7 +16,22 @@ import (
 // agent must not keep capturing and uploading frames forever.
 const maxSessionDuration = 24 * time.Hour
 
-// SessionManager manages remote control sessions for the agent.
+// sessionExtras is implemented by platform captures that need
+// per-session setup. On Windows, a Session 0 service cannot see the
+// interactive user's desktop, so this spawns a per-user helper process
+// for capture and input.
+type sessionExtras interface {
+	startSession(ctx context.Context) error
+	stopSession()
+}
+
+// inputSink is implemented by platform captures that route synthesized
+// input events themselves (e.g. forwarding them to a per-user helper
+// process).
+type inputSink interface {
+	inputKey(key, event string)
+	inputMouse(event string, x, y float64, button string, delta float64)
+}
 type SessionManager struct {
 	deviceKey string
 	capture   ScreenCapture
@@ -116,6 +131,14 @@ func (sm *SessionManager) StartSession(ctx context.Context, payload interface{})
 		sm.onSessionStart()
 	}
 
+	// Platform session setup (e.g. Windows: spawn the per-user capture
+	// helper when running as a Session 0 service).
+	if ex, ok := sm.capture.(sessionExtras); ok {
+		if err := ex.startSession(ctx); err != nil {
+			log.Printf("session: platform session setup failed: %v", err)
+		}
+	}
+
 	// Start screen capture loop
 	go sm.captureLoop(ctx)
 }
@@ -131,6 +154,10 @@ func (sm *SessionManager) EndSession() {
 	sm.mu.Unlock()
 
 	log.Printf("session: ending session")
+
+	if ex, ok := sm.capture.(sessionExtras); ok {
+		ex.stopSession()
+	}
 
 	if sm.onSessionEnd != nil {
 		sm.onSessionEnd()
@@ -272,6 +299,10 @@ func (sm *SessionManager) handleKeyEvent(input map[string]interface{}) {
 		return
 	}
 	log.Printf("session: key event: %s %s", event, key)
+	if s, ok := sm.capture.(inputSink); ok {
+		s.inputKey(key, event)
+		return
+	}
 	synthesizeKey(key, event)
 }
 
@@ -282,6 +313,10 @@ func (sm *SessionManager) handleMouseEvent(input map[string]interface{}) {
 	button, _ := input["button"].(string)
 	delta, _ := input["delta"].(float64)
 	log.Printf("session: mouse event: %s at (%.0f, %.0f) button=%s", event, x, y, button)
+	if s, ok := sm.capture.(inputSink); ok {
+		s.inputMouse(event, x, y, button, delta)
+		return
+	}
 	synthesizeMouse(event, x, y, button, delta)
 }
 

@@ -15,7 +15,6 @@ import {
   Radio,
   Monitor,
   Apple,
-  Globe,
   Calendar,
   Network,
   MousePointer2,
@@ -351,25 +350,22 @@ export function DeviceDetail() {
       )}
 
       {/* Info Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {/* Network Info */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-4">
+        <div className="min-w-0 rounded-xl border border-bg-border bg-bg-card p-4">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
             <Wifi className="h-4 w-4" />
             Network
           </h2>
           <InfoRow
             label="Public IP"
-            icon={Globe}
             value={
-              device.public_ip ? (
-                <div className="flex items-center gap-2">
-                  <span>{device.public_ip}</span>
-                  <CopyButton text={device.public_ip} />
-                </div>
-              ) : (
-                <span className="text-text-muted">—</span>
-              )
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate" title={device.public_ip}>
+                  {device.public_ip}
+                </span>
+                <CopyButton text={device.public_ip} />
+              </div>
             }
           />
           <InfoRow
@@ -377,8 +373,10 @@ export function DeviceDetail() {
             icon={Network}
             value={
               device.private_ip ? (
-                <div className="flex items-center gap-2">
-                  <span>{device.private_ip}</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate" title={device.private_ip}>
+                    {device.private_ip}
+                  </span>
                   <CopyButton text={device.private_ip} />
                 </div>
               ) : (
@@ -389,7 +387,7 @@ export function DeviceDetail() {
         </div>
 
         {/* System Info */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-4">
+        <div className="min-w-0 rounded-xl border border-bg-border bg-bg-card p-4">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
             <Server className="h-4 w-4" />
             System
@@ -408,8 +406,10 @@ export function DeviceDetail() {
               label="Device Key"
               icon={Key}
               value={
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs">{device.device_key}</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate font-mono text-xs" title={device.device_key}>
+                    {device.device_key}
+                  </span>
                   <CopyButton text={device.device_key} />
                 </div>
               }
@@ -418,7 +418,7 @@ export function DeviceDetail() {
         </div>
 
         {/* Timestamps */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-4">
+        <div className="min-w-0 rounded-xl border border-bg-border bg-bg-card p-4">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
             <Clock className="h-4 w-4" />
             Timestamps

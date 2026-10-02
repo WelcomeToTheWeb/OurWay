@@ -122,14 +122,16 @@ if [ -z "$DEVICE_KEY" ] && [ "$REGISTER" = true ]; then
     PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || echo "")
     PRIVATE_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "")
     
-    # Build JSON payload
+    # Build JSON payload. Append the IP fields to the base payload (not
+    # a full rebuild) so detecting a private IP does not drop the public
+    # one.
     PAYLOAD="{\"name\":\"${HOSTNAME}\",\"hostname\":\"${HOSTNAME}\",\"os\":\"${OS}\",\"arch\":\"${ARCH}\",\"agent_version\":\"${VERSION}\"}"
     
     if [ -n "$PUBLIC_IP" ]; then
-        PAYLOAD="{\"name\":\"${HOSTNAME}\",\"hostname\":\"${HOSTNAME}\",\"os\":\"${OS}\",\"arch\":\"${ARCH}\",\"agent_version\":\"${VERSION}\",\"public_ip\":\"${PUBLIC_IP}\"}"
+        PAYLOAD="${PAYLOAD},\"public_ip\":\"${PUBLIC_IP}\""
     fi
     if [ -n "$PRIVATE_IP" ]; then
-        PAYLOAD="{\"name\":\"${HOSTNAME}\",\"hostname\":\"${HOSTNAME}\",\"os\":\"${OS}\",\"arch\":\"${ARCH}\",\"agent_version\":\"${VERSION}\",\"private_ip\":\"${PRIVATE_IP}\"}"
+        PAYLOAD="${PAYLOAD},\"private_ip\":\"${PRIVATE_IP}\""
     fi
     
     # Register with server (|| true: set -e must not kill the script on a

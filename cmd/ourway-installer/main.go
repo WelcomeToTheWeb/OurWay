@@ -162,9 +162,31 @@ func printHelp() {
 func registerDevice(osName, arch string) string {
 	hostname, _ := os.Hostname()
 
-	// Build payload
-	payload := fmt.Sprintf(`{"name":"%s","hostname":"%s","os":"%s","arch":"%s","agent_version":"%s"}`,
-		hostname, hostname, osName, arch, version)
+	// Report IPs at registration so the device shows them immediately;
+	// the agent's heartbeats keep them current afterwards.
+	type registerPayload struct {
+		Name         string `json:"name"`
+		Hostname     string `json:"hostname"`
+		OS           string `json:"os"`
+		Arch         string `json:"arch"`
+		AgentVersion string `json:"agent_version"`
+		PublicIP     string `json:"public_ip,omitempty"`
+		PrivateIP    string `json:"private_ip,omitempty"`
+	}
+	payloadBytes, err := json.Marshal(registerPayload{
+		Name:         hostname,
+		Hostname:     hostname,
+		OS:           osName,
+		Arch:         arch,
+		AgentVersion: version,
+		PublicIP:     detectPublicIP(),
+		PrivateIP:    detectPrivateIP(),
+	})
+	if err != nil {
+		fmt.Printf("Error building register payload: %v\n", err)
+		return ""
+	}
+	payload := string(payloadBytes)
 
 	url := strings.TrimRight(*flagServer, "/") + "/api/agent/register"
 

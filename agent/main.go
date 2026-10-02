@@ -12,9 +12,18 @@ import (
 	"ourway/agent/collector"
 	"ourway/agent/config"
 	"ourway/agent/install"
+	"ourway/agent/session"
 )
 
 func main() {
+	// Per-user session helper: the agent service (Session 0) re-launches
+	// this binary with --user-helper to capture the interactive desktop
+	// and synthesize input. It must be handled before flag.Parse(),
+	// which would reject the unknown flag.
+	if addr := userHelperAddr(os.Args[1:]); addr != "" {
+		os.Exit(session.RunUserHelper(addr))
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("error loading config: %v", err)
@@ -86,6 +95,20 @@ func main() {
 	}()
 
 	runAgent(ctx, cfg)
+}
+
+// userHelperAddr scans args for the --user-helper flag and returns its
+// address argument, or "" when the flag is not present.
+func userHelperAddr(args []string) string {
+	for i, a := range args {
+		if a == "--user-helper" || a == "-user-helper" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			log.Fatalf("--user-helper requires a 127.0.0.1:port address")
+		}
+	}
+	return ""
 }
 
 // runAgent runs the agent's main loop: resolve the device ID, start metric

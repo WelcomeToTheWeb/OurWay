@@ -13,7 +13,19 @@ export function InfoRow({ label, value, icon: Icon }: InfoRowProps) {
         {Icon && <Icon className="h-3.5 w-3.5 text-text-muted" />}
         {label}
       </span>
-      <span className="text-sm font-medium text-text-primary">{value}</span>
+      {/* min-w-0 + flex-1 let long values (UUIDs, versions) truncate
+          inside the card instead of pushing the box wider. Plain
+          strings get an ellipsis plus a title tooltip with the full
+          value; node values (copy-button rows) truncate their own text. */}
+      <span className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium text-text-primary">
+        {typeof value === 'string' ? (
+          <span className="truncate" title={value}>
+            {value}
+          </span>
+        ) : (
+          value
+        )}
+      </span>
     </div>
   );
 }

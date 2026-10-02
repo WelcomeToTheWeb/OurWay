@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"time"
-
 	"nhooyr.io/websocket"
 
 	"ourway/agent/config"
@@ -30,6 +30,14 @@ type Client struct {
 	sessionMgr   *session.SessionManager
 	fileHandler  *files.Handler
 	patchHandler *patch.Handler
+
+	// publicIP is resolved once at startup (best-effort); the private IP
+	// is re-evaluated per heartbeat so the server's record tracks network
+	// changes. Both are reported in every heartbeat frame so the server
+	// can keep the device's public/private IP fields current — the
+	// registration request only happens once, at install time.
+	publicIP   string
+	publicOnce sync.Once
 }
 
 // Option is a function that configures the client.
@@ -126,6 +134,13 @@ func ResolveDeviceID(baseURL, deviceKey string) (string, error) {
 
 // Run starts the client and blocks until the context is cancelled.
 func (c *Client) Run(ctx context.Context) error {
+	// Resolve the public IP once, best-effort, before the first
+	// heartbeat so the server's record gets it as early as possible.
+	c.publicOnce.Do(func() {
+		pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		c.publicIP = FetchPublicIP(pubCtx)
+	})
 	backoff := time.Second
 	for {
 		select {
@@ -280,6 +295,10 @@ func (c *Client) connect(ctx context.Context) error {
 				"payload": map[string]interface{}{
 					"device_key": c.deviceKey,
 					"timestamp":  time.Now().Unix(),
+					// Keep the server's IP fields current: registration
+					// only happens once at install time.
+					"private_ip": PrivateIP(),
+					"public_ip":  c.publicIP,
 				},
 			})
 			heartbeatTimer.Reset(c.heartbeatSec)
