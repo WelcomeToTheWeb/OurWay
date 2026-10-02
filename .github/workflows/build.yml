@@ -45,14 +45,31 @@ jobs:
               -o "../dist/agents/ourway-agent-${os}-${arch}${suffix}" .
           done
 
-          echo "Built agents:"
+          echo "Building installers..."
+          for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64"; do
+            os="${platform%%/*}"
+            arch="${platform##*/}"
+            suffix=""
+            if [ "$os" = "windows" ]; then
+              suffix=".exe"
+            fi
+            echo "Building installer for $os/$arch..."
+            cp "dist/agents/ourway-agent-${os}-${arch}${suffix}" cmd/ourway-installer/assets/agent
+            GOOS=$os GOARCH=$arch go build -C cmd/ourway-installer \
+              -ldflags "-s -w -X main.version=$VERSION -X 'main.buildTime=$BUILD_TIME' -X main.gitCommit=$GIT_COMMIT" \
+              -o "dist/agents/ourway-installer-${os}-${arch}${suffix}" .
+          done
+
+          echo "Built agents and installers:"
           ls -la dist/agents/
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
           name: agent-binaries
-          path: dist/agents/ourway-agent-*
+          path: |
+            dist/agents/ourway-agent-*
+            dist/agents/ourway-installer-*
 
   # Build and push server Docker image
   build-server-image:
@@ -151,5 +168,6 @@ jobs:
           generate_release_notes: true
           files: |
             dist/agents/ourway-agent-*
+            dist/agents/ourway-installer-*
             install.sh
             install.ps1

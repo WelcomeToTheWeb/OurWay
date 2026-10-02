@@ -52,6 +52,16 @@ RUN mkdir -p /app/dist/agents \
         -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
         -o /app/dist/agents/ourway-agent-windows-amd64.exe .
 
+# Build self-contained installers for all platforms (agent binary embedded)
+RUN for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64"; do \
+    os="${platform%%/*}"; arch="${platform##*/}"; suffix=""; \
+    if [ "$os" = "windows" ]; then suffix=".exe"; fi; \
+    cp "/app/dist/agents/ourway-agent-${os}-${arch}${suffix}" /app/cmd/ourway-installer/assets/agent && \
+    CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -C /app/cmd/ourway-installer \
+        -ldflags "-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT}" \
+        -o "/app/dist/agents/ourway-installer-${os}-${arch}${suffix}" .; \
+  done
+
 # Stage 2: Minimal production image
 FROM alpine:3.20
 

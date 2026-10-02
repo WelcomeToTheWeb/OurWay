@@ -95,6 +95,7 @@ func main() {
 	binaryPath := installBinary(osName, arch, installDir, binName)
 	if binaryPath == "" {
 		fmt.Println("Error: Failed to install binary")
+		pauseIfWindows()
 		os.Exit(1)
 	}
 	fmt.Printf("Binary: %s\n", binaryPath)
@@ -130,6 +131,17 @@ func main() {
 	fmt.Println("  Installation complete!")
 	fmt.Println("======================================")
 	fmt.Println()
+	pauseIfWindows()
+}
+
+// pauseIfWindows keeps the console open when the installer is double-clicked
+// on Windows, so users can read the output before the window closes.
+func pauseIfWindows() {
+	if runtime.GOOS == "windows" {
+		fmt.Println()
+		fmt.Print("Press Enter to exit...")
+		fmt.Scanln()
+	}
 }
 
 func printHelp() {
