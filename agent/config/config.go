@@ -8,8 +8,10 @@ import (
 	"time"
 )
 
-// Version is the agent version.
-const Version = "1.0.0"
+// Version is the agent version. It is stamped at build time via
+// -ldflags "-X ourway/agent/config.Version=x.y.z"; "1.0.0" is the
+// fallback for development builds.
+var Version = "1.0.0"
 
 // Config holds the agent configuration.
 type Config struct {

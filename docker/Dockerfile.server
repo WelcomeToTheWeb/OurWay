@@ -38,19 +38,19 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 # Build agent binaries for all platforms (for agent download endpoint)
 RUN mkdir -p /app/dist/agents \
     && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -C ../agent \
-        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -ldflags "-s -w -X ourway/agent/config.Version=${VERSION}" \
         -o /app/dist/agents/ourway-agent-linux-amd64 . \
     && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -C ../agent \
-        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -ldflags "-s -w -X ourway/agent/config.Version=${VERSION}" \
         -o /app/dist/agents/ourway-agent-linux-arm64 . \
     && CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -C ../agent \
-        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -ldflags "-s -w -X ourway/agent/config.Version=${VERSION}" \
         -o /app/dist/agents/ourway-agent-darwin-amd64 . \
     && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -C ../agent \
-        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -ldflags "-s -w -X ourway/agent/config.Version=${VERSION}" \
         -o /app/dist/agents/ourway-agent-darwin-arm64 . \
     && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C ../agent \
-        -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+        -ldflags "-s -w -X ourway/agent/config.Version=${VERSION}" \
         -o /app/dist/agents/ourway-agent-windows-amd64.exe .
 
 # Build self-contained installers for all platforms (agent binary embedded)
