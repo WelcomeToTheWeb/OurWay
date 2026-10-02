@@ -191,8 +191,13 @@ func findProcessInSession(sessionID uint32) (int, error) {
 	pe.DwSize = uint32(unsafe.Sizeof(pe))
 
 	fallback := 0
-	r1, _, _ := process32FirstProc.Call(uintptr(snap), uintptr(unsafe.Pointer(&pe)))
+	scanned := 0
+	r1, _, e1 := process32FirstProc.Call(uintptr(snap), uintptr(unsafe.Pointer(&pe)))
+	if r1 == 0 {
+		return 0, fmt.Errorf("Process32FirstW: %v", e1)
+	}
 	for r1 != 0 {
+		scanned++
 		if pe.Th32SessionID == sessionID && fallback == 0 {
 			fallback = int(pe.Th32ProcessID)
 		}
@@ -205,42 +210,48 @@ func findProcessInSession(sessionID uint32) (int, error) {
 	if fallback != 0 {
 		return fallback, nil
 	}
-	return 0, fmt.Errorf("no process found in session %d", sessionID)
+	return 0, fmt.Errorf("no process found in session %d (scanned %d processes)", sessionID, scanned)
 }
 
 // createProcessAsUser launches exe with the given command line as the
 // user of the active console session, on the interactive desktop.
 func createProcessAsUser(exe, cmdLine string) (int, error) {
 	sessionID := windows.WTSGetActiveConsoleSessionId()
-	if sessionID == ^uint32(0) {
+	if sessionID == 0 || sessionID == ^uint32(0) {
 		return 0, fmt.Errorf("no active console session")
 	}
 
-	pid, err := findProcessInSession(sessionID)
-	if err != nil {
-		return 0, err
-	}
-
-	hProc, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		return 0, fmt.Errorf("open process %d: %w", pid, err)
-	}
-	defer windows.CloseHandle(hProc)
-
+	// Primary path: WTSQueryUserToken returns the primary token of the
+	// user logged on to the session directly — no process enumeration.
+	// The service runs as LocalSystem, which has SE_TCB.
 	var token windows.Token
-	if err := windows.OpenProcessToken(hProc, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
-		return 0, fmt.Errorf("open process token: %w", err)
+	tokenSource := "WTSQueryUserToken"
+	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
+		// Fallback: duplicate the token of a process in the session.
+		pid, ferr := findProcessInSession(sessionID)
+		if ferr != nil {
+			return 0, fmt.Errorf("no logged-on user in session %d (WTSQueryUserToken: %v; %w)", sessionID, err, ferr)
+		}
+		tokenSource = fmt.Sprintf("process %d", pid)
+		hProc, oerr := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+		if oerr != nil {
+			return 0, fmt.Errorf("open process %d: %w", pid, oerr)
+		}
+		defer windows.CloseHandle(hProc)
+		if err := windows.OpenProcessToken(hProc, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
+			return 0, fmt.Errorf("open process token: %w", err)
+		}
+		var dup windows.Token
+		if err := windows.DuplicateTokenEx(token, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &dup); err != nil {
+			return 0, fmt.Errorf("duplicate token: %w", err)
+		}
+		windows.CloseHandle(windows.Handle(token))
+		token = dup
 	}
 	defer windows.CloseHandle(windows.Handle(token))
 
-	var newToken windows.Token
-	if err := windows.DuplicateTokenEx(token, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &newToken); err != nil {
-		return 0, fmt.Errorf("duplicate token: %w", err)
-	}
-	defer windows.CloseHandle(windows.Handle(newToken))
-
 	var envBlock *uint16
-	if err := windows.CreateEnvironmentBlock(&envBlock, newToken, false); err != nil {
+	if err := windows.CreateEnvironmentBlock(&envBlock, token, false); err != nil {
 		return 0, fmt.Errorf("create environment block: %w", err)
 	}
 	defer windows.DestroyEnvironmentBlock(envBlock)
@@ -261,7 +272,7 @@ func createProcessAsUser(exe, cmdLine string) (int, error) {
 
 	var pi windows.ProcessInformation
 	err = windows.CreateProcessAsUser(
-		newToken,
+		token,
 		exe16,
 		cmd16,
 		nil, nil,
@@ -273,7 +284,7 @@ func createProcessAsUser(exe, cmdLine string) (int, error) {
 		&pi,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("CreateProcessAsUser: %w", err)
+		return 0, fmt.Errorf("CreateProcessAsUser (token from %s): %w", tokenSource, err)
 	}
 	windows.CloseHandle(pi.Process)
 	windows.CloseHandle(pi.Thread)

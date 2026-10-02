@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"nhooyr.io/websocket"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,6 +97,13 @@ func New(serverURL, deviceKey string, opts ...Option) *Client {
 		opt(c)
 	}
 	c.patchHandler = patch.NewHandler(deviceKey, config.HTTPBaseURL(serverURL), c.deviceID)
+	if serverURL != "" {
+		// The agent's own server URL is authoritative for frame uploads:
+		// it is the endpoint the WebSocket already reaches, so it always
+		// carries the right scheme/host/port (unlike the server's
+		// browser-derived session_start URL).
+		c.sessionMgr.SetServerURL(config.HTTPBaseURL(serverURL))
+	}
 	return c
 }
 
@@ -197,6 +205,13 @@ func (c *Client) connect(ctx context.Context) error {
 		HTTPClient: http.DefaultClient,
 	})
 	if err != nil {
+		// nhooyr.io/websocket returns an untyped error for non-101
+		// handshake responses; detect 401 by its message so an
+		// unregistered device key gets an actionable log line instead
+		// of an opaque retry loop.
+		if strings.Contains(err.Error(), "but got 401") {
+			return fmt.Errorf("server rejected device key (HTTP 401): this device is not registered with the server; re-run the installer on this machine")
+		}
 		return err
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "closing")

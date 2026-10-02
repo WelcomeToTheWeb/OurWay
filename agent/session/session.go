@@ -114,15 +114,17 @@ func (sm *SessionManager) StartSession(ctx context.Context, payload interface{})
 
 	log.Printf("session: starting session: %s", string(sessionData))
 
-	// Learn the session ID and server base URL from the start payload so
-	// the capture loop can upload frames to POST /api/sessions/:id/frame.
+	// Learn the session ID from the start payload so the capture loop
+	// can upload frames to POST /api/sessions/:id/frame. The server base
+	// URL is deliberately NOT taken from the payload: the server derives
+	// it from the browser's Host header, which can omit the port or
+	// point at a reverse proxy the agent cannot reach. The agent uses
+	// its own configured URL (set via SetServerURL) — the same endpoint
+	// it is already talking to over WebSocket.
 	if m, ok := payload.(map[string]interface{}); ok {
 		sm.mu.Lock()
 		if id, ok := m["session_id"].(string); ok && id != "" {
 			sm.sessionID = id
-		}
-		if url, ok := m["server_url"].(string); ok && url != "" {
-			sm.serverURL = strings.TrimSuffix(url, "/")
 		}
 		sm.mu.Unlock()
 	}
