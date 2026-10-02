@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"ourway/agent/client"
 	"ourway/agent/collector"
@@ -55,6 +54,15 @@ func main() {
 		log.Fatalf("invalid config: %v", err)
 	}
 
+	// When running under the Windows SCM, hand off to the service runtime,
+	// which performs the SCM handshake and drives the agent loop.
+	if isWindowsService() {
+		if err := runServiceMain(cfg); err != nil {
+			log.Fatalf("service main failed: %v", err)
+		}
+		return
+	}
+
 	// Set up logging
 	if cfg.LogFile != "" {
 		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -65,6 +73,26 @@ func main() {
 		log.SetOutput(f)
 	}
 
+	// Handle graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Printf("Received signal %s, shutting down...", sig)
+		cancel()
+	}()
+
+	runAgent(ctx, cfg)
+}
+
+// runAgent runs the agent's main loop: resolve the device ID, start metric
+// collection, connect to the server, and block until the context is
+// cancelled. It is shared by the console entry point and the Windows
+// service handler.
+func runAgent(ctx context.Context, cfg *config.Config) {
 	log.Printf("OurWay Agent v%s starting...", config.Version)
 	log.Printf("Server: %s", cfg.ServerURL)
 	log.Printf("Device key: %s", cfg.DeviceKey)
@@ -74,6 +102,7 @@ func main() {
 	// configured value if present, otherwise fetch it from the server.
 	deviceID := cfg.DeviceID
 	if deviceID == "" {
+		var err error
 		deviceID, err = client.ResolveDeviceID(config.HTTPBaseURL(cfg.ServerURL), cfg.DeviceKey)
 		if err != nil {
 			// The WebSocket connection is key-authenticated, so a failed
@@ -91,7 +120,7 @@ func main() {
 
 	// Collect initial metrics
 	log.Println("Collecting initial metrics...")
-	_, err = collectorMgr.CollectAll()
+	_, err := collectorMgr.CollectAll()
 	if err != nil {
 		log.Printf("Warning: initial metrics collection failed: %v", err)
 	}
@@ -107,18 +136,6 @@ func main() {
 		}),
 	)
 
-	// Handle graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		log.Printf("Received signal %s, shutting down...", sig)
-		cancel()
-	}()
-
 	// Start the client (blocks until cancelled)
 	if err := c.Run(ctx); err != nil {
 		log.Printf("Client error: %v", err)
@@ -126,5 +143,3 @@ func main() {
 
 	log.Println("Agent stopped.")
 }
-
-var _ = time.Second // ensure time package is used

@@ -11,7 +11,7 @@ import (
 	"ourway/agent/config"
 )
 
-const serviceName = "OurWayAgent"
+const ServiceName = "OurWayAgent"
 
 // Install creates a Windows service using sc.exe.
 func Install(cfg *config.Config) error {
@@ -22,7 +22,7 @@ func Install(cfg *config.Config) error {
 	}
 
 	// Create the service
-	if err := runCommand("sc.exe", "create", serviceName,
+	if err := runCommand("sc.exe", "create", ServiceName,
 		"binPath=", fmt.Sprintf(`"%s" --server %s --key %s`, exe, cfg.ServerURL, cfg.DeviceKey),
 		"start=", "auto",
 		"display=", "OurWay Agent"); err != nil {
@@ -31,7 +31,7 @@ func Install(cfg *config.Config) error {
 	fmt.Println("Service created")
 
 	// Start the service
-	if err := runCommand("sc.exe", "start", serviceName); err != nil {
+	if err := runCommand("sc.exe", "start", ServiceName); err != nil {
 		fmt.Printf("Warning: could not start service: %v\n", err)
 	} else {
 		fmt.Println("Service started")
@@ -42,15 +42,15 @@ func Install(cfg *config.Config) error {
 
 // Uninstall removes the Windows service.
 func Uninstall() error {
-	runCommand("sc.exe", "stop", serviceName)
-	runCommand("sc.exe", "delete", serviceName)
+	runCommand("sc.exe", "stop", ServiceName)
+	runCommand("sc.exe", "delete", ServiceName)
 	fmt.Println("Service uninstalled")
 	return nil
 }
 
 // IsInstalled checks if the Windows service exists.
 func IsInstalled() (bool, error) {
-	output, err := exec.Command("sc.exe", "query", serviceName).Output()
+	output, err := exec.Command("sc.exe", "query", ServiceName).Output()
 	if err != nil {
 		return false, nil
 	}

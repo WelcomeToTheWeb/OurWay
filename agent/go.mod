@@ -3,7 +3,9 @@ module ourway/agent
 go 1.24.0
 
 require (
+	github.com/pion/webrtc/v3 v3.3.6
 	github.com/shirou/gopsutil/v4 v4.26.8
+	golang.org/x/sys v0.41.0
 	nhooyr.io/websocket v1.8.10
 )
 
@@ -28,7 +30,6 @@ require (
 	github.com/pion/stun v0.6.1 // indirect
 	github.com/pion/transport/v2 v2.2.10 // indirect
 	github.com/pion/turn/v2 v2.1.6 // indirect
-	github.com/pion/webrtc/v3 v3.3.6 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
@@ -38,6 +39,5 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/net v0.22.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
