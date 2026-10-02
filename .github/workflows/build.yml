@@ -90,7 +90,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server:${{ github.sha }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/{1}/server:{2}', env.REGISTRY, env.IMAGE_PREFIX, replace(github.ref_name, 'v', '')) || '' }}
+            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/{1}/server:{2}', env.REGISTRY, env.IMAGE_PREFIX, github.ref_name) || '' }}
           build-args: |
             VERSION=${{ github.sha }}
             GIT_COMMIT=${{ github.sha }}
@@ -125,7 +125,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:${{ github.sha }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/{1}/web:{2}', env.REGISTRY, env.IMAGE_PREFIX, replace(github.ref_name, 'v', '')) || '' }}
+            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/{1}/web:{2}', env.REGISTRY, env.IMAGE_PREFIX, github.ref_name) || '' }}
 
   # Create GitHub release on tags
   release:
