@@ -345,6 +345,8 @@ func createProcessAsUser(exe, cmdLine string) (int, error) {
 		si.StdError = logHandle
 	}
 
+	log.Printf("session: CreateProcessAsUser: about to spawn (token from %s, stdHandle=%#x)", tokenSource, logHandle)
+
 	var pi windows.ProcessInformation
 	r, _, cpaErr := createProcessAsUserProc.Call(
 		uintptr(token),
@@ -358,6 +360,7 @@ func createProcessAsUser(exe, cmdLine string) (int, error) {
 		uintptr(unsafe.Pointer(&si)),
 		uintptr(unsafe.Pointer(&pi)),
 	)
+	log.Printf("session: CreateProcessAsUser: returned r=%#x err=%v", r, cpaErr)
 	if r == 0 {
 		return 0, fmt.Errorf("CreateProcessAsUser (token from %s): %w", tokenSource, cpaErr)
 	}
@@ -371,6 +374,7 @@ func createProcessAsUser(exe, cmdLine string) (int, error) {
 // serves frames at ~15fps while relaying input events until told to
 // stop. It returns the process exit code.
 func RunUserHelper(addr string) int {
+	InstallCrashFilter()
 	var conn net.Conn
 	var err error
 	deadline := time.Now().Add(15 * time.Second)

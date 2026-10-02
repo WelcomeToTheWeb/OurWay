@@ -12,6 +12,7 @@ import (
 
 	"ourway/agent/config"
 	"ourway/agent/install"
+	"ourway/agent/session"
 )
 
 // agentService is the Windows service handler for the agent. It drives the
@@ -25,6 +26,10 @@ type agentService struct {
 // stopped.
 func (s *agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
+
+	// Record native crashes: a service has no stderr, so an access
+	// violation in a Win32 call would otherwise be completely silent.
+	session.InstallCrashFilter()
 
 	// Services have no console — if no log file is configured, default to
 	// %ProgramData%\OurWay\agent.log so output isn't lost.
