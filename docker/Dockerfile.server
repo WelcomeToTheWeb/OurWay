@@ -28,6 +28,7 @@ RUN go mod download
 # Copy source code
 COPY server/ ./
 COPY agent/ ../agent/
+COPY cmd/ourway-installer/ ../cmd/ourway-installer/
 
 # Build the server binary with version info embedded
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
