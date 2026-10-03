@@ -120,7 +120,7 @@ func (h *PatchHandler) CreatePolicy(c *gin.Context) {
 		ScopeValue         string `json:"scope_value"`
 		Schedule           string `json:"schedule"`
 		AutoReboot         bool   `json:"auto_reboot"`
-		ApprovalRequired   bool   `json:"approval_required"`
+		ApprovalRequired   *bool  `json:"approval_required"`
 		MaxDevicesPerBatch int    `json:"max_devices_per_batch"`
 	}
 
@@ -141,6 +141,14 @@ func (h *PatchHandler) CreatePolicy(c *gin.Context) {
 	if maxBatch == 0 {
 		maxBatch = 10
 	}
+	// The model carries no gorm default for this bool (a default tag
+	// silently overrode an explicit false on create), so apply the safe
+	// default here: approval is required unless the request opts out.
+	approvalRequired := true
+	if req.ApprovalRequired != nil {
+		approvalRequired = *req.ApprovalRequired
+	}
+
 
 	policy := &models.PatchPolicy{
 		ID:                 uuid.New().String(),
@@ -149,7 +157,7 @@ func (h *PatchHandler) CreatePolicy(c *gin.Context) {
 		ScopeValue:         req.ScopeValue,
 		Schedule:           schedule,
 		AutoReboot:         req.AutoReboot,
-		ApprovalRequired:   req.ApprovalRequired,
+		ApprovalRequired:   approvalRequired,
 		MaxDevicesPerBatch: maxBatch,
 	}
 

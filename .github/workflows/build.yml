@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
 
 env:
   REGISTRY: ghcr.io
@@ -95,13 +97,13 @@ jobs:
         run: |
           go -C server build ./...
           go -C server vet ./...
-          go -C server test ./...
+          go -C server test -race ./...
 
       - name: Agent (build, vet, test)
         run: |
           go -C agent build ./...
           go -C agent vet ./...
-          go -C agent test ./...
+          go -C agent test -race ./...
 
       - name: CLI and installer (build)
         run: |
@@ -115,9 +117,10 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Web (tsc + vite build)
+      - name: Web (unit tests + tsc + vite build)
         run: |
           npm ci --prefix web
+          npm test --prefix web -- --run
           npm run build --prefix web
 
   # Build and push server Docker image
@@ -152,7 +155,7 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.server
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server:${{ github.sha }}
@@ -187,7 +190,7 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.web
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:${{ github.sha }}
