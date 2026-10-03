@@ -85,22 +85,28 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// A user without roles cannot log in usefully (role loading breaks
 	// their session); fail registration loudly instead (L4).
-	if err := h.assignDefaultRole(user.ID); err != nil {
-		log.Printf("auth: failed to assign default role to user %s: %v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "user created, but default role assignment failed; re-register"})
+	// The very first account bootstraps the install: it gets the admin
+	// role instead of viewer, so a fresh deployment is manageable.
+	roleName := "viewer"
+	if count, err := h.store.Users.Count(); err == nil && count <= 1 {
+		roleName = "admin"
+	}
+	if err := h.assignRole(user.ID, roleName); err != nil {
+		log.Printf("auth: failed to assign %s role to user %s: %v", roleName, user.ID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user created, but role assignment failed; re-register"})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"user": user})
 }
 
-// assignDefaultRole assigns the viewer role to a new user.
-func (h *AuthHandler) assignDefaultRole(userID string) error {
-	viewerRole, err := h.store.Roles.GetRoleByName("viewer")
+// assignRole assigns the named builtin role to a user.
+func (h *AuthHandler) assignRole(userID, roleName string) error {
+	role, err := h.store.Roles.GetRoleByName(roleName)
 	if err != nil {
 		return err
 	}
-	return h.store.UserRoles.AssignRole(userID, viewerRole.ID)
+	return h.store.UserRoles.AssignRole(userID, role.ID)
 }
 
 // Login handles user login.
