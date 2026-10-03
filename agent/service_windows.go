@@ -31,20 +31,26 @@ func (s *agentService) Execute(args []string, r <-chan svc.ChangeRequest, change
 	// violation in a Win32 call would otherwise be completely silent.
 	session.InstallCrashFilter()
 
-	// Services have no console — if no log file is configured, default to
-	// %ProgramData%\OurWay\agent.log so output isn't lost.
-	if s.cfg.LogFile == "" {
-		dir := filepath.Join(os.Getenv("ProgramData"), "OurWay")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			log.Printf("Warning: could not create log dir %s: %v", dir, err)
+	// Services have no console — route log output to a file or it is
+	// silently discarded. A configured LogFile wins; otherwise default
+	// to %ProgramData%\OurWay\agent.log.
+	logPath := s.cfg.LogFile
+	if logPath == "" {
+		if err := os.MkdirAll(filepath.Join(os.Getenv("ProgramData"), "OurWay"), 0o755); err != nil {
+			log.Printf("Warning: could not create log dir: %v", err)
+		}
+		logPath = filepath.Join(os.Getenv("ProgramData"), "OurWay", "agent.log")
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		log.Printf("Warning: could not create log dir %s: %v", filepath.Dir(logPath), err)
+	} else {
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			log.Printf("Warning: could not open log file %s: %v", logPath, err)
 		} else {
-			f, err := os.OpenFile(filepath.Join(dir, "agent.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-			if err != nil {
-				log.Printf("Warning: could not open log file: %v", err)
-			} else {
-				defer f.Close()
-				log.SetOutput(f)
-			}
+			defer f.Close()
+			log.SetOutput(f)
+			log.Printf("Starting %s as a service (logging to %s)", install.ServiceName, logPath)
 		}
 	}
 
