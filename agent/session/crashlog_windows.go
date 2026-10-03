@@ -5,6 +5,7 @@ package session
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"unsafe"
 )
@@ -54,6 +55,7 @@ func exceptionFilterCallback(ep unsafe.Pointer) uintptr {
 		code = p.ExceptionRecord.ExceptionCode
 		addr = uintptr(p.ExceptionRecord.ExceptionAddress)
 	}
+	os.MkdirAll(filepath.Dir(helperLogPath), 0o755)
 	if f, err := os.OpenFile(helperLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
 		fmt.Fprintf(f, "=== CRASH exception=0x%08x faulting_addr=0x%x ===\n", code, addr)
 		f.Close()
