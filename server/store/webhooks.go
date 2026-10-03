@@ -46,9 +46,17 @@ func (s *WebhookStore) Update(webhook *models.Webhook) error {
 	return s.db.Save(webhook).Error
 }
 
-// Delete removes a webhook.
+// Delete removes a webhook. Deleting an unknown id is an error so the
+// API can answer 404 instead of reporting a bogus success.
 func (s *WebhookStore) Delete(id string) error {
-	return s.db.Delete(&models.Webhook{}, "id = ?", id).Error
+	result := s.db.Delete(&models.Webhook{}, "id = ?", id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // ListByEvent returns webhooks subscribed to a specific event. The event

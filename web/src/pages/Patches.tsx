@@ -235,6 +235,7 @@ export function Patches() {
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           className="rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+          aria-label="Filter by status"
         >
           <option value="all">{t('patches.allStatuses')}</option>
           <option value="detected">{t('patches.statuses.detected')}</option>

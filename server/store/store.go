@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm/logger"
 
 	"ourway/server/cache"
-	"ourway/server/models"
 )
 
 // Store provides database access through separate repositories.
@@ -37,24 +36,7 @@ type Store struct {
 // NewWithDB creates a Store from an existing *gorm.DB instance,
 // running migrations if needed. Useful for testing.
 func NewWithDB(db *gorm.DB) (*Store, error) {
-	if err := db.AutoMigrate(
-		&models.Device{},
-		&models.User{},
-		&models.Alert{},
-		&models.Role{},
-		&models.UserRole{},
-		&models.Session{},
-		&models.SoftwareUpdate{},
-		&models.PatchPolicy{},
-		&models.PatchDeployment{},
-		&models.FileTransfer{},
-		&models.SSOProvider{},
-		&models.Webhook{},
-		&models.WebhookDelivery{},
-		&models.APIKey{},
-		&models.MetricHistory{},
-		&models.DeploymentResult{},
-	); err != nil {
+	if err := Migrate(db); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
@@ -104,24 +86,7 @@ func New(dsn string) (*Store, error) {
 		sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 	}
 
-	if err := db.AutoMigrate(
-		&models.Device{},
-		&models.User{},
-		&models.Alert{},
-		&models.Role{},
-		&models.UserRole{},
-		&models.Session{},
-		&models.SoftwareUpdate{},
-		&models.PatchPolicy{},
-		&models.PatchDeployment{},
-		&models.FileTransfer{},
-		&models.SSOProvider{},
-		&models.Webhook{},
-		&models.WebhookDelivery{},
-		&models.APIKey{},
-		&models.MetricHistory{},
-		&models.DeploymentResult{},
-	); err != nil {
+	if err := Migrate(db); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 

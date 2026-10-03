@@ -778,12 +778,11 @@ func (h *Hub) handleDeviceMessage(_ *Client, msg Message, store *store.Store, de
 			return
 		}
 		wasOffline := dev.Status == "offline"
-		if err := store.Devices.UpdateLastSeen(dev.ID); err != nil {
-			log.Printf("ws: heartbeat update failed: %v", err)
-		}
 		// Agents report their IPs in every heartbeat; refresh the stored
 		// record when they change (registration only happens at install
-		// time, so this is the only path that keeps them current).
+		// time, so this is the only path that keeps them current). This
+		// runs before UpdateLastSeen: Update saves the whole stale dev
+		// snapshot, so doing it after would clobber the fresh last_seen.
 		if p, ok := msg.Payload.(map[string]interface{}); ok {
 			changed := false
 			if ip, ok := p["private_ip"].(string); ok && ip != "" && ip != dev.PrivateIP {
@@ -799,6 +798,9 @@ func (h *Hub) handleDeviceMessage(_ *Client, msg Message, store *store.Store, de
 					log.Printf("ws: heartbeat IP update failed: %v", err)
 				}
 			}
+		}
+		if err := store.Devices.UpdateLastSeen(dev.ID); err != nil {
+			log.Printf("ws: heartbeat update failed: %v", err)
 		}
 		if wasOffline {
 			events.Publish("device_online", map[string]interface{}{

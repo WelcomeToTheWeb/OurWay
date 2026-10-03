@@ -7,7 +7,7 @@ import (
 // SSOProvider represents a configured SSO provider.
 type SSOProvider struct {
 	ID           string    `gorm:"type:uuid;primaryKey" json:"id"`
-	Type         string    `gorm:"not null" json:"type"` // oauth2, oidc, saml
+	Type         string    `gorm:"not null" json:"type"` // oauth2 or oidc (saml is not implemented)
 	Name         string    `gorm:"not null" json:"name"` // google, microsoft, apple, custom
 	ClientID     string    `gorm:"not null" json:"client_id"`
 	ClientSecret string    `gorm:"not null" json:"-"`
