@@ -17,8 +17,6 @@ var (
 	gdiplusStartupProc = gdiplusDLL.NewProc("GdiplusStartup")
 	gdiplusCreateBmp   = gdiplusDLL.NewProc("GdipCreateBitmapFromHBITMAP")
 	gdiplusSaveFile    = gdiplusDLL.NewProc("GdipSaveImageToFile")
-	gdiplusEncodersSz  = gdiplusDLL.NewProc("GdipGetImageEncodersSize")
-	gdiplusEncoders    = gdiplusDLL.NewProc("GdipGetImageEncoders")
 	gdiplusDispose     = gdiplusDLL.NewProc("GdipDisposeImage")
 )
 
@@ -28,20 +26,6 @@ type gdiplusStartupInput struct {
 	DebugEventCallback       uintptr
 	SuppressBackgroundThread uint32
 	SuppressExternalCodecs   uint32
-}
-
-// gdiplusImageCodec mirrors GdiplusImageCodecInfo (gdiplus.h). Only the
-// offsets up to MimeType matter; iteration uses the stride reported by
-// GdipGetImageEncodersSize.
-type gdiplusImageCodec struct {
-	ClassID     syscall.GUID
-	FormatID    syscall.GUID
-	MimeType    [64]uint16
-	FileNameExt [80]uint16
-	Flags1      uint32
-	Flags2      uint32
-	EncodingMin uint16
-	EncodingMax uint16
 }
 
 // gdiplusEncoderParameter mirrors GdiplusImageProperty (gdiplus.h):
@@ -78,6 +62,15 @@ var encoderQualityGUID = syscall.GUID{
 	Data4: [8]byte{0x9c, 0xdd, 0x5d, 0xb3, 0x51, 0x05, 0xe7, 0xeb},
 }
 
+// jpegEncoderGUID is the built-in JPEG image encoder CLSID
+// {557CF401-1A04-11D3-9A73-0000F81EF32}.
+var jpegEncoderGUID = syscall.GUID{
+	Data1: 0x557cf401,
+	Data2: 0x1a04,
+	Data3: 0x11d3,
+	Data4: [8]byte{0x9a, 0x73, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2},
+}
+
 
 var gdiplusToken uintptr
 
@@ -99,35 +92,14 @@ func gdiplusEnsureStarted() error {
 	return nil
 }
 
-// jpegEncoderCLSID returns a copy of the GDI+ JPEG encoder CLSID.
+// jpegEncoderCLSID returns the GDI+ JPEG encoder CLSID. It is a fixed,
+// documented constant ({557CF401-1A04-11D3-9A73-0000F81EF32}, ImageFormatJPEG
+// encoder per GdiplusImaging.h) stable across Windows versions, so it is
+// hardcoded rather than discovered by walking the codec array — the
+// size/stride iteration was fragile and failed on some systems.
 func jpegEncoderCLSID() (*syscall.GUID, error) {
-	var count uint32
-	var size uint32
-	r1, _, _ := gdiplusEncodersSz.Call(
-		uintptr(unsafe.Pointer(&count)),
-		uintptr(unsafe.Pointer(&size)),
-	)
-	if r1 != gdiplusStatusOK || size == 0 || count == 0 {
-		return nil, fmt.Errorf("GdipGetImageEncodersSize failed: %d", r1)
-	}
-	buf := make([]byte, size)
-	r1, _, _ = gdiplusEncoders.Call(
-		uintptr(count),
-		uintptr(size),
-		uintptr(unsafe.Pointer(&buf[0])),
-	)
-	if r1 != gdiplusStatusOK {
-		return nil, fmt.Errorf("GdipGetImageEncoders failed: %d", r1)
-	}
-	stride := int(size) / int(count)
-	for i := range int(count) {
-		enc := (*gdiplusImageCodec)(unsafe.Add(unsafe.Pointer(&buf[0]), i*stride))
-		if syscall.UTF16ToString(enc.MimeType[:]) == "image/jpeg" {
-			guid := enc.ClassID
-			return &guid, nil
-		}
-	}
-	return nil, fmt.Errorf("GDI+ JPEG encoder not found")
+	guid := jpegEncoderGUID
+	return &guid, nil
 }
 
 // gdiplusSaveJPEG encodes hBmp to path as JPEG at the given quality
