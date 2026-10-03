@@ -103,9 +103,13 @@ function Remove-PartialState {
 $binaryPath = Join-Path $InstallDir "ourway-agent.exe"
 $localBinaryFound = $false
 
-Write-Info "Downloading agent binary from GitHub releases..."
-$url = "https://github.com/WelcomeToTheWeb/OurWay/releases/download/v$Version/ourway-agent-windows-$arch.exe"
-Write-Info "URL: $url"
+# Prefer a local dev build, then the server's own installer endpoint (which
+# always serves a binary matching the running server), and only fall back
+# to GitHub releases. Old release binaries predate the WebSocket
+# subprotocol auth (C5) and their connection is rejected with HTTP 400.
+Write-Info "Sourcing agent binary..."
+$serverBinaryUrl = "$Server/api/v2/installers/ourway-agent-windows-$arch.exe"
+$releaseUrl = "https://github.com/WelcomeToTheWeb/OurWay/releases/download/v$Version/ourway-agent-windows-$arch.exe"
 
 try {
     if (Test-Path "./dist/agents/ourway-agent-windows-$arch.exe") {
@@ -117,7 +121,13 @@ try {
         Copy-Item "./ourway-agent.exe" $binaryPath -Force
         $localBinaryFound = $true
     } else {
-        Invoke-WebRequest -Uri $url -OutFile $binaryPath -UseBasicParsing
+        try {
+            Write-Info "Downloading agent from server: $serverBinaryUrl"
+            Invoke-WebRequest -Uri $serverBinaryUrl -OutFile $binaryPath -UseBasicParsing
+        } catch {
+            Write-Warn "Server installer endpoint unavailable ($_); falling back to GitHub releases"
+            Invoke-WebRequest -Uri $releaseUrl -OutFile $binaryPath -UseBasicParsing
+        }
         Write-Ok "Binary downloaded to $binaryPath"
     }
 } catch {
