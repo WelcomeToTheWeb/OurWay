@@ -160,12 +160,18 @@ if (-not $SkipService) {
         Write-Info "sc.exe delete: $scDelete"
         Start-Sleep -Seconds 2
         
-        # Create service using sc.exe invoked directly with an argument
-        # array so PowerShell quoting cannot mangle the binPath.
-        $scResult = & sc.exe create OurWayAgent binPath= "`"$binaryPath`" --server $Server --key $Key --log-file $logFile" start= auto
-        $scResult | ForEach-Object { Write-Info "sc.exe create: $_" }
+        # Create the service with New-Service: it takes the binary path
+        # as a parameter, so PowerShell's native-argument quoting cannot
+        # mangle the embedded quotes the way sc.exe does (exit 1639).
+        New-Service -Name "OurWayAgent" -DisplayName "OurWay Agent" `
+            -BinaryPathName $binPath -StartupType Automatic | Out-Null
+        Write-Info "Service created: OurWayAgent"
+
+        # Automatic recovery: restart on failure (5s/10s/30s), matching
+        # the Go installer (agent/install/windows.go).
+        $null = & sc.exe failure OurWayAgent reset= 86400 actions= restart/5000/restart/10000/restart/30000
         if ($LASTEXITCODE -ne 0) {
-            Write-Warn "sc.exe create failed (exit $LASTEXITCODE)"
+            Write-Warn "Could not set service recovery actions (exit $LASTEXITCODE)"
         }
         Start-Sleep -Seconds 2
         
