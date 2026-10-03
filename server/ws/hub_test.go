@@ -313,8 +313,15 @@ func TestHubSendToDevice(t *testing.T) {
 	_ = ts
 	conn := dialAgent(t, ts.URL, dev.DeviceKey)
 
-	if !hub.IsDeviceConnected(dev.DeviceKey) {
-		t.Fatal("expected device to be considered connected after dialing")
+	// The register channel is processed asynchronously by hub.Run(); the
+	// dial returning does not mean the hub has registered the client yet.
+	// Poll instead of asserting immediately (this was a flaky race).
+	deadline := time.Now().Add(5 * time.Second)
+	for !hub.IsDeviceConnected(dev.DeviceKey) {
+		if time.Now().After(deadline) {
+			t.Fatal("expected device to be considered connected after dialing")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if err := hub.SendToDevice(dev.DeviceKey, "ping", nil); err != nil {
 		t.Fatalf("SendToDevice failed: %v", err)
