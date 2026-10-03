@@ -64,11 +64,11 @@ services:
       server:
         condition: service_healthy
     ports:
-      - "3000:80"
+      - "3000:8080"
     networks:
       - ourway_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
