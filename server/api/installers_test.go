@@ -213,3 +213,54 @@ func TestInstallerDownloadTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallerListDedupesAndSorts(t *testing.T) {
+	withInstallersDir(t, map[string]string{
+		"ourway-agent-linux-amd64":            "agent-linux",
+		"ourway-installer-linux-amd64":        "installer-linux",
+		"ourway-installer-windows-amd64.exe":  "installer-windows",
+		"ourway-agent-darwin-arm64":           "agent-darwin",
+		"ourway-installer-darwin-arm64":       "installer-darwin",
+	})
+	ts, _, _ := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/api/v2/installers")
+	if err != nil {
+		t.Fatalf("list request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Installers []struct {
+			Name string `json:"name"`
+			OS   string `json:"os"`
+			Arch string `json:"arch"`
+			Kind string `json:"kind"`
+		} `json:"installers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	var got []string
+	for _, inst := range result.Installers {
+		got = append(got, inst.Name)
+	}
+	// One entry per platform (installer preferred over the bare agent),
+	// ordered Windows, Linux, macOS; amd64 before arm64.
+	want := []string{
+		"ourway-installer-windows-amd64.exe",
+		"ourway-installer-linux-amd64",
+		"ourway-installer-darwin-arm64",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d installers, got %d: %v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("position %d: expected %q, got %q", i, want[i], got[i])
+		}
+	}
+	for _, inst := range result.Installers {
+		if inst.Kind != "installer" {
+			t.Errorf("expected kind=installer for %q, got %q", inst.Name, inst.Kind)
+		}
+	}
+}

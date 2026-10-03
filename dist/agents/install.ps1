@@ -84,8 +84,19 @@ if (-not $Key) {
 }
 
 # Create install directory
+$createdInstallDir = $false
 if (!(Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    $createdInstallDir = $true
+}
+
+# Roll back partial state (install dir we created) when the install fails
+# partway through, so a failed run does not require manual cleanup.
+function Remove-PartialState {
+    if ($createdInstallDir -and (Test-Path $InstallDir)) {
+        Write-Info "Removing partially created $InstallDir..."
+        Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
+    }
 }
 
 # Determine binary path
@@ -110,6 +121,7 @@ try {
         Write-Ok "Binary downloaded to $binaryPath"
     }
 } catch {
+    Remove-PartialState
     Write-ErrorAndExit "Failed to download binary: $_"
 }
 
@@ -170,8 +182,13 @@ if (-not $SkipService) {
             Write-Info "Logs: $logFile"
         }
     } catch {
+        # Remove the (possibly half-created) service definition so a
+        # failed install does not leave a broken service behind that
+        # needs manual cleanup before re-running.
+        Stop-Service -Name "OurWayAgent" -Force -ErrorAction SilentlyContinue
+        sc.exe delete OurWayAgent 2>&1 | Out-Null
         Write-Warn "Failed to install as service: $_"
-        Write-Warn "Try running PowerShell as Administrator"
+        Write-Warn "The agent binary is installed; re-run as Administrator to register the service."
     }
 }
 

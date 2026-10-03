@@ -82,7 +82,9 @@
     "installerNone": "No installers available on this server",
     "installerError": "Could not load installers",
     "installerScript": "script",
-    "installerDownloadFailed": "Failed to download {{file}}"
+    "installerDownloadFailed": "Failed to download {{file}}",
+    "installerOneCommand": "One-command install",
+    "installerManual": "Manual download"
   },
   "alerts": {
     "title": "Alerts",

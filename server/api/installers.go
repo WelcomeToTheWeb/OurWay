@@ -46,9 +46,63 @@ type installerInfo struct {
 	Name   string `json:"name"`
 	OS     string `json:"os"`
 	Arch   string `json:"arch"`
+	Kind   string `json:"kind"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
 	URL    string `json:"url"`
+}
+
+// osOrder ranks platforms for display: Windows first, then Linux, macOS,
+// then anything unrecognized (scripts such as install.sh).
+var osOrder = map[string]int{"windows": 0, "linux": 1, "darwin": 2}
+
+// installerKind classifies an artifact: "installer" (self-contained
+// ourway-installer-* CLI), "agent" (bare agent binary), or "script"
+// (install.sh / install.ps1 and anything else).
+func installerKind(name string) string {
+	switch {
+	case strings.HasPrefix(name, "ourway-installer-"):
+		return "installer"
+	case strings.HasPrefix(name, "ourway-agent-"):
+		return "agent"
+	default:
+		return "script"
+	}
+}
+
+// kindRank prefers the self-contained installer over the bare agent and
+// over plain scripts.
+func kindRank(kind string) int {
+	switch kind {
+	case "installer":
+		return 0
+	case "agent":
+		return 1
+	default:
+		return 2
+	}
+}
+
+// lessInstallers orders the list for display: OS rank, then arch (amd64
+// before arm64), then kind (installer before agent), then name.
+func lessInstallers(a, b installerInfo) bool {
+	oa, ob := osOrder[a.OS], osOrder[b.OS]
+	if oa != ob {
+		return oa < ob
+	}
+	if a.Arch != b.Arch {
+		if a.Arch == "amd64" {
+			return true
+		}
+		if b.Arch == "amd64" {
+			return false
+		}
+		return a.Arch < b.Arch
+	}
+	if a.Kind != b.Kind {
+		return a.Kind < b.Kind
+	}
+	return a.Name < b.Name
 }
 
 // InstallerHandler serves the built installer artifacts. The routes are
@@ -79,18 +133,48 @@ func (h *InstallerHandler) List(c *gin.Context) {
 				continue
 			}
 			name := entry.Name()
+			kind := installerKind(name)
 			osName, arch := parseInstallerName(name)
 			installers = append(installers, installerInfo{
 				Name:   name,
 				OS:     osName,
 				Arch:   arch,
+				Kind:   kind,
 				Size:   info.Size(),
 				SHA256: sha256OfFile(filepath.Join(h.dir, name)),
 				URL:    "v2/installers/" + name,
 			})
 		}
 	}
-	sort.Slice(installers, func(i, j int) bool { return installers[i].Name < installers[j].Name })
+	// For each platform, prefer the self-contained installer over the bare
+	// agent binary so the list shows one entry per os/arch. Scripts (no
+	// parsed OS) are kept as-is.
+	seen := make(map[string]int, len(installers))
+	deduped := make([]installerInfo, 0, len(installers))
+	for _, inst := range installers {
+		if inst.OS == "" {
+			continue
+		}
+		key := inst.OS + "/" + inst.Arch
+		if idx, ok := seen[key]; ok {
+			// Keep the self-contained installer over a bare agent binary
+			// regardless of directory iteration order.
+			if kindRank(installers[idx].Kind) <= kindRank(inst.Kind) {
+				continue
+			}
+			deduped[idx] = inst
+			continue
+		}
+		seen[key] = len(deduped)
+		deduped = append(deduped, inst)
+	}
+	for _, inst := range installers {
+		if inst.OS == "" {
+			deduped = append(deduped, inst)
+		}
+	}
+	installers = deduped
+	sort.Slice(installers, func(i, j int) bool { return lessInstallers(installers[i], installers[j]) })
 
 	c.JSON(http.StatusOK, gin.H{"installers": installers})
 }

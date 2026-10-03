@@ -82,7 +82,9 @@
     "installerNone": "Aucun installateur disponible sur ce serveur",
     "installerError": "Impossible de charger les installateurs",
     "installerScript": "script",
-    "installerDownloadFailed": "Échec du téléchargement de {{file}}"
+    "installerDownloadFailed": "Échec du téléchargement de {{file}}",
+    "installerOneCommand": "Installation en une commande",
+    "installerManual": "Téléchargement manuel"
   },
   "alerts": {
     "title": "Alertes",

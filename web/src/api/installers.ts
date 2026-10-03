@@ -4,6 +4,7 @@ export interface Installer {
   name: string;
   os: string;
   arch: string;
+  kind: string;
   size: number;
   sha256: string;
   url: string;
@@ -30,3 +31,22 @@ export const downloadInstaller = async (installer: Installer) => {
   a.remove();
   URL.revokeObjectURL(url);
 };
+
+// origin returns the browser-visible server origin (scheme://host, no path)
+// so install commands pasted on a target machine can reach this deployment.
+export function serverOrigin(): string {
+  return window.location.origin;
+}
+
+// shellInstallCommand builds the one-command install for a script-based
+// installer: curl the script from this server and pipe it to bash with the
+// server flag pointing back at this deployment.
+export function shellInstallCommand(origin: string): string {
+  return `curl -sL ${origin}/api/v2/installers/install.sh | bash -s -- --server ${origin}`;
+}
+
+// powershellInstallCommand builds the one-command install for Windows,
+// downloading install.ps1 from this server and running it with -Register.
+export function powershellInstallCommand(origin: string): string {
+  return `irm ${origin}/api/v2/installers/install.ps1 -OutFile install.ps1; .\\install.ps1 -Server "${origin}" -Register`;
+}

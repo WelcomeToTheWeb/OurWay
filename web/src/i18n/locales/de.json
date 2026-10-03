@@ -82,7 +82,9 @@
     "installerNone": "Auf diesem Server sind keine Installer verfügbar",
     "installerError": "Installer konnten nicht geladen werden",
     "installerScript": "Skript",
-    "installerDownloadFailed": "Download von {{file}} fehlgeschlagen"
+    "installerDownloadFailed": "Download von {{file}} fehlgeschlagen",
+    "installerOneCommand": "Ein-Befehl-Installation",
+    "installerManual": "Manueller Download"
   },
   "alerts": {
     "title": "Alarme",
