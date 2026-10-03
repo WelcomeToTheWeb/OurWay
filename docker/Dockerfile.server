@@ -63,6 +63,9 @@ RUN for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "w
         -o "/app/dist/agents/ourway-installer-${os}-${arch}${suffix}" .; \
   done
 
+# Copy install scripts so the installer download endpoint can serve them
+COPY install.ps1 install.sh /app/dist/agents/
+
 # Stage 2: Minimal production image
 FROM alpine:3.20
 
