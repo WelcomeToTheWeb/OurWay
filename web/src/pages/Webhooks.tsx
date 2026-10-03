@@ -134,7 +134,7 @@ export function Webhooks() {
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent-dark"
+          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark"
         >
           <Plus className="h-4 w-4" />
           {t('webhooks.addWebhook')}
@@ -172,7 +172,7 @@ export function Webhooks() {
               {EVENT_TYPES.map((e) => (
                 <label
                   key={e.value}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary hover:bg-slate-800"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary hover:bg-bg"
                 >
                   <input
                     type="checkbox"
@@ -193,7 +193,7 @@ export function Webhooks() {
           </div>
           <button
             onClick={handleCreate}
-            className="mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent-dark"
+            className="mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark"
           >
             {t('common.save')}
           </button>
@@ -228,7 +228,7 @@ export function Webhooks() {
                 <button
                   onClick={() => handleToggleEnabled(w)}
                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                    w.enabled ? 'bg-status-success/15 text-status-success' : 'bg-slate-700 text-text-secondary'
+                    w.enabled ? 'bg-status-online/15 text-status-online' : 'bg-bg-border text-text-secondary'
                   }`}
                 >
                   {w.enabled ? t('common.enabled') : t('common.disabled')}
@@ -300,10 +300,10 @@ export function Webhooks() {
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                             d.status === 'delivered'
-                              ? 'bg-status-success/15 text-status-success'
+                              ? 'bg-status-online/15 text-status-online'
                               : d.status === 'failed'
                               ? 'bg-status-error/15 text-status-error'
-                              : 'bg-slate-700 text-text-secondary'
+                              : 'bg-bg-border text-text-secondary'
                           }`}
                         >
                           {d.status}

@@ -67,7 +67,7 @@ export function SSO() {
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent-dark"
+          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark"
         >
           <Plus className="h-4 w-4" />
           {t('sso.addProvider')}
@@ -118,7 +118,7 @@ export function SSO() {
             <div className="flex items-end">
               <button
                 onClick={handleCreate}
-                className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent-dark"
+                className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark"
               >
                 {t('common.save')}
               </button>
@@ -151,7 +151,7 @@ export function SSO() {
               <div className="flex items-center gap-3">
                 <span
                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                    p.enabled ? 'bg-status-success/15 text-status-success' : 'bg-slate-700 text-text-secondary'
+                    p.enabled ? 'bg-status-online/15 text-status-online' : 'bg-bg-border text-text-secondary'
                   }`}
                 >
                   {p.enabled ? t('common.enabled') : t('common.disabled')}

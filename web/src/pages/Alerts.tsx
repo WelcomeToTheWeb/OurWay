@@ -340,7 +340,7 @@ export function Alerts() {
                         <button
                           type="button"
                           onClick={() => handleAcknowledge(alert.id)}
-                          className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80"
+                          className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80"
                           title={t('alerts.acknowledge')}
                         >
                           <UserCheck className="h-3.5 w-3.5" />
@@ -367,7 +367,7 @@ export function Alerts() {
                               type="button"
                               onClick={() => handleAssign(alert.id, assignUser)}
                               disabled={!assignUser}
-                              className="rounded-lg bg-accent px-2 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80 disabled:opacity-50"
+                              className="rounded-lg bg-accent px-2 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
                               title={t('alerts.assign')}
                             >
                               {t('alerts.assign')}

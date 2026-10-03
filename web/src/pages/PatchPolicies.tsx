@@ -159,7 +159,7 @@ export function PatchPolicies() {
             <button
               onClick={handleDeploy}
               disabled={creating}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
             >
               <Play className="h-3.5 w-3.5" />
               {t('patches.deployNow')}
@@ -266,7 +266,7 @@ export function PatchPolicies() {
               <button
                 onClick={handleCreate}
                 disabled={creating || !newPolicy.name}
-                className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80 disabled:opacity-50"
+                className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
               >
                 {t('patchPolicies.createPolicy')}
               </button>

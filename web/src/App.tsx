@@ -1,20 +1,30 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './auth/context';
 import { RoleRoute } from './components/RoleRoute';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
-import { Devices } from './pages/Devices';
-import { DeviceDetail } from './pages/DeviceDetail';
-import { Alerts } from './pages/Alerts';
-import { Settings } from './pages/Settings';
-import { Users } from './pages/Users';
-import { Patches } from './pages/Patches';
-import { PatchPolicies } from './pages/PatchPolicies';
-import { FileTransfer } from './pages/FileTransfer';
-import { Sessions } from './pages/Sessions';
-import { SSO } from './pages/SSO';
-import { Webhooks } from './pages/Webhooks';
+
+const Devices = lazy(() => import('./pages/Devices').then((m) => ({ default: m.Devices })));
+const DeviceDetail = lazy(() => import('./pages/DeviceDetail').then((m) => ({ default: m.DeviceDetail })));
+const Alerts = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.Alerts })));
+const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
+const Users = lazy(() => import('./pages/Users').then((m) => ({ default: m.Users })));
+const Patches = lazy(() => import('./pages/Patches').then((m) => ({ default: m.Patches })));
+const PatchPolicies = lazy(() => import('./pages/PatchPolicies').then((m) => ({ default: m.PatchPolicies })));
+const FileTransfer = lazy(() => import('./pages/FileTransfer').then((m) => ({ default: m.FileTransfer })));
+const Sessions = lazy(() => import('./pages/Sessions').then((m) => ({ default: m.Sessions })));
+const SSO = lazy(() => import('./pages/SSO').then((m) => ({ default: m.SSO })));
+const Webhooks = lazy(() => import('./pages/Webhooks').then((m) => ({ default: m.Webhooks })));
+
+function RouteFallback() {
+  return (
+    <div className="flex h-64 items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-bg-border border-t-accent" />
+    </div>
+  );
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -38,14 +48,37 @@ export function App() {
           }
         >
           <Route index element={<Dashboard />} />
-          <Route path="devices" element={<Devices />} />
-          <Route path="devices/:id" element={<DeviceDetail />} />
-          <Route path="alerts" element={<Alerts />} />
+          <Route
+            path="devices"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <Devices />
+              </Suspense>
+            }
+          />
+          <Route
+            path="devices/:id"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <DeviceDetail />
+              </Suspense>
+            }
+          />
+          <Route
+            path="alerts"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <Alerts />
+              </Suspense>
+            }
+          />
           <Route
             path="sessions"
             element={
               <RoleRoute roles={['admin', 'manager', 'technician']}>
-                <Sessions />
+                <Suspense fallback={<RouteFallback />}>
+                  <Sessions />
+                </Suspense>
               </RoleRoute>
             }
           />
@@ -53,7 +86,9 @@ export function App() {
             path="files"
             element={
               <RoleRoute roles={['admin', 'manager', 'technician']}>
-                <FileTransfer />
+                <Suspense fallback={<RouteFallback />}>
+                  <FileTransfer />
+                </Suspense>
               </RoleRoute>
             }
           />
@@ -61,7 +96,9 @@ export function App() {
             path="patches"
             element={
               <RoleRoute roles={['admin', 'manager', 'technician']}>
-                <Patches />
+                <Suspense fallback={<RouteFallback />}>
+                  <Patches />
+                </Suspense>
               </RoleRoute>
             }
           />
@@ -69,7 +106,9 @@ export function App() {
             path="patch-policies"
             element={
               <RoleRoute roles={['admin', 'manager']}>
-                <PatchPolicies />
+                <Suspense fallback={<RouteFallback />}>
+                  <PatchPolicies />
+                </Suspense>
               </RoleRoute>
             }
           />
@@ -77,7 +116,9 @@ export function App() {
             path="users"
             element={
               <RoleRoute roles={['admin', 'manager']}>
-                <Users />
+                <Suspense fallback={<RouteFallback />}>
+                  <Users />
+                </Suspense>
               </RoleRoute>
             }
           />
@@ -85,7 +126,9 @@ export function App() {
             path="settings"
             element={
               <RoleRoute roles={['admin']}>
-                <Settings />
+                <Suspense fallback={<RouteFallback />}>
+                  <Settings />
+                </Suspense>
               </RoleRoute>
             }
           />
@@ -93,7 +136,9 @@ export function App() {
             path="sso"
             element={
               <RoleRoute roles={['admin']}>
-                <SSO />
+                <Suspense fallback={<RouteFallback />}>
+                  <SSO />
+                </Suspense>
               </RoleRoute>
             }
           />
@@ -101,7 +146,9 @@ export function App() {
             path="webhooks"
             element={
               <RoleRoute roles={['admin', 'manager']}>
-                <Webhooks />
+                <Suspense fallback={<RouteFallback />}>
+                  <Webhooks />
+                </Suspense>
               </RoleRoute>
             }
           />

@@ -263,7 +263,7 @@ export function Settings() {
           <button
             type="submit"
             disabled={savingProfile}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-dark disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
             {savingProfile ? 'Saving...' : 'Save Profile'}
@@ -322,7 +322,7 @@ export function Settings() {
           <button
             type="submit"
             disabled={savingPassword}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-dark disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
             {savingPassword ? 'Updating...' : 'Update Password'}
@@ -506,7 +506,7 @@ export function Settings() {
           <button
             type="button"
             onClick={() => setShowKeyForm(!showKeyForm)}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent-dark"
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-dark"
           >
             <Plus className="h-3.5 w-3.5" />
             {t('settings.api.newKey')}
@@ -600,7 +600,7 @@ export function Settings() {
                 <button
                   type="button"
                   onClick={handleCreateKey}
-                  className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-accent-dark"
+                  className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-dark"
                 >
                   <Key className="h-3.5 w-3.5" />
                   {t('settings.api.createKey')}

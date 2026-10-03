@@ -81,21 +81,21 @@ export function LineChart({
         margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
       >
         <CartesianGrid
-          stroke="#1e293b"
+          stroke="var(--bg-border)"
           vertical={false}
           strokeDasharray="3 3"
         />
         <XAxis
           dataKey={xKey}
-          tick={{ fill: '#475569', fontSize: 10 }}
+          tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
           tickLine={false}
-          axisLine={{ stroke: '#1e293b' }}
+          axisLine={{ stroke: 'var(--bg-border)' }}
           interval="preserveStartEnd"
         />
         <YAxis
-          tick={{ fill: '#475569', fontSize: 10 }}
+          tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
           tickLine={false}
-          axisLine={{ stroke: '#1e293b' }}
+          axisLine={{ stroke: 'var(--bg-border)' }}
           domain={yDomain}
           label={
             yLabel
@@ -103,7 +103,7 @@ export function LineChart({
                   value: yLabel,
                   angle: -90,
                   position: 'left',
-                  fill: '#475569',
+                  fill: 'var(--text-secondary)',
                   fontSize: 10,
                 }
               : undefined

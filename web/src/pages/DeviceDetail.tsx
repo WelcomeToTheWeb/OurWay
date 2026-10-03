@@ -260,7 +260,7 @@ export function DeviceDetail() {
         <p className="text-status-error">{error || 'Device not found'}</p>
         <button
           onClick={() => navigate(-1)}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm text-text-primary transition-colors hover:bg-accent-dark"
+          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm text-white transition-colors hover:bg-accent-dark"
         >
           <ArrowLeft className="h-4 w-4" />
           Go Back
@@ -324,7 +324,7 @@ export function DeviceDetail() {
           <button
             onClick={handleStartSession}
             disabled={startingSession}
-            className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-white transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <MousePointer2 className="h-4 w-4" />
             {startingSession ? 'Connecting...' : 'Remote Session'}

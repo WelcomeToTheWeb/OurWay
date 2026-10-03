@@ -85,7 +85,7 @@ export function Gauge({
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="#1e293b"
+            stroke="var(--bg-border)"
             strokeWidth={strokeWidth}
           />
 

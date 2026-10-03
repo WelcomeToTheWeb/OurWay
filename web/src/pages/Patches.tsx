@@ -195,7 +195,7 @@ export function Patches() {
           <button
             onClick={handleDeploy}
             disabled={deploying || !selectedDevice}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
           >
             <Play className={`h-3.5 w-3.5 ${deploying ? 'animate-spin' : ''}`} />
             {t('patches.deployNow')}
@@ -295,7 +295,7 @@ export function Patches() {
                   {update.status === 'detected' && (
                     <button
                       onClick={() => handleApprove(update.id)}
-                      className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-text-primary transition-colors hover:bg-accent/80"
+                      className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-accent/80"
                     >
                       <Check className="h-3.5 w-3.5" />
                       {t('patches.approve')}

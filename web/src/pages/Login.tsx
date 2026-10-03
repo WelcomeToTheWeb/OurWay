@@ -168,7 +168,7 @@ export function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
+              className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark disabled:opacity-60"
             >
               {loading ? t('auth.signingIn') : t('auth.signIn')}
             </button>
@@ -187,7 +187,7 @@ export function Login() {
                     key={p.name}
                     type="button"
                     onClick={() => handleSSO(p)}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-bg-border bg-bg px-4 py-2.5 text-sm text-text-primary transition-colors hover:bg-slate-800"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-bg-border bg-bg px-4 py-2.5 text-sm text-text-primary transition-colors hover:bg-bg"
                   >
                     <ProviderIcon provider={p.name} />
                     {t('auth.signInWith', { provider: providerDisplayName(p.name) })}
@@ -247,7 +247,7 @@ export function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-text-primary transition-colors hover:bg-accent-dark disabled:opacity-60"
+              className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark disabled:opacity-60"
             >
               {loading ? t('auth.creatingAccount') : t('auth.getStarted')}
             </button>
