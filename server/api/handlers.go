@@ -77,6 +77,10 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 
 	// Periodic fleet-wide update scan (every 24h)
 	go scanner.ScanAll(ctx, 24*time.Hour)
+	// Patch policy engine: drives scan/approve/deploy/reboot for each
+	// policy on its schedule (daily/weekly/monthly, hourly check).
+	policyEngine := patching.NewPolicyEngine(store, hub, deployer, rebooter, scanner)
+	go policyEngine.Run(ctx)
 
 	// Auth routes (no auth required)
 	authGroup := r.Group("/api/auth")

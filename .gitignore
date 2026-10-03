@@ -4,3 +4,9 @@ cmd/ourway-installer/ourway-installer
 # NOTE: cmd/ourway-installer/assets/agent is intentionally NOT gitignored.
 # It is the tracked placeholder that //go:embed uses; docker/build-agents.sh
 # overwrites it with the real agent binary at build time.
+
+# Frontend build artifacts (built by docker/Dockerfile.web / npm run build)
+web/dist/
+
+# Frontend dependencies
+web/node_modules/

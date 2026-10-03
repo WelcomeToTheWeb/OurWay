@@ -9,7 +9,10 @@
 **Status (2026-10-02):** All 7 Critical, 7 High, and 14 Medium items are
 fixed and verified (Go build + full server/agent test suites + web build
 green). Low: 11 of 12 fixed; L8 (SAML) remains as a feature gap. Incomplete
-features: 6 of 10 now implemented. See the ✅ status line under each item.
+features: 6 of 10 were implemented in the 2026-10-02 sweep; the remaining
+patch-policy items (scheduling, scoping, auto-reboot) followed on
+2026-10-03, leaving SAML as the only open feature (see the table below).
+See the ✅ status line under each item.
 
 ---
 
@@ -300,10 +303,10 @@ it.
 
 | Feature | Evidence |
 |---|---|
-| Patch policy scheduling | `PatchPolicy.Schedule` (daily/weekly/monthly) has no consumer — policies never drive scans/deployments |
-| Patch policy scoping | `Scope` field (all/tags/devices) has no enforcement code path |
-| Auto-reboot after patching | `PatchPolicy.AutoReboot` boolean exists; nothing reads it |
-| SAML SSO | Type selectable; not implemented (see L8) |
+| Patch policy scheduling | ✅ Fixed 2026-10-03 — `server/patching/policy.go` `PolicyEngine` runs hourly, evaluates each policy against its Schedule (daily/weekly/monthly) and drives scan → approve → deploy; tests in `policy_test.go` |
+| Patch policy scoping | ✅ Fixed 2026-10-03 — `PolicyEngine.resolveScope` enforces Scope (all/devices; `ScopeValue` matches device IDs, names, or hostnames, comma-separated) |
+| Auto-reboot after patching | ✅ Fixed 2026-10-03 — `PolicyEngine` reboots devices whose deploy result is `success` when `AutoReboot` is set; deploy batching honors `MaxDevicesPerBatch` |
+| SAML SSO | ⚠️ Guarded (see L8) — API rejects non-oauth2/oidc types at create *and* at authorize/callback; `oidc` now accepted on the OAuth2 code path |
 
 **Resolved 2026-10-02:** WebRTC remote control (removed — the agent never
 negotiated it; frames already flow over the WS/HTTP paths), detail-page 2 s

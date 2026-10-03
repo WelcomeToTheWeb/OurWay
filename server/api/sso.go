@@ -87,6 +87,13 @@ func (h *SSOHandler) Authorize(c *gin.Context) {
 		return
 	}
 
+	// The flow below is OAuth2/OIDC only; a legacy saml-typed provider
+	// row cannot be driven through it (L8).
+	if t := strings.ToLower(provider.Type); t != "oauth2" && t != "oauth" && t != "oidc" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
+		return
+	}
+	
 	// Generate state for CSRF protection
 	stateBytes := make([]byte, 16)
 	if _, err := rand.Read(stateBytes); err != nil {
@@ -120,6 +127,12 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 		return
 	}
 
+	// Same guard as Authorize: the callback is OAuth2/OIDC only (L8).
+	if t := strings.ToLower(provider.Type); t != "oauth2" && t != "oauth" && t != "oidc" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
+		return
+	}
+	
 	// Verify state, then consume the cookie so it cannot be replayed (M13).
 	expectedState, err := c.Cookie("sso_state")
 	if err != nil || expectedState != c.Query("state") {
@@ -305,12 +318,13 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 		return
 	}
 
-	// Only OAuth2 is implemented; SAML is rejected rather than accepted
-	// and silently broken (L8).
+	// Only the OAuth2/OIDC flow is implemented; SAML is rejected rather
+	// than accepted and silently broken (L8). oidc rides the same code
+	// path (it is OAuth2 plus identity scopes).
 	switch strings.ToLower(req.Type) {
-	case "oauth2", "oauth":
+	case "oauth2", "oauth", "oidc":
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2 is implemented (saml is not supported yet)"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
 		return
 	}
 	// Check if provider with this name exists
