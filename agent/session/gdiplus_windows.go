@@ -44,20 +44,40 @@ type gdiplusImageCodec struct {
 	EncodingMax uint16
 }
 
-// gdiplusImageProperty mirrors GdipImageProperty (gdiplus.h).
-type gdiplusImageProperty struct {
-	ID     uint32
-	Count  uint32
-	Type   uint32
-	Value  unsafe.Pointer
-	Length uint32
+// gdiplusEncoderParameter mirrors GdiplusImageProperty (gdiplus.h):
+// {GUID Guid; ULONG NumberOfValues; ULONG Type; VOID* Value}.
+type gdiplusEncoderParameter struct {
+	Guid  syscall.GUID
+	Count uint32
+	Type  uint32
+	Value unsafe.Pointer
+}
+
+// gdiplusEncoderParameters mirrors GdiplusImaging.h's EncoderParameters:
+// {UINT Count; EncoderParameter Parameter[1]}. GdipSaveImageToFile takes
+// THIS type, not a bare EncoderParameter — passing the latter makes GDI+
+// read the first bytes of the quality GUID as the parameter count and walk
+// out of bounds (a native access violation that kills the process).
+type gdiplusEncoderParameters struct {
+	Count     uint32
+	_         uint32
+	Parameter [1]gdiplusEncoderParameter
 }
 
 const (
-	gdiplusStatusOK          = 0
-	gdiplusPropIDJpegQuality = 0x0101
-	gdiplusPropertyLong      = 4
+	gdiplusStatusOK     = 0
+	gdiplusPropertyLong = 4
 )
+
+// encoderQualityGUID is GdiplusImaging.h's EncoderQuality GUID
+// {1D5BE4B5-FA4A-452D-9CDD-5DB35105E7EB}.
+var encoderQualityGUID = syscall.GUID{
+	Data1: 0x1d5be4b5,
+	Data2: 0xfa4a,
+	Data3: 0x452d,
+	Data4: [8]byte{0x9c, 0xdd, 0x5d, 0xb3, 0x51, 0x05, 0xe7, 0xeb},
+}
+
 
 var gdiplusToken uintptr
 
@@ -125,14 +145,14 @@ func gdiplusSaveJPEG(hBmp uintptr, path string, quality int32) error {
 		return err
 	}
 
-	var qualityVal int32
-	qualityVal = quality
-	prop := gdiplusImageProperty{
-		ID:     gdiplusPropIDJpegQuality,
-		Count:  1,
-		Type:   gdiplusPropertyLong,
-		Value:  unsafe.Pointer(&qualityVal),
-		Length: 4,
+	var qualityVal int32 = quality
+	var params gdiplusEncoderParameters
+	params.Count = 1
+	params.Parameter[0] = gdiplusEncoderParameter{
+		Guid:  encoderQualityGUID,
+		Count: 1,
+		Type:  gdiplusPropertyLong,
+		Value: unsafe.Pointer(&qualityVal),
 	}
 
 	path16, err := syscall.UTF16PtrFromString(path)
@@ -143,7 +163,7 @@ func gdiplusSaveJPEG(hBmp uintptr, path string, quality int32) error {
 		bitmap,
 		uintptr(unsafe.Pointer(path16)),
 		uintptr(unsafe.Pointer(clsid)),
-		uintptr(unsafe.Pointer(&prop)),
+		uintptr(unsafe.Pointer(&params)),
 	)
 	if r1 != gdiplusStatusOK {
 		return fmt.Errorf("GdipSaveImageToFile failed: %d", r1)
