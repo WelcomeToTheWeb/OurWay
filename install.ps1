@@ -160,11 +160,10 @@ if (-not $SkipService) {
         Write-Info "sc.exe delete: $scDelete"
         Start-Sleep -Seconds 2
         
-        # Create service using sc.exe for reliable quoting
-        $scCreate = "sc.exe create OurWayAgent binPath=\"`"$binaryPath`" --server $Server --key $Key --log-file $logFile\" start=auto"
-        Write-Info "Running: $scCreate"
-        $scResult = Invoke-Expression $scCreate
-        Write-Info "sc.exe create: $scResult"
+        # Create service using sc.exe invoked directly with an argument
+        # array so PowerShell quoting cannot mangle the binPath.
+        $scResult = & sc.exe create OurWayAgent binPath= "`"$binaryPath`" --server $Server --key $Key --log-file $logFile" start= auto
+        $scResult | ForEach-Object { Write-Info "sc.exe create: $_" }
         if ($LASTEXITCODE -ne 0) {
             Write-Warn "sc.exe create failed (exit $LASTEXITCODE)"
         }
