@@ -18,9 +18,12 @@ var (
 	process32FirstProc = kernel32DLL.NewProc("Process32FirstW")
 	process32NextProc  = kernel32DLL.NewProc("Process32NextW")
 
+	// GetDC/ReleaseDC are user32 functions, not gdi32 — looking them up
+	// in gdi32 fails at first capture and panics the process.
+	gdiGetDCProc     = user32DLL.NewProc("GetDC")
+	gdiReleaseDCProc = user32DLL.NewProc("ReleaseDC")
+
 	gdi32DLL                  = syscall.NewLazyDLL("gdi32.dll")
-	gdiGetDCProc              = gdi32DLL.NewProc("GetDC")
-	gdiReleaseDCProc          = gdi32DLL.NewProc("ReleaseDC")
 	gdiCreateCompatibleDCProc = gdi32DLL.NewProc("CreateCompatibleDC")
 	gdiDeleteDCProc           = gdi32DLL.NewProc("DeleteDC")
 	gdiCreateCompatBmpProc    = gdi32DLL.NewProc("CreateCompatibleBitmap")
