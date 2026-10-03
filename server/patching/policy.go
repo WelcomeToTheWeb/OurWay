@@ -103,9 +103,6 @@ func (e *PolicyEngine) applyPolicy(ctx context.Context, policy *models.PatchPoli
 		log.Printf("policy: %s: 0 of %d matched devices online, skipping run", policy.Name, len(deviceIDs))
 		return nil
 	}
-	log.Printf("policy: %s run: scope=%s schedule=%s approval_required=%v auto_reboot=%v batch=%d devices=%d online=%d",
-		policy.Name, policy.Scope, policy.Schedule, policy.ApprovalRequired, policy.AutoReboot,
-		policy.MaxDevicesPerBatch, len(deviceIDs), len(online))
 	// Refresh patch inventory for the matched devices so approvals are
 	// made against current data, then auto-approve when allowed.
 	for _, id := range online {
@@ -230,7 +227,6 @@ func (e *PolicyEngine) autoApprove(deviceIDs []string) error {
 			log.Printf("policy: failed to list detected updates for device %s: %v", deviceID, err)
 			continue
 		}
-		log.Printf("policy: auto-approve: device %s has %d detected update(s)", deviceID, len(updates))
 		for i := range updates {
 			if _, err := e.store.SoftwareUpdates.MarkApproved(updates[i].ID); err != nil {
 				log.Printf("policy: failed to approve update %s: %v", updates[i].ID, err)
