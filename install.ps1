@@ -160,7 +160,10 @@ if (-not $SkipService) {
     
     try {
         $logFile = Join-Path $InstallDir "agent.log"
-        $binPath = "`"$binaryPath`" --server $Server --key $Key --log-file $logFile"
+        # Quote the log-file path: it contains spaces (C:\Program Files\...),
+        # and the SCM/CRT splits the service command line on unquoted spaces —
+        # the agent would receive --log-file C:\Program and log nowhere useful.
+        $binPath = "`"$binaryPath`" --server $Server --key $Key --log-file `"$logFile`""
         Write-Info "Service command: $binPath"
         
         # Stop and remove existing service
