@@ -103,9 +103,13 @@ function Remove-PartialState {
 $binaryPath = Join-Path $InstallDir "ourway-agent.exe"
 $localBinaryFound = $false
 
-Write-Info "Downloading agent binary from GitHub releases..."
-$url = "https://github.com/WelcomeToTheWeb/OurWay/releases/download/v$Version/ourway-agent-windows-$arch.exe"
-Write-Info "URL: $url"
+# Prefer a local dev build, then the server's own installer endpoint (which
+# always serves a binary matching the running server), and only fall back
+# to GitHub releases. Old release binaries predate the WebSocket
+# subprotocol auth (C5) and their connection is rejected with HTTP 400.
+Write-Info "Sourcing agent binary..."
+$serverBinaryUrl = "$Server/api/v2/installers/ourway-agent-windows-$arch.exe"
+$releaseUrl = "https://github.com/WelcomeToTheWeb/OurWay/releases/download/v$Version/ourway-agent-windows-$arch.exe"
 
 try {
     if (Test-Path "./dist/agents/ourway-agent-windows-$arch.exe") {
@@ -117,7 +121,13 @@ try {
         Copy-Item "./ourway-agent.exe" $binaryPath -Force
         $localBinaryFound = $true
     } else {
-        Invoke-WebRequest -Uri $url -OutFile $binaryPath -UseBasicParsing
+        try {
+            Write-Info "Downloading agent from server: $serverBinaryUrl"
+            Invoke-WebRequest -Uri $serverBinaryUrl -OutFile $binaryPath -UseBasicParsing
+        } catch {
+            Write-Warn "Server installer endpoint unavailable ($_); falling back to GitHub releases"
+            Invoke-WebRequest -Uri $releaseUrl -OutFile $binaryPath -UseBasicParsing
+        }
         Write-Ok "Binary downloaded to $binaryPath"
     }
 } catch {
@@ -160,13 +170,18 @@ if (-not $SkipService) {
         Write-Info "sc.exe delete: $scDelete"
         Start-Sleep -Seconds 2
         
-        # Create service using sc.exe for reliable quoting
-        $scCreate = "sc.exe create OurWayAgent binPath=\"`"$binaryPath`" --server $Server --key $Key --log-file $logFile\" start=auto"
-        Write-Info "Running: $scCreate"
-        $scResult = Invoke-Expression $scCreate
-        Write-Info "sc.exe create: $scResult"
+        # Create the service with New-Service: it takes the binary path
+        # as a parameter, so PowerShell's native-argument quoting cannot
+        # mangle the embedded quotes the way sc.exe does (exit 1639).
+        New-Service -Name "OurWayAgent" -DisplayName "OurWay Agent" `
+            -BinaryPathName $binPath -StartupType Automatic | Out-Null
+        Write-Info "Service created: OurWayAgent"
+
+        # Automatic recovery: restart on failure (5s/10s/30s), matching
+        # the Go installer (agent/install/windows.go).
+        $null = & sc.exe failure OurWayAgent reset= 86400 actions= restart/5000/restart/10000/restart/30000
         if ($LASTEXITCODE -ne 0) {
-            Write-Warn "sc.exe create failed (exit $LASTEXITCODE)"
+            Write-Warn "Could not set service recovery actions (exit $LASTEXITCODE)"
         }
         Start-Sleep -Seconds 2
         
