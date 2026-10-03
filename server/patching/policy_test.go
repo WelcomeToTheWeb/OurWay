@@ -48,7 +48,7 @@ func TestScheduleDue(t *testing.T) {
 	if scheduleDue("monthly", monday) {
 		t.Error("monthly schedule should not be due mid-month")
 	}
-	if scheduleDue(" Weekly ", sunday) {
+	if !scheduleDue(" Weekly ", sunday) {
 		t.Error("schedule matching should be case/whitespace normalized, not exact-match")
 	}
 	if scheduleDue("hourly", sunday) {

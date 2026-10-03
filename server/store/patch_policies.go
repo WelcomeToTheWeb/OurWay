@@ -11,9 +11,12 @@ type PatchPolicyStore struct {
 	db *gorm.DB
 }
 
-// Create inserts a new patch policy.
+// Create inserts a new patch policy. Select("*") forces every field
+// into the INSERT: without it, GORM omits zero-value fields that carry a
+// default tag, so a policy created with approval_required=false (or
+// auto_reboot=false) would silently get the column default instead.
 func (s *PatchPolicyStore) Create(policy *models.PatchPolicy) error {
-	return s.db.Create(policy).Error
+	return s.db.Select("*").Create(policy).Error
 }
 
 // GetByID fetches a patch policy by ID.
