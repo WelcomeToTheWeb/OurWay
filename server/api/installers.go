@@ -86,7 +86,7 @@ func (h *InstallerHandler) List(c *gin.Context) {
 				Arch:   arch,
 				Size:   info.Size(),
 				SHA256: sha256OfFile(filepath.Join(h.dir, name)),
-				URL:    "/api/v2/installers/" + name,
+				URL:    "v2/installers/" + name,
 			})
 		}
 	}

@@ -20,20 +20,34 @@ func NewDeploymentResultStore(db *gorm.DB) *DeploymentResultStore {
 }
 
 // UpsertResult records (or updates) the outcome for one device in a
-// deployment. It returns true when the stored result changed (new row, or a
-// different result was reported) so callers can adjust the deployment
-// counters exactly once per transition.
-func (s *DeploymentResultStore) UpsertResult(deploymentID, deviceID, result string) (bool, error) {
+// deployment. kind is "deploy" or "rollback"; message is optional
+// human-readable detail from the agent. It returns true when the stored
+// outcome changed (new row, or a different result/kind was reported) so
+// callers can adjust the deployment counters exactly once per transition.
+func (s *DeploymentResultStore) UpsertResult(deploymentID, deviceID, kind, result, message string) (bool, error) {
+	if kind == "" {
+		kind = "deploy"
+	}
 	var existing models.DeploymentResult
 	err := s.db.Where("deployment_id = ? AND device_id = ?", deploymentID, deviceID).
 		First(&existing).Error
 
 	if err == nil {
-		if existing.Result == result {
-			// Duplicate report of the same outcome: idempotent no-op.
+		if existing.Result == result && existing.Kind == kind {
+			if existing.Message == message {
+				// Duplicate report: idempotent no-op.
+				return false, nil
+			}
+			existing.Message = message
+			existing.UpdatedAt = time.Now()
+			if err := s.db.Save(&existing).Error; err != nil {
+				return false, err
+			}
 			return false, nil
 		}
 		existing.Result = result
+		existing.Kind = kind
+		existing.Message = message
 		existing.UpdatedAt = time.Now()
 		if err := s.db.Save(&existing).Error; err != nil {
 			return false, err
@@ -50,6 +64,8 @@ func (s *DeploymentResultStore) UpsertResult(deploymentID, deviceID, result stri
 		DeploymentID: deploymentID,
 		DeviceID:     deviceID,
 		Result:       result,
+		Kind:         kind,
+		Message:      message,
 	}
 	if err := s.db.Create(row).Error; err != nil {
 		// Lost a race with a concurrent insert: treat as no-op, the other
@@ -57,6 +73,17 @@ func (s *DeploymentResultStore) UpsertResult(deploymentID, deviceID, result stri
 		return false, nil
 	}
 	return true, nil
+}
+
+// ListByDeployment returns every recorded outcome for a deployment,
+// newest first.
+func (s *DeploymentResultStore) ListByDeployment(deploymentID string) ([]models.DeploymentResult, error) {
+	var rows []models.DeploymentResult
+	if err := s.db.Where("deployment_id = ?", deploymentID).
+		Order("updated_at DESC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // Counts returns the number of success/failed results recorded for a

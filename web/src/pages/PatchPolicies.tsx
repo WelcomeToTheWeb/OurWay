@@ -8,15 +8,19 @@ import {
   Plus,
   Activity,
   Clock,
+  ChevronDown,
+  RotateCcw,
 } from 'lucide-react';
 import {
   listPolicies,
   createPolicy,
   listDeployments,
   deployNow,
+  listDeploymentResults,
+  rollbackDeployment,
 } from '../api/patching';
 import { useTranslation } from 'react-i18next';
-import type { PatchPolicy, PatchDeployment } from '../types/patch';
+import type { PatchPolicy, PatchDeployment, DeploymentResult } from '../types/patch';
 
 function timeAgo(dateStr: string): string {
   try {
@@ -47,32 +51,58 @@ export function PatchPolicies() {
     approval_required: true,
     max_devices_per_batch: 10,
   });
+  const [resultsFor, setResultsFor] = useState<string | null>(null);
+  const [results, setResults] = useState<DeploymentResult[]>([]);
+  const [resultsLoading, setResultsLoading] = useState(false);
+  const [rollingBack, setRollingBack] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setLoading(true);
+      const [p, d] = await Promise.all([listPolicies(), listDeployments()]);
+      setPolicies(p);
+      setDeployments(d);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        setLoading(true);
-        const [p, d] = await Promise.all([listPolicies(), listDeployments()]);
-        if (!cancelled) {
-          setPolicies(p);
-          setDeployments(d);
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
     load();
     const interval = setInterval(load, 30000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, []);
+
+  async function toggleResults(deploymentId: string) {
+    if (resultsFor === deploymentId) {
+      setResultsFor(null);
+      return;
+    }
+    setResultsFor(deploymentId);
+    setResults([]);
+    setResultsLoading(true);
+    try {
+      setResults(await listDeploymentResults(deploymentId));
+    } catch {
+      // ignore
+    } finally {
+      setResultsLoading(false);
+    }
+  }
+
+  async function handleRollback(deploymentId: string) {
+    setRollingBack(deploymentId);
+    try {
+      await rollbackDeployment(deploymentId);
+      await load();
+    } catch {
+      // ignore
+    } finally {
+      setRollingBack(null);
+    }
+  }
 
   async function handleCreate() {
     if (!newPolicy.name) return;
@@ -394,6 +424,84 @@ export function PatchPolicies() {
                       <p className="mt-1 text-xs text-text-secondary">
                         {t('patchPolicies.percentComplete', { progress })}
                       </p>
+                    </div>
+                  )}
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={() => toggleResults(dep.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-bg-border px-2 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
+                    >
+                      <ChevronDown
+                        className={`h-3 w-3 transition-transform ${
+                          resultsFor === dep.id ? 'rotate-180' : ''
+                        }`}
+                      />
+                      {t('patchPolicies.results')}
+                    </button>
+                    {(dep.status === 'completed' || dep.status === 'failed') && (
+                      <button
+                        onClick={() => handleRollback(dep.id)}
+                        disabled={rollingBack === dep.id}
+                        className="inline-flex items-center gap-1 rounded-lg border border-bg-border px-2 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary disabled:opacity-50"
+                      >
+                        <RotateCcw
+                          className={`h-3 w-3 ${rollingBack === dep.id ? 'animate-spin' : ''}`}
+                        />
+                        {t('patchPolicies.rollback')}
+                      </button>
+                    )}
+                  </div>
+                  {resultsFor === dep.id && (
+                    <div className="mt-2 space-y-1 rounded-lg bg-bg p-2">
+                      {resultsLoading ? (
+                        <p className="flex items-center gap-1 text-xs text-text-muted">
+                          <Activity className="h-3 w-3 animate-spin" />
+                        </p>
+                      ) : results.length === 0 ? (
+                        <p className="text-xs text-text-muted">{t('patchPolicies.noResults')}</p>
+                      ) : (
+                        results.map((r) => (
+                          <div key={r.id} className="flex items-center gap-2 text-xs">
+                            <span
+                              className={`inline-flex w-20 shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                                r.kind === 'rollback'
+                                  ? 'bg-accent/15 text-accent'
+                                  : 'bg-bg-card text-text-secondary'
+                              }`}
+                            >
+                              {t(
+                                r.kind === 'rollback'
+                                  ? 'patchPolicies.kindRollback'
+                                  : 'patchPolicies.kindDeploy',
+                              )}
+                            </span>
+                            <span className="font-mono text-text-secondary">
+                              {r.device_id.slice(0, 8)}
+                            </span>
+                            <span
+                              className={
+                                r.result === 'success'
+                                  ? 'text-status-online'
+                                  : 'text-status-error'
+                              }
+                            >
+                              {t(
+                                r.result === 'success'
+                                  ? 'patchPolicies.resultSuccess'
+                                  : 'patchPolicies.resultFailed',
+                              )}
+                            </span>
+                            {r.message && (
+                              <span className="truncate text-text-muted" title={r.message}>
+                                {r.message}
+                              </span>
+                            )}
+                            <span className="ml-auto shrink-0 text-text-muted">
+                              {timeAgo(r.updated_at)}
+                            </span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   )}
                 </div>

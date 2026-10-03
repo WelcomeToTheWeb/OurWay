@@ -3,8 +3,11 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"log"
 	"net/http"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -21,7 +24,24 @@ type SSOHandler struct {
 	jwtAuth  *auth.JWTAuth
 	oauth    *sso.OAuthHandler
 	redirect string
+
+	// pendingCodes holds one-time SSO login codes: after the provider
+	// callback, the token pair is parked here for a short TTL and handed
+	// to the browser via POST /api/auth/sso/exchange instead of the
+	// redirect URL (C6: tokens must not sit in query strings/logs).
+	mu      sync.Mutex
+	pending map[string]*pendingSSOToken
 }
+
+// pendingSSOToken is a one-time token pair awaiting exchange.
+type pendingSSOToken struct {
+	access  string
+	refresh string
+	expires time.Time
+}
+
+// ssoCodeTTL is how long an un-exchanged SSO login code stays valid.
+const ssoCodeTTL = 60 * time.Second
 
 // NewSSOHandler creates a new SSO handler.
 func NewSSOHandler(store *store.Store, jwtAuth *auth.JWTAuth, redirectURI string) *SSOHandler {
@@ -30,6 +50,7 @@ func NewSSOHandler(store *store.Store, jwtAuth *auth.JWTAuth, redirectURI string
 		jwtAuth:  jwtAuth,
 		oauth:    sso.NewOAuthHandler(store, jwtAuth),
 		redirect: redirectURI,
+		pending:  make(map[string]*pendingSSOToken),
 	}
 }
 
@@ -68,7 +89,11 @@ func (h *SSOHandler) Authorize(c *gin.Context) {
 
 	// Generate state for CSRF protection
 	stateBytes := make([]byte, 16)
-	rand.Read(stateBytes)
+	if _, err := rand.Read(stateBytes); err != nil {
+		log.Printf("sso: failed to generate state: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
 	state := hex.EncodeToString(stateBytes)
 
 	// Store state in session cookie. Secure=true: this is a CSRF state
@@ -81,7 +106,11 @@ func (h *SSOHandler) Authorize(c *gin.Context) {
 	c.Redirect(http.StatusFound, authorizeURL)
 }
 
-// Callback handles the SSO provider's redirect back to us.
+// Callback handles the SSO provider's redirect back to us. It exchanges
+// the provider code for a token pair, parks it under a short-lived one-time
+// code, and redirects the browser to /login?sso_code=... — the tokens
+// themselves never appear in a URL (C6). The login page exchanges the code
+// via POST /api/auth/sso/exchange.
 func (h *SSOHandler) Callback(c *gin.Context) {
 	providerName := c.Param("provider")
 
@@ -91,12 +120,13 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	// Verify state
+	// Verify state, then consume the cookie so it cannot be replayed (M13).
 	expectedState, err := c.Cookie("sso_state")
 	if err != nil || expectedState != c.Query("state") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
 		return
 	}
+	c.SetCookie("sso_state", "", -1, "/", "", true, true)
 
 	code := c.Query("code")
 	if code == "" {
@@ -107,14 +137,87 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 	redirectURI := h.redirect + "/api/auth/sso/" + providerName + "/callback"
 	token, refreshToken, err := h.oauth.HandleCallback(c.Request.Context(), provider, code, redirectURI)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("SSO callback failed: %s", err.Error())})
+		log.Printf("sso: callback failed for provider %s: %v", providerName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "SSO login failed"})
 		return
 	}
 
-	// Redirect to frontend with access + refresh tokens (the refresh token
-	// keeps the SSO session alive; without it the session dies after the
-	// access token expires).
-	c.Redirect(http.StatusFound, h.redirect+"/login?token="+token+"&refresh="+refreshToken)
+	loginCode, err := h.storePendingToken(token, refreshToken)
+	if err != nil {
+		log.Printf("sso: failed to store pending token: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.Redirect(http.StatusFound, h.redirect+"/login?sso_code="+loginCode)
+}
+
+// Exchange redeems a one-time SSO login code for the token pair (C6).
+// POST /api/auth/sso/exchange
+func (h *SSOHandler) Exchange(c *gin.Context) {
+	var req struct {
+		Code string `json:"code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	tok, ok := h.takePendingToken(req.Code)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired SSO code"})
+		return
+	}
+
+	// The refresh token keeps the SSO session alive; without it the session
+	// dies when the access token expires.
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  tok.access,
+		"refresh_token": tok.refresh,
+	})
+}
+
+// storePendingToken parks a token pair under a fresh one-time code and
+// returns the code. Expired entries are swept opportunistically.
+func (h *SSOHandler) storePendingToken(access, refresh string) (string, error) {
+	codeBytes := make([]byte, 16)
+	if _, err := rand.Read(codeBytes); err != nil {
+		return "", err
+	}
+	code := hex.EncodeToString(codeBytes)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	now := time.Now()
+	for k, v := range h.pending {
+		if now.After(v.expires) {
+			delete(h.pending, k)
+		}
+	}
+	h.pending[code] = &pendingSSOToken{
+		access:  access,
+		refresh: refresh,
+		expires: now.Add(ssoCodeTTL),
+	}
+	return code, nil
+}
+
+// takePendingToken atomically removes and returns a pending token pair.
+// A missing or expired code reports ok=false (one-time use, C6).
+func (h *SSOHandler) takePendingToken(code string) (*pendingSSOToken, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	tok, ok := h.pending[code]
+	if !ok {
+		return nil, false
+	}
+	delete(h.pending, code)
+	if time.Now().After(tok.expires) {
+		return nil, false
+	}
+	return tok, true
 }
 
 // applyProviderDefaults fills in well-known endpoint presets for named
@@ -202,6 +305,14 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 		return
 	}
 
+	// Only OAuth2 is implemented; SAML is rejected rather than accepted
+	// and silently broken (L8).
+	switch strings.ToLower(req.Type) {
+	case "oauth2", "oauth":
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2 is implemented (saml is not supported yet)"})
+		return
+	}
 	// Check if provider with this name exists
 	existing, err := h.store.SSOProviders.GetByName(req.Name)
 	var provider *models.SSOProvider

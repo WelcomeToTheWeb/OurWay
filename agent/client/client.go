@@ -143,12 +143,16 @@ func ResolveDeviceID(baseURL, deviceKey string) (string, error) {
 // Run starts the client and blocks until the context is cancelled.
 func (c *Client) Run(ctx context.Context) error {
 	// Resolve the public IP once, best-effort, before the first
-	// heartbeat so the server's record gets it as early as possible.
+	// heartbeat so the server's record gets it as early as possible;
+	// then refresh it in the background (M4: a NAT reassignment after
+	// startup would otherwise stay stale while the private IP keeps
+	// refreshing every heartbeat).
 	c.publicOnce.Do(func() {
 		pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		c.publicIP = FetchPublicIP(pubCtx)
 	})
+	go c.refreshPublicIP(ctx)
 	backoff := time.Second
 	for {
 		select {
@@ -173,6 +177,26 @@ func (c *Client) Run(ctx context.Context) error {
 	}
 }
 
+// refreshPublicIP re-resolves the public IP every 10 minutes so a
+// network change shows up in heartbeats; failures keep the previous
+// value (best effort).
+func (c *Client) refreshPublicIP(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pubCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			if ip := FetchPublicIP(pubCtx); ip != "" {
+				c.publicIP = ip
+			}
+			cancel()
+		}
+	}
+}
+
 // readResult carries one inbound WebSocket read from the background reader.
 type readResult struct {
 	msgType websocket.MessageType
@@ -194,15 +218,13 @@ func (c *Client) connect(ctx context.Context) error {
 		u.Path = "/ws"
 	}
 	log.Printf("connecting to %s", u.String())
-	if err != nil {
-		return err
-	}
-	q := u.Query()
-	q.Set("device_key", c.deviceKey)
-	u.RawQuery = q.Encode()
 
+	// C5: the device key travels in the Sec-WebSocket-Protocol list
+	// ("ourway-auth, <key>"), not in the query string — query strings
+	// end up in access logs and proxy logs.
 	conn, _, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
-		HTTPClient: http.DefaultClient,
+		HTTPClient:   http.DefaultClient,
+		Subprotocols: []string{"ourway-auth", c.deviceKey},
 	})
 	if err != nil {
 		// nhooyr.io/websocket returns an untyped error for non-101
@@ -336,9 +358,17 @@ func (c *Client) connect(ctx context.Context) error {
 
 					switch msgTypeName {
 					case "stream":
+						// The server wraps the interval in the payload;
+						// clamp to 1..3600 s so a 0/negative value can't
+						// spin the collection loop (L3).
 						interval := 2
-						if v, ok := msgData["interval"].(float64); ok {
-							interval = int(v)
+						if payload, ok := msgData["payload"].(map[string]interface{}); ok {
+							if v, ok := payload["interval"].(float64); ok {
+								interval = int(v)
+							}
+						}
+						if interval < 1 || interval > 3600 {
+							interval = 2
 						}
 						currentInterval = time.Duration(interval) * time.Second
 						log.Printf("streaming mode: %d second interval", interval)

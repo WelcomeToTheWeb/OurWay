@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"log"
 	"net/http"
 	"time"
@@ -21,11 +22,25 @@ type DeviceHandler struct {
 	hub           *ws.Hub
 	alerts        *alerts.Engine
 	metricHistory *store.MetricHistoryStore
+	// enrollSecret, when non-empty, gates new device registration and
+	// keyless re-registration (C4).
+	enrollSecret string
 }
 
 // NewDeviceHandler creates a device handler.
-func NewDeviceHandler(store *store.Store, hub *ws.Hub, engine *alerts.Engine, metricHistory *store.MetricHistoryStore) *DeviceHandler {
-	return &DeviceHandler{store: store, hub: hub, alerts: engine, metricHistory: metricHistory}
+func NewDeviceHandler(store *store.Store, hub *ws.Hub, engine *alerts.Engine, metricHistory *store.MetricHistoryStore, enrollSecret string) *DeviceHandler {
+	return &DeviceHandler{store: store, hub: hub, alerts: engine, metricHistory: metricHistory, enrollSecret: enrollSecret}
+}
+
+// validEnrollSecret reports whether the request carries the enrollment
+// secret (header X-Enrollment-Secret) and it matches the configured
+// value, compared in constant time.
+func (h *DeviceHandler) validEnrollSecret(c *gin.Context) bool {
+	if h.enrollSecret == "" {
+		return false
+	}
+	got := c.GetHeader("X-Enrollment-Secret")
+	return subtle.ConstantTimeCompare([]byte(got), []byte(h.enrollSecret)) == 1
 }
 
 // RegisterDevice handles agent device registration.
@@ -41,6 +56,9 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 		AgentVersion string `json:"agent_version"`
 		PublicIP     string `json:"public_ip"`
 		PrivateIP    string `json:"private_ip"`
+		// DeviceKey is sent on re-registration so the caller proves
+		// possession of the machine's existing credential (C4).
+		DeviceKey string `json:"device_key"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -48,8 +66,16 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 	}
 
 	// Re-registration of an existing machine: refresh its record and
-	// return the original device (and key) so the agent keeps its identity.
+	// return the original device (and key) so the agent keeps its
+	// identity. Adopting an existing identity requires proof of key
+	// possession or the enrollment secret (C4) - hostname+IP alone are
+	// observable by anything on the network.
 	if existing, err := h.store.Devices.GetByHostnameAndIP(req.Hostname, req.PrivateIP); err == nil {
+		keyProven := req.DeviceKey != "" && req.DeviceKey == existing.DeviceKey
+		if !keyProven && !h.validEnrollSecret(c) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "re-registration requires the device key or the enrollment secret"})
+			return
+		}
 		existing.Name = req.Name
 		existing.OS = req.OS
 		existing.Arch = req.Arch
@@ -72,6 +98,13 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 		return
 	}
 
+	// First registration on this machine: if the install defines an
+	// enrollment secret, new devices must present it (C4).
+	if h.enrollSecret != "" && !h.validEnrollSecret(c) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid X-Enrollment-Secret header"})
+		return
+	}
+
 	device := &models.Device{
 		ID:           uuid.New().String(),
 		Name:         req.Name,
@@ -86,6 +119,13 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 	}
 
 	if err := h.store.Devices.Create(device); err != nil {
+		// Concurrent install of the same machine: the lookup above lost
+		// the race; return the winner instead of failing.
+		if winner, werr := h.store.Devices.GetByHostnameAndIP(req.Hostname, req.PrivateIP); werr == nil {
+			c.JSON(http.StatusOK, gin.H{"device": winner, "device_key": winner.DeviceKey})
+			return
+		}
+		log.Printf("devices: register create failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register device"})
 		return
 	}
@@ -324,4 +364,65 @@ func (h *DeviceHandler) GetLatestMetrics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"metrics": metrics})
+}
+
+// StartStream tells a device to switch to a shorter metrics-interval
+// (H5: the device detail page wants 2 s streaming while it is open).
+// The interval is clamped to 1..60 s server-side; the agent clamps
+// again on receipt.
+// POST /api/devices/:id/stream
+func (h *DeviceHandler) StartStream(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Interval int `json:"interval"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+			return
+		}
+	}
+	if req.Interval == 0 {
+		req.Interval = 2 // default for an empty body
+	}
+	if req.Interval < 1 {
+		req.Interval = 1
+	}
+	if req.Interval > 60 {
+		req.Interval = 60
+	}
+
+	device, err := h.store.Devices.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+		return
+	}
+
+	if err := h.hub.SendToDevice(device.DeviceKey, "stream", map[string]interface{}{
+		"interval": req.Interval,
+	}); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "device is not connected"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "streaming", "interval": req.Interval})
+}
+
+// StopStream tells a device to revert to its normal metrics interval.
+// POST /api/devices/:id/stream/stop
+func (h *DeviceHandler) StopStream(c *gin.Context) {
+	id := c.Param("id")
+	device, err := h.store.Devices.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+		return
+	}
+
+	// Best effort: an offline device simply reverts on its next connect.
+	if err := h.hub.SendToDevice(device.DeviceKey, "stream_end", map[string]interface{}{}); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "device is not connected"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "streaming_stopped"})
 }

@@ -177,6 +177,21 @@ func (h *PatchHandler) ListDeployments(c *gin.Context) {
 	c.JSON(200, gin.H{"deployments": deployments})
 }
 
+// ListDeploymentResults returns the recorded per-device outcomes (deploy
+// and rollback phases) for one deployment.
+// GET /api/patch/deployments/:id/results
+func (h *PatchHandler) ListDeploymentResults(c *gin.Context) {
+	results, err := h.store.DeploymentResults.ListByDeployment(c.Param("id"))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to list deployment results"})
+		return
+	}
+	if results == nil {
+		results = []models.DeploymentResult{}
+	}
+	c.JSON(200, gin.H{"results": results})
+}
+
 // DeployNow triggers an immediate deployment.
 // POST /api/patch/deploy
 func (h *PatchHandler) DeployNow(c *gin.Context) {

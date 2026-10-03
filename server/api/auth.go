@@ -1,7 +1,10 @@
 package api
 
 import (
+	"errors"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +38,10 @@ func (h *AuthHandler) Status(c *gin.Context) {
 }
 
 // Register handles user registration.
+//
+// Registration is only open while the install has zero users (first
+// run). After that it returns 403 (C1) - further accounts are created
+// by an admin via the user API.
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`
@@ -43,6 +50,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if count, err := h.store.Users.Count(); err == nil && count > 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "registration is closed; ask an administrator for an account"})
+		return
+	}
+
+	// Duplicate e-mail is a conflict, not an internal error (L5).
+	if existing, err := h.store.Users.FindByEmail(req.Email); err == nil && existing != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "a user with this e-mail already exists"})
 		return
 	}
 
@@ -65,10 +83,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Assign default viewer role to new users
+	// A user without roles cannot log in usefully (role loading breaks
+	// their session); fail registration loudly instead (L4).
 	if err := h.assignDefaultRole(user.ID); err != nil {
-		// Log but don't fail registration
-		c.JSON(http.StatusCreated, gin.H{"user": user})
+		log.Printf("auth: failed to assign default role to user %s: %v", user.ID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user created, but default role assignment failed; re-register"})
 		return
 	}
 
@@ -233,6 +252,10 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 		user.Username = req.Username
 	}
 	if req.Email != "" {
+		if existing, err := h.store.Users.FindByEmail(req.Email); err == nil && existing != nil && existing.ID != user.ID {
+			c.JSON(http.StatusConflict, gin.H{"error": "a user with this e-mail already exists"})
+			return
+		}
 		user.Email = req.Email
 	}
 
@@ -291,6 +314,10 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 		return
 	}
 
+	// Invalidate every access token issued before this password change
+	// (H3); refresh tokens stay valid until their own expiry.
+	h.jwtAuth.BumpUserGen(user.ID)
+
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
@@ -324,4 +351,29 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+}
+
+// Logout revokes the caller's current access token (H3): its JTI is
+// added to the in-memory denylist until the token would have expired
+// anyway. Refresh tokens remain valid - the client should also drop
+// them locally.
+// POST /api/auth/logout
+func (h *AuthHandler) Logout(c *gin.Context) {
+	claims, err := h.validateBearer(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		return
+	}
+	h.jwtAuth.Deny(claims.ID, claims.ExpiresAt)
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// validateBearer parses and validates the Authorization: Bearer token
+// (shared by Logout; the middleware does the same for the API group).
+func (h *AuthHandler) validateBearer(c *gin.Context) (*auth.Claims, error) {
+	token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+	if token == "" || token == c.GetHeader("Authorization") {
+		return nil, errors.New("missing token")
+	}
+	return h.jwtAuth.ValidateToken(token)
 }

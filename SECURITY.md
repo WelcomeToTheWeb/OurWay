@@ -39,8 +39,15 @@ other dependencies — report those to their respective projects.
 - **Agent authentication** uses per-device API keys (`X-Device-Key`);
   user-facing API keys support scopes, rotation and revocation
   (`/api/v2/api-keys`).
-- **User authentication** is JWT-based (24 h access / 7 d refresh) with
-  RBAC roles; the SSO session cookie is set with the `Secure` flag.
+- **User authentication** is JWT-based (15 min access / 7 d refresh, with
+  JTI revocation and a logout endpoint) and RBAC roles; the SSO session
+  cookie is set with the `Secure` flag.
+- **Token storage** uses `localStorage` in the dashboard, which is readable
+  by any script on the page (XSS). This is a deliberate trade-off for a
+  self-hosted admin tool: tokens are short-lived and refreshable, and the
+  same-origin policy plus CSP keep third-party scripts out. A same-site
+  `HttpOnly` cookie would close the XSS vector but breaks the SPA's
+  multi-tab/token-refresh flow without extra plumbing.
 - **Webhooks** are HMAC-signed with `X-OurWay-Signature`
   (HMAC-SHA256 over the delivery payload).
 - **TLS** is terminated at the reverse proxy (see

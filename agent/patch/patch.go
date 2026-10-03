@@ -123,7 +123,7 @@ func (h *Handler) DeployUpdates(ctx context.Context, data interface{}) {
 	// against the key owner), so the deployment's failure is recorded.
 	if !h.verifyDeviceID("deploy_updates", deviceID) {
 		log.Printf("deploy_updates: payload device_id %q does not match this device (%q); refusing", deviceID, h.deviceID)
-		h.reportResultWithMessage(h.deviceID, deploymentID, false, "deploy payload addressed to a different device; refused")
+		h.reportResultWithMessage(h.deviceID, deploymentID, "deploy", false, "deploy payload addressed to a different device; refused")
 		return
 	}
 
@@ -151,7 +151,7 @@ func (h *Handler) DeployUpdates(ctx context.Context, data interface{}) {
 
 	if err != nil {
 		log.Printf("deploy_updates: error: %v", err)
-		h.reportResultWithMessage(deviceID, deploymentID, false, err.Error())
+		h.reportResultWithMessage(deviceID, deploymentID, "deploy", false, err.Error())
 		return
 	}
 
@@ -496,14 +496,14 @@ func (h *Handler) RollbackUpdates(ctx context.Context, data interface{}) {
 	// Refuse payloads addressed to a different device (see DeployUpdates).
 	if !h.verifyDeviceID("rollback_updates", deviceID) {
 		log.Printf("rollback_updates: payload device_id %q does not match this device (%q); refusing", deviceID, h.deviceID)
-		h.reportResultWithMessage(h.deviceID, deploymentID, false, "rollback payload addressed to a different device; refused")
+		h.reportResultWithMessage(h.deviceID, deploymentID, "rollback", false, "rollback payload addressed to a different device; refused")
 		return
 	}
 
 	log.Printf("rollback_updates: rolling back deployment %s", deploymentID)
 
 	if deploymentID == "" {
-		h.reportResultWithMessage(deviceID, deploymentID, false, "no deployment_id supplied; nothing to roll back")
+		h.reportResultWithMessage(deviceID, deploymentID, "rollback", false, "no deployment_id supplied; nothing to roll back")
 		return
 	}
 
@@ -519,12 +519,12 @@ func (h *Handler) RollbackUpdates(ctx context.Context, data interface{}) {
 
 	if err != nil {
 		log.Printf("rollback_updates: error: %v", err)
-		h.reportResultWithMessage(deviceID, deploymentID, false, err.Error())
+		h.reportResultWithMessage(deviceID, deploymentID, "rollback", false, err.Error())
 		return
 	}
 
 	// Report result to server
-	h.reportResult(deviceID, deploymentID, true)
+	h.reportResultWithMessage(deviceID, deploymentID, "rollback", true, "")
 }
 
 // Linux rollback: restore the pre-deploy versions recorded at deploy time.
@@ -639,16 +639,19 @@ func (h *Handler) reportUpdate(deviceID string, update Update) {
 
 // Report deployment result to the server
 func (h *Handler) reportResult(deviceID, deploymentID string, success bool) {
-	h.reportResultWithMessage(deviceID, deploymentID, success, "")
+	h.reportResultWithMessage(deviceID, deploymentID, "deploy", success, "")
 }
 
-// reportResultWithMessage reports a deployment result with an optional
-// human-readable detail (e.g. why a rollback was refused).
-func (h *Handler) reportResultWithMessage(deviceID, deploymentID string, success bool, message string) {
+// reportResultWithMessage reports a deployment or rollback result with an
+// optional human-readable detail (e.g. why a rollback was refused). kind
+// is "deploy" or "rollback"; the server records it on the per-device
+// result row.
+func (h *Handler) reportResultWithMessage(deviceID, deploymentID string, kind string, success bool, message string) {
 	payload := map[string]interface{}{
 		"device_id":     deviceID,
 		"deployment_id": deploymentID,
 		"result":        "success",
+		"kind":          kind,
 	}
 	if !success {
 		payload["result"] = "failed"

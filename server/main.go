@@ -68,6 +68,15 @@ func main() {
 				Subscribe: func(topic string, handler func([]byte)) error {
 					return ps.Subscribe(topic, handler)
 				},
+				SetEX: func(key string, value string, ttl time.Duration) error {
+					return rc.Set(key, value, ttl)
+				},
+				Get: func(key string, out *string) error {
+					return rc.Get(key, out)
+				},
+				Del: func(key string) error {
+					return rc.Delete(key)
+				},
 			}
 		}
 	}
@@ -78,9 +87,9 @@ func main() {
 	// Initialize WebSocket hub (distributed if Redis is available)
 	var hub *ws.Hub
 	if redisPubSub != nil {
-		hub = ws.NewDistributedHub(redisPubSub)
+		hub = ws.NewDistributedHub(redisPubSub, cfg.WebURL, cfg.WSOrigins)
 	} else {
-		hub = ws.NewHub()
+		hub = ws.NewHub(cfg.WebURL, cfg.WSOrigins)
 	}
 	go hub.Run()
 	log.Println("WebSocket hub started")
@@ -106,8 +115,8 @@ func main() {
 	retentionManager.Start()
 	defer retentionManager.Stop()
 
-	// Setup API routes
-	router := api.SetupRouter(st, jwtAuth, hub, alertEngine, cfg.WebURL)
+	// Setup API routes (background jobs scope to ctx, cancelled at shutdown)
+	router := api.SetupRouter(ctx, st, jwtAuth, hub, alertEngine, cfg.WebURL, cfg.EnrollSecret)
 
 	// Start periodic cleanup of staged upload files. This service uses the
 	// same default staging directory (/tmp/ourway-files) as the one created

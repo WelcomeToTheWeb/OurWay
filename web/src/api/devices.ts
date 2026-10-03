@@ -22,19 +22,17 @@ export const clearMonitoringData = () =>
     )
     .then((r) => r.data);
 
-export const registerAgent = (data: {
-  hostname: string;
-  os: string;
-  arch: string;
-  agentVersion: string;
-}) =>
-  client.post<{ deviceKey: string }>('/agents/register', data).then((r) => r.data);
+// H5: the device detail page switches a device to short-interval
+// streaming while it is open and stops it on the way out.
+export const startDeviceStream = (id: string, interval = 2) =>
+  client
+    .post<{ status: string; interval: number }>(`/devices/${id}/stream`, {
+      interval,
+    })
+    .then((r) => r.data);
 
-export const heartbeat = (deviceKey: string) =>
-  client.post(`/agents/${deviceKey}/heartbeat`).then((r) => r.data);
-
-export const sendMetrics = (deviceKey: string, metrics: Partial<Metrics>) =>
-  client.post(`/agents/${deviceKey}/metrics`, metrics).then((r) => r.data);
+export const stopDeviceStream = (id: string) =>
+  client.post<{ status: string }>(`/devices/${id}/stream/stop`).then((r) => r.data);
 
 export const getAlerts = (params?: { severity?: string; resolved?: boolean; device_id?: string }) =>
   client

@@ -40,7 +40,7 @@ func setupFileTest(t *testing.T) (*httptest.Server, *store.Store, string, *files
 	}
 
 	jwtAuth := auth.NewJWTAuth("test-secret")
-	hub := ws.NewHub()
+	hub := ws.NewHub("http://localhost:3000", "")
 	fileService := files.NewService(st, hub, "")
 	fileHandler := NewFileHandler(st, fileService)
 	agentFileHandler := NewAgentFileHandler(st, fileService)

@@ -89,8 +89,8 @@ func TestInstallerList(t *testing.T) {
 	if exe.SHA256 != hex.EncodeToString(wantSum[:]) {
 		t.Errorf("sha256 mismatch: got %q", exe.SHA256)
 	}
-	if exe.URL != "/api/v2/installers/ourway-installer-windows-amd64.exe" {
-		t.Errorf("unexpected url %q", exe.URL)
+	if exe.URL != "v2/installers/ourway-installer-windows-amd64.exe" {
+		t.Errorf("unexpected url %q (want API-relative path)", exe.URL)
 	}
 
 	sh, ok := byName["install.sh"]

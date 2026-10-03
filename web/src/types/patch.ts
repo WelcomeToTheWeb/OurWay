@@ -36,3 +36,14 @@ export interface PatchDeployment {
   completed_at?: string;
   created_at: string;
 }
+
+export interface DeploymentResult {
+  id: string;
+  deployment_id: string;
+  device_id: string;
+  result: 'success' | 'failed';
+  kind: 'deploy' | 'rollback';
+  message?: string;
+  created_at: string;
+  updated_at: string;
+}

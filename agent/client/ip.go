@@ -22,27 +22,47 @@ func PrivateIP() string {
 	if err != nil {
 		return ""
 	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ipnet, ok := addr.(*net.IPNet)
-			if !ok {
+	for _, pass := range []bool{false, true} {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
 				continue
 			}
-			ip4 := ipnet.IP.To4()
-			if ip4 == nil || ip4.IsLoopback() {
+			// M4: docker0/br-*/veth* are virtual bridges that can be the
+			// first non-loopback interface on a container host; prefer
+			// real interfaces and only fall back to virtual ones if
+			// nothing else exists.
+			if isVirtual(iface.Name) != pass {
 				continue
 			}
-			return ip4.String()
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				ipnet, ok := addr.(*net.IPNet)
+				if !ok {
+					continue
+				}
+				ip4 := ipnet.IP.To4()
+				if ip4 == nil || ip4.IsLoopback() {
+					continue
+				}
+				return ip4.String()
+			}
 		}
 	}
 	return ""
+}
+
+// isVirtual reports whether an interface name matches a common
+// virtual/bridge prefix.
+func isVirtual(name string) bool {
+	return strings.HasPrefix(name, "docker") ||
+		strings.HasPrefix(name, "br-") ||
+		strings.HasPrefix(name, "veth") ||
+		strings.HasPrefix(name, "virbr") ||
+		strings.HasPrefix(name, "kube") ||
+		strings.HasPrefix(name, "cni")
 }
 
 // FetchPublicIP resolves this host's public IP via publicIPService.

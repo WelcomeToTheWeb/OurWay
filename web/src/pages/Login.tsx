@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MonitorSmartphone } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/context';
-import { listSSOProviders, authorizeProvider, type SSOProvider } from '../api/sso';
+import { listSSOProviders, authorizeProvider, exchangeSSOCode, type SSOProvider } from '../api/sso';
 import { getAuthStatus } from '../api/auth';
 
 export function Login() {
@@ -20,15 +20,24 @@ export function Login() {
   const [providersLoading, setProvidersLoading] = useState(true);
   const [hasUsers, setHasUsers] = useState<boolean | null>(null);
 
-  // Handle SSO callback token
+  // Handle SSO callback: the server redirects to /login?sso_code=<code>
+  // (tokens never appear in the URL — C6). Redeem the one-time code via
+  // POST /api/auth/sso/exchange to obtain the token pair.
   useEffect(() => {
-    const token = searchParams.get('token');
-    if (token) {
-      // The server also passes a refresh token so SSO sessions can be
-      // renewed (without it the session dies after the access token expires).
-      setToken(token, searchParams.get('refresh') ?? undefined);
-      navigate('/');
-    }
+    const ssoCode = searchParams.get('sso_code');
+    if (!ssoCode) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { access_token, refresh_token } = await exchangeSSOCode(ssoCode);
+        if (cancelled) return;
+        setToken(access_token, refresh_token);
+        navigate('/');
+      } catch {
+        if (!cancelled) setError('SSO login failed. Please try again.');
+      }
+    })();
+    return () => { cancelled = true; };
   }, [searchParams, setToken, navigate]);
 
   if (isAuthenticated) {

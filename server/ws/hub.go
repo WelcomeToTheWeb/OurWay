@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"nhooyr.io/websocket"
 
 	"ourway/server/alerts"
@@ -51,10 +55,15 @@ type Message struct {
 	Payload interface{} `json:"payload"`
 }
 
-// RedisPubSub abstracts Redis pub/sub operations for the hub.
+// RedisPubSub abstracts Redis pub/sub operations for the hub. The
+// optional presence functions (SetEX/Get/Del) back cross-instance device
+// presence (H2); when nil the hub degrades to local-only checks.
 type RedisPubSub struct {
 	Publish   func(topic string, message []byte) error
 	Subscribe func(topic string, handler func([]byte)) error
+	SetEX     func(key string, value string, ttl time.Duration) error
+	Get       func(key string, out *string) error
+	Del       func(key string) error
 }
 
 // Hub manages WebSocket connections and message broadcasting.
@@ -67,26 +76,59 @@ type Hub struct {
 	redis      *RedisPubSub // Optional Redis pub/sub for distributed broadcasting
 	reaperOnce sync.Once
 	Alerts     *alerts.Engine // Optional alert engine, evaluated on the WS metrics path
+
+	// instanceID uniquely identifies this server instance so Redis
+	// broadcasts can suppress their own loopback (M8).
+	instanceID string
+
+	// webURL / wsOrigins bound the allowed browser Origins for the WS
+	// endpoint (C5); agents send no Origin header.
+	webURL    string
+	wsOrigins []string
+
+	// alertEval decouples alert evaluation from the connection read path (M5).
+	alertEval chan alertJob
+
+	// dropped counts messages dropped because a client's send buffer or a
+	// hub channel was full (M10/M8).
+	dropped atomic.Uint64
+}
+
+// alertJob is one deferred alert-engine evaluation.
+type alertJob struct {
+	metrics    models.Metrics
+	deviceID   string
+	deviceName string
 }
 
 // NewHub creates a new WebSocket hub.
-func NewHub() *Hub {
-	return &Hub{
+func NewHub(webURL, wsOrigins string) *Hub {
+	h := &Hub{
 		clients:    make(map[string]*Client),
 		register:   make(chan *Client, 100),
 		unregister: make(chan *Client, 100),
 		broadcast:  make(chan []byte, 100),
+		instanceID: uuid.New().String(),
+		alertEval:  make(chan alertJob, 256),
+		webURL:     webURL,
+		wsOrigins:  splitOrigins(wsOrigins),
 	}
+	h.startAlertWorker()
+	return h
 }
 
 // NewDistributedHub creates a new distributed WebSocket hub with Redis pub/sub support.
-func NewDistributedHub(redis *RedisPubSub) *Hub {
+func NewDistributedHub(redis *RedisPubSub, webURL, wsOrigins string) *Hub {
 	h := &Hub{
 		clients:    make(map[string]*Client),
 		register:   make(chan *Client, 1000),
 		unregister: make(chan *Client, 1000),
 		broadcast:  make(chan []byte, 1000),
 		redis:      redis,
+		instanceID: uuid.New().String(),
+		alertEval:  make(chan alertJob, 256),
+		webURL:     webURL,
+		wsOrigins:  splitOrigins(wsOrigins),
 	}
 
 	// Subscribe to cross-instance broadcasts
@@ -109,7 +151,28 @@ func NewDistributedHub(redis *RedisPubSub) *Hub {
 		}
 	}()
 
+	h.startAlertWorker()
 	return h
+}
+
+// startAlertWorker runs the single consumer of h.alertEval. Alert
+// evaluation does its own DB writes; keeping it off the connection read
+// path means a slow database can't stall heartbeats (M5).
+func (h *Hub) startAlertWorker() {
+	go func() {
+		for job := range h.alertEval {
+			if h.Alerts == nil {
+				continue
+			}
+			h.Alerts.Evaluate(job.metrics, job.deviceID, job.deviceName)
+		}
+	}()
+}
+
+// DroppedCount reports how many messages the hub dropped on full buffers
+// (M10). Useful in health endpoints and tests.
+func (h *Hub) DroppedCount() uint64 {
+	return h.dropped.Load()
 }
 
 func (h *Hub) handleRemoteTargeted(data []byte) {
@@ -129,15 +192,26 @@ func (h *Hub) handleRemoteTargeted(data []byte) {
 	select {
 	case client.SendCh <- msg.Data:
 	default:
+		h.dropped.Add(1)
 	}
 }
 
 func (h *Hub) handleRemoteBroadcast(data []byte) {
+	var env RemoteBroadcast
+	if err := json.Unmarshal(data, &env); err != nil {
+		return
+	}
+	// Suppress loopback: Redis echoes our own publish back to us and we
+	// already delivered it to local clients (M8).
+	if env.Src == h.instanceID {
+		return
+	}
 	h.mu.RLock()
 	for _, client := range h.clients {
 		select {
-		case client.SendCh <- data:
+		case client.SendCh <- env.Data:
 		default:
+			h.dropped.Add(1)
 		}
 	}
 	h.mu.RUnlock()
@@ -171,7 +245,9 @@ func (h *Hub) Run() {
 				select {
 				case client.SendCh <- msg:
 				default:
-					// Drop slow clients
+					// Drop slow clients (M10: counted so the degradation
+					// is not invisible).
+					h.dropped.Add(1)
 				}
 			}
 			h.mu.RUnlock()
@@ -180,8 +256,13 @@ func (h *Hub) Run() {
 			// a goroutine so a slow/stalled Redis can never block the Run
 			// loop (and thus register/unregister/broadcast processing).
 			if h.redis != nil {
+				env, err := json.Marshal(RemoteBroadcast{Src: h.instanceID, Data: msg})
+				if err != nil {
+					log.Printf("ws: failed to marshal broadcast envelope: %v", err)
+					break
+				}
 				go func() {
-					if err := h.redis.Publish("ws:broadcast", msg); err != nil {
+					if err := h.redis.Publish("ws:broadcast", env); err != nil {
 						log.Printf("ws: failed to publish broadcast: %v", err)
 					}
 				}()
@@ -201,9 +282,19 @@ func (h *Hub) BroadcastMessage(msgType string, payload interface{}) {
 	select {
 	case h.broadcast <- data:
 	default:
-		// If local buffer is full, publish directly to Redis
+		// Local buffer full: publish directly to Redis (other instances
+		// still get it), or count the drop when Redis is absent (M8).
 		if h.redis != nil {
-			h.redis.Publish("ws:broadcast", data)
+			env, err := json.Marshal(RemoteBroadcast{Src: h.instanceID, Data: data})
+			if err == nil {
+				if err := h.redis.Publish("ws:broadcast", env); err != nil {
+					log.Printf("ws: failed to publish broadcast: %v", err)
+				}
+			} else {
+				log.Printf("ws: failed to marshal broadcast envelope: %v", err)
+			}
+		} else {
+			h.dropped.Add(1)
 		}
 	}
 }
@@ -227,12 +318,22 @@ func (h *Hub) SendToDevice(deviceKey string, msgType string, payload interface{}
 		case client.SendCh <- data:
 			return nil
 		default:
+			h.dropped.Add(1)
 			return fmt.Errorf("device %s send buffer full", deviceKey)
 		}
 	}
 
-	// Device not on this instance, publish to Redis
+	// Device not on this instance. In distributed mode, verify it is
+	// connected to *some* instance via the presence key before claiming
+	// delivery (H2) — publishing to Redis for a device connected nowhere
+	// used to report false success.
 	if h.redis != nil {
+		if h.redis.Get != nil {
+			var v string
+			if err := h.redis.Get(devicePresenceKey(deviceKey), &v); err != nil || v == "" {
+				return fmt.Errorf("device %s not connected", deviceKey)
+			}
+		}
 		remoteMsg := RemoteMessage{Target: clientID, Data: data}
 		remoteData, err := json.Marshal(remoteMsg)
 		if err != nil {
@@ -292,51 +393,84 @@ type RemoteMessage struct {
 	Data   []byte `json:"data"`
 }
 
-// IsDeviceConnected checks if a device is currently connected.
+// RemoteBroadcast wraps a broadcast for cross-instance delivery. Src lets
+// the originating instance suppress its own loopback (M8).
+type RemoteBroadcast struct {
+	Src  string `json:"src"`
+	Data []byte `json:"data"`
+}
+
+// devicePresenceKey is the Redis key marking a device as connected to some
+// instance. The value is the connection's unique ID; the owner refreshes it
+// while alive and deletes it (compare-and-delete) on disconnect (H2).
+func devicePresenceKey(deviceKey string) string {
+	return "ws:device:" + deviceKey
+}
+
+// IsDeviceConnected checks if a device is currently connected, locally or
+// (in distributed mode) to another instance via the presence key (H2).
 func (h *Hub) IsDeviceConnected(deviceKey string) bool {
 	clientID := "device:" + deviceKey
 	h.mu.RLock()
 	_, ok := h.clients[clientID]
 	h.mu.RUnlock()
-	return ok
+	if ok {
+		return true
+	}
+	if h.redis != nil && h.redis.Get != nil {
+		var v string
+		if err := h.redis.Get(devicePresenceKey(deviceKey), &v); err == nil && v != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // ServeHTTP handles a WebSocket upgrade and manages the client connection.
 func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAuth) {
-	// Parse query parameters for auth
-	deviceKey := c.Query("device_key")
-	token := c.Query("token")
+	// C5: the credential travels in the Sec-WebSocket-Protocol list, not
+	// in the query string (query strings end up in access logs, proxy
+	// logs, and the Referer header). Clients propose
+	// "ourway-auth, <credential>" where credential is a device key or a
+	// user access token.
+	credential := wsCredential(c)
+	if credential == "" {
+		c.JSON(400, gin.H{"error": "provide a credential via Sec-WebSocket-Protocol: ourway-auth, <device key or token>"})
+		return
+	}
+
+	// C5: restrict origins. Browsers must connect from the configured web
+	// origin (or same-origin, or local dev); agent connections send no
+	// Origin header and are unaffected.
+	if origin := c.GetHeader("Origin"); origin != "" && !h.originAllowed(origin, c) {
+		c.JSON(403, gin.H{"error": "origin not allowed"})
+		return
+	}
 
 	var clientID string
 	var clientType string
+	var deviceKey string
 
-	if deviceKey != "" {
-		clientType = "device"
-		clientID = "device:" + deviceKey
-		// Reject unknown device keys before accepting the connection.
-		if _, err := store.Devices.GetByKey(deviceKey); err != nil {
-			c.JSON(401, gin.H{"error": "invalid device key"})
-			return
-		}
-	} else if token != "" {
+	if claims, err := jwtAuth.ValidateToken(credential); err == nil {
+		// User (browser) connection: registered under the user's stable
+		// ID (not the rotating JWT) so messages can be targeted by user ID.
 		clientType = "user"
-		// Reject invalid/expired access tokens before accepting the
-		// connection — previously any non-empty token was accepted.
-		// The client is registered under the user's stable ID (not the
-		// rotating JWT) so messages can be targeted by user ID.
-		claims, err := jwtAuth.ValidateToken(token)
-		if err != nil {
-			c.JSON(401, gin.H{"error": "invalid token"})
-			return
-		}
 		clientID = "user:" + claims.UserID
+	} else if _, err := store.Devices.GetByKey(credential); err == nil {
+		// Reject unknown device keys before accepting the connection.
+		clientType = "device"
+		deviceKey = credential
+		clientID = "device:" + credential
 	} else {
-		c.JSON(400, gin.H{"error": "provide device_key or token query parameter"})
+		c.JSON(401, gin.H{"error": "invalid token or device key"})
 		return
 	}
 
 	conn, err := websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{
-		OriginPatterns: []string{"*"},
+		// Origin is checked manually above; the library check is a pass
+		// through so the handshake succeeds for the agent (no Origin).
+		OriginPatterns: []string{".*"},
+		Subprotocols:   []string{"ourway-auth"},
 	})
 	if err != nil {
 		log.Printf("ws: accept failed: %v", err)
@@ -357,20 +491,96 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		h.startReaper(store)
 	}
 
+	// M7: a duplicate connection for the same identity supersedes the old
+	// one; close the older conn so its stale metrics/heartbeats stop
+	// feeding the hub before the next read deadline kills it.
+	h.mu.RLock()
+	if old, ok := h.clients[clientID]; ok {
+		h.mu.RUnlock()
+		log.Printf("ws: duplicate connection for %s, closing the older one", clientID)
+		old.Conn.Close(websocket.StatusPolicyViolation, "superseded by newer connection")
+	} else {
+		h.mu.RUnlock()
+	}
+
+	// H2: cross-instance presence. The connection claims a per-device key
+	// in Redis (refreshed while alive, compare-and-deleted on
+	// disconnect) so IsDeviceConnected/SendToDevice work when the device
+	// sits on another instance.
+	connID := ""
+	var presenceStop chan struct{}
+	if clientType == "device" && deviceKey != "" && h.redis != nil && h.redis.SetEX != nil {
+		connID = h.instanceID + "-" + uuid.New().String()
+		if err := h.redis.SetEX(devicePresenceKey(deviceKey), connID, 90*time.Second); err != nil {
+			log.Printf("ws: failed to set device presence: %v", err)
+		}
+		presenceStop = make(chan struct{})
+		defer close(presenceStop)
+		go func() {
+			t := time.NewTicker(30 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-presenceStop:
+					return
+				case <-t.C:
+					if err := h.redis.SetEX(devicePresenceKey(deviceKey), connID, 90*time.Second); err != nil {
+						log.Printf("ws: failed to refresh device presence: %v", err)
+					}
+				}
+			}
+		}()
+	}
+
 	h.register <- client
 	defer func() {
 		h.unregister <- client
 		if clientType == "device" && deviceKey != "" {
-			// The device's client is going away: mark it offline so presence
-			// reflects reality (the next heartbeat can then fire device_online).
-			if dev, err := store.Devices.GetByKey(deviceKey); err == nil {
-				dev.Status = "offline"
-				if err := store.Devices.Update(dev); err != nil {
-					log.Printf("ws: failed to mark device offline: %v", err)
+			// Only write "offline" if this connection is still the
+			// registered one; the old conn's teardown must not knock a
+			// newer conn for the same key offline (H2).
+			h.mu.RLock()
+			current := h.clients[clientID] == client
+			h.mu.RUnlock()
+			if current {
+				h.clearDevicePresence(deviceKey, connID)
+				// The device's client is going away: mark it offline so
+				// presence reflects reality (the next heartbeat can then
+				// fire device_online).
+				if dev, err := store.Devices.GetByKey(deviceKey); err == nil {
+					dev.Status = "offline"
+					if err := store.Devices.Update(dev); err != nil {
+						log.Printf("ws: failed to mark device offline: %v", err)
+					}
 				}
 			}
 		}
 		conn.Close(websocket.StatusNormalClosure, "closing")
+	}()
+
+	// H1: the server pings every connection. Browsers and the agent
+	// answer pings automatically at the protocol level, so a blackholed
+	// peer is detected and torn down without relying on either client to
+	// keep the link alive.
+	pingStop := make(chan struct{})
+	defer close(pingStop)
+	go func() {
+		t := time.NewTicker(40 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-pingStop:
+				return
+			case <-t.C:
+				pctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := conn.Ping(pctx)
+				cancel()
+				if err != nil {
+					conn.Close(websocket.StatusInternalError, "ping failed")
+					return
+				}
+			}
+		}
 	}()
 
 	// Sender goroutine. Each write gets its own timeout so a blackholed
@@ -395,10 +605,9 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		// Devices are expected to send a 15s heartbeat; drop a device
 		// connection that goes silent for 60s (e.g. blackholed peer) so the
 		// client goroutines don't leak. User (browser) connections are
-		// receive-only and long-lived, but still get a generous 120s read
-		// deadline (restarted by every successful read, e.g. a
-		// heartbeat/ping) so a blackholed peer can't block this goroutine
-		// forever.
+		// receive-only except for the 30s app-level ping (H1); the 120s
+		// read deadline (restarted by every successful read) is a safety
+		// net for a blackholed peer.
 		readCtx := ctx
 		var cancelRead context.CancelFunc
 		switch clientType {
@@ -425,9 +634,105 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		case "device":
 			h.handleDeviceMessage(client, msg, store, deviceKey)
 		case "user":
-			// User messages are echoed or handled for future use
+			// H1: browsers cannot initiate protocol-level pings, so the
+			// web client sends an app-level ping every 30 s; answer with a
+			// pong to keep the read deadline fresh on receive-only
+			// dashboard connections.
+			if msg.Type == "ping" {
+				if pong, err := json.Marshal(Message{Type: "pong"}); err == nil {
+					select {
+					case client.SendCh <- pong:
+					default:
+						h.dropped.Add(1)
+					}
+				}
+			}
 		}
 	}
+}
+
+// wsCredential extracts the credential from the Sec-WebSocket-Protocol
+// header (C5). Expected form: "ourway-auth, <credential>".
+func wsCredential(c *gin.Context) string {
+	raw := c.GetHeader("Sec-WebSocket-Protocol")
+	if raw == "" {
+		return ""
+	}
+	parts := strings.Split(raw, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	if len(parts) >= 2 && parts[0] == "ourway-auth" {
+		return parts[1]
+	}
+	return ""
+}
+
+// originAllowed reports whether a browser Origin header may open a WS
+// connection (C5). When an explicit allow-list (wsOrigins) is configured,
+// only those hosts are accepted; otherwise we fall back to same-origin,
+// local dev origins, and the configured web URL's host.
+func (h *Hub) originAllowed(origin string, c *gin.Context) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if len(h.wsOrigins) > 0 {
+		for _, o := range h.wsOrigins {
+			if o == u.Host {
+				return true
+			}
+		}
+		return false
+	}
+	if u.Host == c.Request.Host {
+		return true
+	}
+	if u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" {
+		return true
+	}
+	if h.webURL != "" {
+		if wu, err := url.Parse(h.webURL); err == nil && wu.Host != "" && wu.Host == u.Host {
+			return true
+		}
+	}
+	return false
+}
+
+// splitOrigins parses a comma-separated origin allow-list, trimming
+// whitespace and dropping empty entries.
+func splitOrigins(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// clearDevicePresence removes the device's presence key, but only if this
+// connection still owns it (H2).
+func (h *Hub) clearDevicePresence(deviceKey, connID string) {
+	if h.redis == nil || connID == "" {
+		return
+	}
+	if h.redis.Del == nil {
+		return
+	}
+	if h.redis.Get != nil {
+		var v string
+		if err := h.redis.Get(devicePresenceKey(deviceKey), &v); err != nil {
+			return
+		}
+		if v != connID {
+			return
+		}
+	}
+	_ = h.redis.Del(devicePresenceKey(deviceKey))
 }
 
 // startReaper launches a single background goroutine that marks devices
@@ -502,110 +807,124 @@ func (h *Hub) handleDeviceMessage(_ *Client, msg Message, store *store.Store, de
 			})
 		}
 	case "metrics":
-		// Extract and save metrics to database
-		if payloadMap, ok := msg.Payload.(map[string]interface{}); ok {
-			if dk, ok := payloadMap["device_key"].(string); ok && dk != "" {
-				dev, err := store.Devices.GetByKey(dk)
-				if err == nil {
-					if dataVal, ok := payloadMap["data"].(map[string]interface{}); ok {
-						mh := &models.MetricHistory{
-							DeviceID:  dev.ID,
-							Timestamp: time.Now(),
-						}
-						if v, ok := dataVal["cpu"].(float64); ok {
-							mh.CPU = v
-						}
-						if v, ok := dataVal["ram"].(float64); ok {
-							mh.RAM = v
-						}
-						if v, ok := dataVal["ram_used"].(float64); ok {
-							mh.RAMUsed = uint64(v)
-						}
-						if v, ok := dataVal["ram_total"].(float64); ok {
-							mh.RAMTotal = uint64(v)
-						}
-						if v, ok := dataVal["uptime"].(float64); ok {
-							mh.Uptime = uint64(v)
-						}
-						// Calculate disk usage from disks array
-						if disks, ok := dataVal["disks"].([]interface{}); ok && len(disks) > 0 {
-							var totalDisk, usedDisk float64
-							for _, d := range disks {
-								if dm, ok := d.(map[string]interface{}); ok {
-									totalDisk += toFloat(dm["total"])
-									usedDisk += toFloat(dm["used"])
-								}
-							}
-							mh.DiskTotal = uint64(totalDisk)
-							mh.DiskUsed = uint64(usedDisk)
-							if totalDisk > 0 {
-								mh.DiskUsage = (usedDisk / totalDisk) * 100
-							}
-						}
-						// Network totals
-						if net, ok := dataVal["network"].(map[string]interface{}); ok {
-							var netIn, netOut float64
-							for _, ni := range net {
-								if nm, ok := ni.(map[string]interface{}); ok {
-									netIn += toFloat(nm["bytes_recv"])
-									netOut += toFloat(nm["bytes_sent"])
-								}
-							}
-							mh.NetIn = uint64(netIn)
-							mh.NetOut = uint64(netOut)
-						}
-						if procs, ok := dataVal["top_processes"].([]interface{}); ok {
-							mh.Processes = len(procs)
-						}
-						if store.MetricHistory != nil {
-							if err := store.MetricHistory.Insert(mh); err != nil {
-								log.Printf("ws: failed to save metrics: %v", err)
-							}
-						}
-
-						// Evaluate alerts on the WS metrics path, same as the REST
-						// path — agents report metrics over WebSocket, so without
-						// this the alert engine never runs in the real flow.
-						if h.Alerts != nil {
-							h.Alerts.Evaluate(models.Metrics{
-								CPU:       mh.CPU,
-								RAM:       mh.RAM,
-								RAMUsed:   mh.RAMUsed,
-								RAMTotal:  mh.RAMTotal,
-								DiskUsage: mh.DiskUsage,
-								DiskUsed:  mh.DiskUsed,
-								DiskTotal: mh.DiskTotal,
-								NetIn:     mh.NetIn,
-								NetOut:    mh.NetOut,
-								Uptime:    mh.Uptime,
-								Processes: mh.Processes,
-							}, dev.ID, dev.Name)
-						}
-
-						// Broadcast in the REST shape ({device_id, device, metrics})
-						// the web client's flatten() expects, not the raw agent payload
-						h.BroadcastMessage("metrics", map[string]interface{}{
-							"device_id": dev.ID,
-							"device":    dev.Name,
-							"metrics": map[string]interface{}{
-								"cpu":        mh.CPU,
-								"ram":        mh.RAM,
-								"ram_used":   mh.RAMUsed,
-								"ram_total":  mh.RAMTotal,
-								"disk_usage": mh.DiskUsage,
-								"disk_used":  mh.DiskUsed,
-								"disk_total": mh.DiskTotal,
-								"net_in":     mh.NetIn,
-								"net_out":    mh.NetOut,
-								"uptime":     mh.Uptime,
-								"processes":  mh.Processes,
-							},
-						})
-					}
-					_ = store.Devices.UpdateLastSeen(dev.ID)
+		// C2: trust the connection's authenticated device key, not a key
+		// declared in the payload (any agent could otherwise push metrics
+		// for any other device).
+		dev, err := store.Devices.GetByKey(deviceKey)
+		if err != nil {
+			return
+		}
+		payloadMap, ok := msg.Payload.(map[string]interface{})
+		if !ok {
+			return
+		}
+		dataVal, ok := payloadMap["data"].(map[string]interface{})
+		if !ok {
+			return
+		}
+		mh := &models.MetricHistory{
+			DeviceID:  dev.ID,
+			Timestamp: time.Now(),
+		}
+		if v, ok := dataVal["cpu"].(float64); ok {
+			mh.CPU = v
+		}
+		if v, ok := dataVal["ram"].(float64); ok {
+			mh.RAM = v
+		}
+		if v, ok := dataVal["ram_used"].(float64); ok {
+			mh.RAMUsed = uint64(v)
+		}
+		if v, ok := dataVal["ram_total"].(float64); ok {
+			mh.RAMTotal = uint64(v)
+		}
+		if v, ok := dataVal["uptime"].(float64); ok {
+			mh.Uptime = uint64(v)
+		}
+		// Calculate disk usage from disks array
+		if disks, ok := dataVal["disks"].([]interface{}); ok && len(disks) > 0 {
+			var totalDisk, usedDisk float64
+			for _, d := range disks {
+				if dm, ok := d.(map[string]interface{}); ok {
+					totalDisk += toFloat(dm["total"])
+					usedDisk += toFloat(dm["used"])
 				}
 			}
+			mh.DiskTotal = uint64(totalDisk)
+			mh.DiskUsed = uint64(usedDisk)
+			if totalDisk > 0 {
+				mh.DiskUsage = (usedDisk / totalDisk) * 100
+			}
 		}
+		// Network totals
+		if net, ok := dataVal["network"].(map[string]interface{}); ok {
+			var netIn, netOut float64
+			for _, ni := range net {
+				if nm, ok := ni.(map[string]interface{}); ok {
+					netIn += toFloat(nm["bytes_recv"])
+					netOut += toFloat(nm["bytes_sent"])
+				}
+			}
+			mh.NetIn = uint64(netIn)
+			mh.NetOut = uint64(netOut)
+		}
+		if procs, ok := dataVal["top_processes"].([]interface{}); ok {
+			mh.Processes = len(procs)
+		}
+
+		// M5: alert evaluation leaves the read path — the engine does its
+		// own DB writes and a slow database must not stall heartbeats.
+		select {
+		case h.alertEval <- alertJob{
+			metrics: models.Metrics{
+				CPU:       mh.CPU,
+				RAM:       mh.RAM,
+				RAMUsed:   mh.RAMUsed,
+				RAMTotal:  mh.RAMTotal,
+				DiskUsage: mh.DiskUsage,
+				DiskUsed:  mh.DiskUsed,
+				DiskTotal: mh.DiskTotal,
+				NetIn:     mh.NetIn,
+				NetOut:    mh.NetOut,
+				Uptime:    mh.Uptime,
+				Processes: mh.Processes,
+			},
+			deviceID:   dev.ID,
+			deviceName: dev.Name,
+		}:
+		default:
+			// M10: count the drop instead of silently discarding it.
+			h.dropped.Add(1)
+			log.Printf("ws: alert evaluation queue full, dropping evaluation for device %s", dev.ID)
+		}
+
+		// Extract and save metrics to database
+		if store.MetricHistory != nil {
+			if err := store.MetricHistory.Insert(mh); err != nil {
+				log.Printf("ws: failed to save metrics: %v", err)
+			}
+		}
+
+		// Broadcast in the REST shape ({device_id, device, metrics})
+		// the web client's flatten() expects, not the raw agent payload
+		h.BroadcastMessage("metrics", map[string]interface{}{
+			"device_id": dev.ID,
+			"device":    dev.Name,
+			"metrics": map[string]interface{}{
+				"cpu":        mh.CPU,
+				"ram":        mh.RAM,
+				"ram_used":   mh.RAMUsed,
+				"ram_total":  mh.RAMTotal,
+				"disk_usage": mh.DiskUsage,
+				"disk_used":  mh.DiskUsed,
+				"disk_total": mh.DiskTotal,
+				"net_in":     mh.NetIn,
+				"net_out":    mh.NetOut,
+				"uptime":     mh.Uptime,
+				"processes":  mh.Processes,
+			},
+		})
+		_ = store.Devices.UpdateLastSeen(dev.ID)
 	case "status":
 		h.BroadcastMessage("status", msg.Payload)
 	}

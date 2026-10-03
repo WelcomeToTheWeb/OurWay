@@ -65,3 +65,22 @@ func (s *SessionStore) ListActiveAll() ([]models.Session, error) {
 	}
 	return sessions, nil
 }
+
+// ListStalePending returns "pending" sessions created before cutoff
+// (the agent never delivered a frame for them — H6 reaper input).
+func (s *SessionStore) ListStalePending(cutoff time.Time) ([]models.Session, error) {
+	var sessions []models.Session
+	if err := s.db.Find(&sessions, "status = ? AND created_at < ?", "pending", cutoff).Error; err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
+// ListActiveByUser returns the user's own pending and active sessions (M6).
+func (s *SessionStore) ListActiveByUser(userID string) ([]models.Session, error) {
+	var sessions []models.Session
+	if err := s.db.Find(&sessions, "user_id = ? AND status IN (?)", userID, []string{"pending", "active"}).Order("created_at DESC").Error; err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}

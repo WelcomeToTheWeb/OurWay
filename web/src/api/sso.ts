@@ -28,6 +28,18 @@ export function authorizeProvider(provider: string): string {
   return `/api/auth/sso/${provider}/authorize`;
 }
 
+export interface SSOExchangeResult {
+  access_token: string;
+  refresh_token: string;
+}
+
+// exchangeSSOCode redeems the one-time SSO login code from the callback
+// redirect for the token pair. The tokens never appear in the URL (C6).
+export async function exchangeSSOCode(code: string): Promise<SSOExchangeResult> {
+  const res = await client.post('/auth/sso/exchange', { code });
+  return res.data;
+}
+
 export async function listSSOProvidersAdmin(): Promise<SSOProviderFull[]> {
   const res = await client.get('/sso/providers');
   return res.data.providers || [];

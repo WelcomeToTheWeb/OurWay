@@ -1,8 +1,6 @@
 package collector
 
 import (
-	"time"
-
 	"github.com/shirou/gopsutil/v4/cpu"
 )
 
@@ -11,8 +9,11 @@ type CPUCollector struct {
 	perCore bool
 }
 
-// NewCPUCollector creates a new CPU collector.
+// NewCPUCollector creates a new CPU collector. The Percent(0) call
+// primes gopsutil's tick cache so the first Collect() reports a real
+// delta instead of zero.
 func NewCPUCollector() *CPUCollector {
+	_, _ = cpu.Percent(0, false)
 	return &CPUCollector{
 		perCore: true,
 	}
@@ -25,8 +26,10 @@ func (c *CPUCollector) Name() string {
 
 // Collect gathers CPU usage metrics.
 func (c *CPUCollector) Collect() (map[string]interface{}, error) {
-	// Get overall CPU percent with a small interval for non-blocking behavior
-	percents, err := cpu.Percent(1*time.Second, false)
+	// L1: zero-interval sampling computes the delta since the previous
+	// call instead of blocking for 1 s — the blocking sample consumed
+	// half of the 2 s streaming budget.
+	percents, err := cpu.Percent(0, false)
 	if err != nil {
 		return nil, err
 	}

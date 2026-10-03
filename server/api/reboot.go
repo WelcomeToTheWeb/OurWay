@@ -1,6 +1,10 @@
 package api
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"ourway/server/patching"
@@ -29,20 +33,38 @@ func (h *RebootHandler) RebootDevice(c *gin.Context) {
 	var req struct {
 		DelaySeconds int `json:"delay_seconds"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		// Not required
+	// Body is optional; a present but malformed body must not silently
+	// trigger an immediate reboot (M3).
+	if body, err := io.ReadAll(c.Request.Body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+		return
+	} else if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+			return
+		}
 	}
 
 	device, err := h.store.Devices.GetByID(deviceID)
 	if err != nil {
-		c.JSON(404, gin.H{"error": "device not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
 		return
 	}
 
+	if device.Status != "online" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "device is offline"})
+		return
+	}
+
+	var sendErr error
 	if req.DelaySeconds > 0 {
-		h.rebooter.RebootWithDelay(device.DeviceKey, req.DelaySeconds)
+		sendErr = h.rebooter.RebootWithDelay(device.DeviceKey, req.DelaySeconds)
 	} else {
-		h.rebooter.RebootDevice(device.DeviceKey)
+		sendErr = h.rebooter.RebootDevice(device.DeviceKey)
+	}
+	if sendErr != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to reach device"})
+		return
 	}
 
 	c.JSON(200, gin.H{"status": "reboot_initiated"})

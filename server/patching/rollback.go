@@ -31,11 +31,15 @@ func (r *RollbackManager) RollbackDeployment(deploymentID string, deviceIDs []st
 		return "no_action", nil
 	}
 
-	// Send rollback command to each device
+	// Send rollback command to each device. Send failures are recorded as
+	// rollback results immediately (M14); agent-reported outcomes arrive
+	// later via /api/agent/deployments/result with kind "rollback".
+	recorded := 0
 	for _, deviceID := range deviceIDs {
 		device, err := r.store.Devices.GetByID(deviceID)
 		if err != nil {
 			log.Printf("rollback: failed to get device %s: %v", deviceID, err)
+			r.recordRollbackResult(deploymentID, deviceID, "rollback device not found")
 			continue
 		}
 
@@ -44,9 +48,20 @@ func (r *RollbackManager) RollbackDeployment(deploymentID string, deviceIDs []st
 			"device_id":     deviceID,
 		}); err != nil {
 			log.Printf("rollback: failed to send rollback to device %s: %v", device.Name, err)
+			r.recordRollbackResult(deploymentID, deviceID, "rollback command not delivered (device unreachable)")
+			continue
 		}
+		recorded++
 	}
 
-	log.Printf("rollback: rollback initiated for deployment %s on %d devices", deploymentID, len(deviceIDs))
+	log.Printf("rollback: rollback initiated for deployment %s on %d devices", deploymentID, recorded)
 	return "rollback_initiated", nil
+}
+
+// recordRollbackResult stores a failed rollback outcome for one device so
+// the failure is visible even if the agent never reports back.
+func (r *RollbackManager) recordRollbackResult(deploymentID, deviceID, message string) {
+	if _, err := r.store.DeploymentResults.UpsertResult(deploymentID, deviceID, "rollback", "failed", message); err != nil {
+		log.Printf("rollback: failed to record rollback result for %s/%s: %v", deploymentID, deviceID, err)
+	}
 }

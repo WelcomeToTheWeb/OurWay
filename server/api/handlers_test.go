@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,10 +45,10 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *auth.JWTAuth)
 	}
 
 	jwtAuth := auth.NewJWTAuth("test-secret-key")
-	hub := ws.NewHub()
+	hub := ws.NewHub("http://localhost:3000", "")
 	engine := alerts.NewEngine(st.Alerts)
 
-	router := SetupRouter(st, jwtAuth, hub, engine, "http://localhost:3000")
+	router := SetupRouter(context.Background(), st, jwtAuth, hub, engine, "http://localhost:3000", "")
 	ts := httptest.NewServer(router)
 
 	t.Cleanup(func() {
@@ -149,15 +150,15 @@ func TestUserRegistration(t *testing.T) {
 		}
 	})
 
-	t.Run("duplicate username registration", func(t *testing.T) {
-		registerUser(t, ts.URL, "dupuser", "dup1@example.com", "pass1")
-
-		resp := registerUser(t, ts.URL, "dupuser", "dup2@example.com", "pass2")
+	t.Run("registration closed after first user", func(t *testing.T) {
+		// C1: registration is first-run only; a second self-registration is
+		// rejected before any duplicate-username handling.
+		resp := registerUser(t, ts.URL, "dupuser", "dup1@example.com", "pass1")
 		defer resp.Body.Close()
 
-		// SQLite returns a constraint violation -> 500 from handler
-		if resp.StatusCode != http.StatusInternalServerError {
-			t.Errorf("expected 500 for duplicate, got %d", resp.StatusCode)
+		if resp.StatusCode != http.StatusForbidden {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			t.Errorf("expected 403 (registration closed), got %d: %s", resp.StatusCode, string(bodyBytes))
 		}
 	})
 

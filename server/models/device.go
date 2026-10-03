@@ -16,7 +16,11 @@ type Device struct {
 	LastSeen     time.Time `json:"last_seen"`
 	PublicIP     string    `json:"public_ip"`
 	PrivateIP    string    `json:"private_ip"`
-	DeviceKey    string    `gorm:"uniqueIndex;not null" json:"device_key"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	// DeviceKey is the agent's wire credential. It is never serialized
+	// in JSON (C3): any API that exposes it lets the holder connect as
+	// the device. It is returned explicitly, exactly once, by
+	// POST /api/agent/register.
+	DeviceKey string    `gorm:"uniqueIndex;not null" json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

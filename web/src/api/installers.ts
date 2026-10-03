@@ -16,11 +16,10 @@ export async function fetchInstallers(): Promise<Installer[]> {
 
 // downloadInstaller fetches the installer file with the shared client (so
 // the auth header is sent) and triggers a browser download under its name.
-// The server's `url` field is a full path (e.g. /api/v2/installers/x.exe);
-// the client already uses `/api` as its base URL, so that prefix is
-// stripped to avoid a doubled `/api/api` path.
+// The server's `url` field is already relative to the `/api` base the
+// client uses, so it is used as-is.
 export const downloadInstaller = async (installer: Installer) => {
-  const path = installer.url.replace(/^\/api(?=\/)/, '');
+  const path = installer.url;
   const { data } = await client.get(path, { responseType: 'blob' });
   const url = URL.createObjectURL(data as Blob);
   const a = document.createElement('a');

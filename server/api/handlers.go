@@ -22,7 +22,9 @@ import (
 )
 
 // SetupRouter configures and returns the Gin router with all routes.
-func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine *alerts.Engine, webURL string) *gin.Engine {
+// ctx scopes the router's background jobs (webhook retry loop, scheduled
+// update scan); cancelling it stops them (M9).
+func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine *alerts.Engine, webURL, enrollSecret string) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
@@ -36,12 +38,12 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 	}
 
 	authHandler := NewAuthHandler(store, jwtAuth)
-	deviceHandler := NewDeviceHandler(store, hub, engine, store.MetricHistory)
+	deviceHandler := NewDeviceHandler(store, hub, engine, store.MetricHistory, enrollSecret)
 	alertHandler := NewAlertHandler(store)
 	roleHandler := NewRoleHandler(store)
 	userHandler := NewUserHandler(store)
-	gateway := sessions.NewGateway()
-	sessionHandler := NewSessionHandler(store, gateway, hub)
+	sessions.NewGateway(ctx, store)
+	sessionHandler := NewSessionHandler(store, hub)
 	scanner := patching.NewScanner(store, hub)
 	deployer := patching.NewDeployer(store, hub)
 	rollbacker := patching.NewRollbackManager(store, hub)
@@ -59,19 +61,22 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 	webhookHandler := NewWebhookHandler(store, webhookDispatcher)
 	events.SetPublisher(webhookDispatcher)
 
-	// Start webhook delivery retry loop
+	// Start webhook delivery retry loop (stops with the server context)
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			webhookDispatcher.RetryPending(context.Background())
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				webhookDispatcher.RetryPending(ctx)
+			}
 		}
 	}()
 
-	// Periodic fleet-wide update scan (every 24h); the scanner was
-	// created above but ScanAll was never started, so scheduled scans
-	// never ran.
-	go scanner.ScanAll(context.Background(), 24*time.Hour)
+	// Periodic fleet-wide update scan (every 24h)
+	go scanner.ScanAll(ctx, 24*time.Hour)
 
 	// Auth routes (no auth required)
 	authGroup := r.Group("/api/auth")
@@ -85,6 +90,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		authGroup.GET("/sso/providers", ssoHandler.ListProviders)
 		authGroup.GET("/sso/:provider/authorize", ssoHandler.Authorize)
 		authGroup.GET("/sso/:provider/callback", ssoHandler.Callback)
+		authGroup.POST("/sso/exchange", ssoHandler.Exchange)
 	}
 
 	// Agent routes (device key auth via header)
@@ -155,6 +161,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		protected.PUT("/auth/profile", authHandler.UpdateProfile)
 		protected.PUT("/auth/password", authHandler.UpdatePassword)
 		protected.DELETE("/auth/me", authHandler.DeleteAccount)
+		protected.POST("/auth/logout", authHandler.Logout)
 
 		// Monitoring data (Danger Zone: clear all metrics + alerts)
 		protected.DELETE("/monitoring/data", RequireRole("admin"), deviceHandler.ClearMonitoringData)
@@ -165,6 +172,8 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		protected.DELETE("/devices/:id", RequireRole("admin"), deviceHandler.DeleteDevice)
 		protected.GET("/devices/:id/metrics", deviceHandler.GetLatestMetrics)
 		protected.GET("/devices/:id/metrics/history", deviceHandler.GetMetricsHistory)
+		protected.POST("/devices/:id/stream", deviceHandler.StartStream)
+		protected.POST("/devices/:id/stream/stop", deviceHandler.StopStream)
 
 		// Alert routes
 		protected.GET("/alerts", alertHandler.ListAlerts)
@@ -191,14 +200,14 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 			userGroup.DELETE("/:id", RequireRole("admin"), userHandler.DeleteUser)
 		}
 
-		// Session routes
-		protected.POST("/devices/:id/sessions", sessionHandler.StartSession)
+		// Session routes: starting a session and sending input are
+		// remote-control operations, so plain viewers cannot drive them (C1).
+		// Ending someone else's session needs the same control role.
+		protected.POST("/devices/:id/sessions", RequireAnyRole("admin", "manager", "technician"), sessionHandler.StartSession)
 		protected.GET("/sessions", sessionHandler.ListSessions)
-		protected.POST("/sessions/:id/answer", sessionHandler.SubmitAnswer)
-		protected.POST("/sessions/:id/ice", sessionHandler.AddICECandidate)
-		protected.POST("/sessions/:id/input", sessionHandler.SendInput)
-		protected.POST("/sessions/:id/quality", sessionHandler.SetQuality)
-		protected.DELETE("/sessions/:id", sessionHandler.EndSession)
+		protected.POST("/sessions/:id/input", RequireAnyRole("admin", "manager", "technician"), sessionHandler.SendInput)
+		protected.POST("/sessions/:id/quality", RequireAnyRole("admin", "manager", "technician"), sessionHandler.SetQuality)
+		protected.DELETE("/sessions/:id", RequireAnyRole("admin", "manager", "technician"), sessionHandler.EndSession)
 
 		// Agent-facing session frame upload: the agent authenticates with the
 		// X-Device-Key header (no JWT), so this route is registered outside the
@@ -213,6 +222,7 @@ func SetupRouter(store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine 
 		protected.GET("/patch/policies", patchHandler.ListPolicies)
 		protected.POST("/patch/policies", RequireRole("admin"), patchHandler.CreatePolicy)
 		protected.GET("/patch/deployments", patchHandler.ListDeployments)
+		protected.GET("/patch/deployments/:id/results", patchHandler.ListDeploymentResults)
 		protected.POST("/patch/deploy", RequireAnyRole("admin", "manager"), patchHandler.DeployNow)
 		protected.POST("/patch/deployments/:id/rollback", RequireAnyRole("admin", "manager"), patchHandler.RollbackDeployment)
 

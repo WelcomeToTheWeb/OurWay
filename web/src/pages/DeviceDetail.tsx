@@ -21,7 +21,7 @@ import {
   RefreshCw,
   Key,
 } from 'lucide-react';
-import { getDevice, deleteDevice, rebootDevice } from '../api/devices';
+import { getDevice, deleteDevice, rebootDevice, startDeviceStream, stopDeviceStream } from '../api/devices';
 import { startSession } from '../api/sessions';
 import type { Session } from '../api/sessions';
 import { Gauge } from '../components/Gauge';
@@ -65,7 +65,6 @@ export function DeviceDetail() {
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
-  const [sessionOffer, setSessionOffer] = useState<string | null>(null);
   const [startingSession, setStartingSession] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -129,8 +128,8 @@ export function DeviceDetail() {
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      const url = `${protocol}//${host}/ws?token=${encodeURIComponent(accessToken)}`;
-      const ws = new WebSocket(url);
+      const url = `${protocol}//${host}/ws`;
+      const ws = new WebSocket(url, ['ourway-auth', accessToken]);
       wsRef.current = ws;
 
       ws.onopen = () => setConnected(true);
@@ -167,6 +166,18 @@ export function DeviceDetail() {
       if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
     };
   }, [id, accessToken]);
+
+  // H5: while the detail page is open, switch the device to 2 s
+  // streaming metrics; revert to the normal interval when leaving.
+  // 503s (offline device) are harmless: the interval resets on the
+  // agent's next connection.
+  useEffect(() => {
+    if (!id) return;
+    startDeviceStream(id, 2).catch(() => {});
+    return () => {
+      stopDeviceStream(id).catch(() => {});
+    };
+  }, [id]);
 
   const latestMetrics: Metrics | null = useMemo(() => {
     if (!history || history.cpu.length === 0) return null;
@@ -226,9 +237,8 @@ export function DeviceDetail() {
     if (!device) return;
     setStartingSession(true);
     try {
-      const { session, offer } = await startSession(device.id);
+      const { session } = await startSession(device.id);
       setSession(session);
-      setSessionOffer(offer);
     } catch (err) {
       setError(`Failed to start session: ${(err as Error).message}`);
     } finally {
@@ -338,14 +348,10 @@ export function DeviceDetail() {
       </div>
 
       {/* Remote Session View */}
-      {session && sessionOffer && (
+      {session && (
         <SessionView
           session={session}
-          offer={sessionOffer}
-          onClose={() => {
-            setSession(null);
-            setSessionOffer(null);
-          }}
+          onClose={() => setSession(null)}
         />
       )}
 

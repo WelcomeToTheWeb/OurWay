@@ -97,7 +97,7 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 		if err != nil {
 			log.Printf("patching: failed to get device %s: %v", deviceID, err)
 			// Unknown device: count it as failed so the deployment can finish.
-			d.recordResult(deployment.ID, deviceID, "failed")
+			d.recordResult(deployment.ID, deviceID, "deploy", "failed", "device not found")
 			continue
 		}
 
@@ -115,7 +115,7 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 			// failure now so the deployment is not left "running" waiting
 			// for a report that will never come.
 			log.Printf("patching: failed to send deploy to device %s: %v", device.Name, err)
-			d.recordResult(deployment.ID, deviceID, "failed")
+			d.recordResult(deployment.ID, deviceID, "deploy", "failed", "deploy command not delivered (device unreachable)")
 		}
 	}
 
@@ -129,11 +129,19 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 
 // recordResult stores a per-device outcome and reconciles the deployment
 // counters. It is idempotent: the same outcome reported twice moves the
-// counters once.
-func (d *Deployer) recordResult(deploymentID, deviceID, result string) {
-	changed, err := d.store.DeploymentResults.UpsertResult(deploymentID, deviceID, result)
+// counters once. Rollback-kind results only update the stored row: they
+// arrive after the deployment has finished, so they must not alter the
+// deploy-phase counters or completion state.
+func (d *Deployer) recordResult(deploymentID, deviceID, kind, result, message string) {
+	if kind == "" {
+		kind = "deploy"
+	}
+	changed, err := d.store.DeploymentResults.UpsertResult(deploymentID, deviceID, kind, result, message)
 	if err != nil {
 		log.Printf("patching: failed to record result for %s/%s: %v", deploymentID, deviceID, err)
+		return
+	}
+	if kind == "rollback" {
 		return
 	}
 	if changed {
@@ -155,8 +163,9 @@ func (d *Deployer) recordResult(deploymentID, deviceID, result string) {
 // ReportResult records a per-device deployment result and transitions the
 // deployment to "completed" (all successes) or "failed" (any failure) once
 // every targeted device has reported. Repeated reports for the same
-// (deployment, device) pair are idempotent.
-func (d *Deployer) ReportResult(deploymentID, deviceID, result string) error {
-	d.recordResult(deploymentID, deviceID, result)
+// (deployment, device) pair are idempotent. kind is "deploy" or
+// "rollback"; message is optional detail from the agent.
+func (d *Deployer) ReportResult(deploymentID, deviceID, kind, result, message string) error {
+	d.recordResult(deploymentID, deviceID, kind, result, message)
 	return nil
 }

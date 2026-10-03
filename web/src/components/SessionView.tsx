@@ -1,151 +1,36 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { X, MousePointer2, Keyboard, Monitor, Settings } from 'lucide-react';
-import { submitAnswer, addICECandidate, sendInput, endSession, setQuality as setSessionQuality } from '../api/sessions';
+import { sendInput, endSession, setQuality as setSessionQuality } from '../api/sessions';
 import type { Session } from '../api/sessions';
 import { useAuth } from '../auth/context';
 
 interface SessionViewProps {
   session: Session;
-  offer: string;
   onClose: () => void;
 }
 
 type SessionMode = 'view' | 'control';
 
-export function SessionView({ session, offer, onClose }: SessionViewProps) {
+export function SessionView({ session, onClose }: SessionViewProps) {
   const { accessToken } = useAuth();
   const frameRef = useRef<HTMLImageElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const dataChRef = useRef<RTCDataChannel | null>(null);
   const [status, setStatus] = useState<'connecting' | 'active' | 'ended'>('connecting');
   const [mode, setMode] = useState<SessionMode>('view');
   const [quality, setQualityValue] = useState(80);
   const [showSettings, setShowSettings] = useState(false);
   const [frame, setFrame] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Parse the offer and set up WebRTC connection
-  useEffect(() => {
-    let cancelled = false;
-
-    const setupConnection = async () => {
-      try {
-        // Create RTCPeerConnection
-        const pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-          ],
-        });
-        pcRef.current = pc;
-
-        // Handle incoming tracks (video stream from device)
-        pc.ontrack = (event) => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = event.streams[0];
-          }
-        };
-
-        // Handle ICE candidates
-        pc.onicecandidate = (event) => {
-          if (event.candidate) {
-            addICECandidate(session.id, JSON.stringify(event.candidate)).catch(console.error);
-          }
-        };
-
-        // Handle connection state
-        pc.onconnectionstatechange = () => {
-          if (cancelled) return;
-          // The screen stream rides the WebSocket, not this
-          // PeerConnection — the PC is only a data-channel transport, so
-          // a data-channel-only ICE/STUN failure (no TURN, hairpin NAT)
-          // must not end the session. Only an explicit close does;
-          // failures are logged while the WS stream carries on.
-          switch (pc.connectionState) {
-            case 'connected':
-              setStatus('active');
-              break;
-            case 'failed':
-            case 'disconnected':
-              console.warn('WebRTC data channel unavailable; using WebSocket stream only');
-              break;
-            case 'closed':
-              setStatus('ended');
-              break;
-          }
-        };
-
-        // Create data channel for input events
-        const dataCh = pc.createDataChannel('ourway-session', { ordered: true });
-        dataChRef.current = dataCh;
-
-        dataCh.onopen = () => {
-          setStatus('active');
-        };
-
-        dataCh.onmessage = (event) => {
-          // Handle screen frames from device
-          if (event.data instanceof ArrayBuffer) {
-            // Render data-channel frames through the same <img> path used
-            // for WS frames (single source of truth for the video).
-            const blob = new Blob([event.data], { type: 'image/jpeg' });
-            const reader = new FileReader();
-            reader.onload = () => setFrame(reader.result as string);
-            reader.readAsDataURL(blob);
-          } else {
-            // Handle JSON messages
-            try {
-              const msg = JSON.parse(event.data);
-              if (msg.type === 'session_end') {
-                setStatus('ended');
-              }
-            } catch {
-              // Ignore parse errors
-            }
-          }
-        };
-
-        // Set the remote offer
-        const offerDesc = JSON.parse(offer);
-        await pc.setRemoteDescription(offerDesc);
-
-        // Create and send answer
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await submitAnswer(session.id, JSON.stringify(answer));
-
-      } catch (err) {
-        if (!cancelled) {
-          setError(`Failed to connect: ${(err as Error).message}`);
-          setStatus('ended');
-        }
-      }
-    };
-
-    setupConnection();
-
-    return () => {
-      cancelled = true;
-      if (pcRef.current) {
-        pcRef.current.close();
-      }
-      if (dataChRef.current) {
-        dataChRef.current.close();
-      }
-    };
-  }, [session.id, offer]);
 
   // Receive screen frames over the reliable user WebSocket: the server
   // relays agent frames as "session_frame" events (base64 JPEG). The
-  // WebRTC data channel path is not complete yet, so WS is the source of
-  // truth for the video.
+  // WebRTC data-channel path was removed (H4); WS is the only video
+  // transport.
   useEffect(() => {
     if (!accessToken) return;
     let cancelled = false;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(accessToken)}`;
-    const ws = new WebSocket(url);
+    const url = `${protocol}//${window.location.host}/ws`;
+    const ws = new WebSocket(url, ['ourway-auth', accessToken]);
 
     ws.onmessage = (event) => {
       if (cancelled) return;
@@ -288,13 +173,6 @@ export function SessionView({ session, offer, onClose }: SessionViewProps) {
             className="flex-1"
           />
           <span className="text-gray-300 text-sm w-8">{quality}%</span>
-        </div>
-      )}
-
-      {/* Error banner */}
-      {error && (
-        <div className="mx-4 mt-2 bg-red-900/50 border border-red-700 rounded p-2 text-red-300 text-sm">
-          {error}
         </div>
       )}
 

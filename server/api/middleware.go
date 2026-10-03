@@ -33,6 +33,26 @@ func AuthMiddleware(jwtAuth *auth.JWTAuth) gin.HandlerFunc {
 	}
 }
 
+// hasRole reports whether the authenticated user on this context holds
+// the given role. Used by handlers that need a role-based branch
+// (e.g. ListSessions) instead of a middleware that aborts.
+func hasRole(c *gin.Context, role string) bool {
+	roles, exists := c.Get("roles")
+	if !exists {
+		return false
+	}
+	userRoles, ok := roles.([]string)
+	if !ok {
+		return false
+	}
+	for _, r := range userRoles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
 // RequireRole checks that the authenticated user has the specified role.
 func RequireRole(role string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -90,21 +110,5 @@ func RequireAnyRole(roles ...string) gin.HandlerFunc {
 
 		c.JSON(403, gin.H{"error": "insufficient permissions"})
 		c.Abort()
-	}
-}
-
-// DeviceKeyMiddleware validates the device API key from the X-Device-Key header.
-func DeviceKeyMiddleware(store interface {
-	GetDeviceByKey(string) (interface{}, error)
-}) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		deviceKey := c.GetHeader("X-Device-Key")
-		if deviceKey == "" {
-			c.JSON(401, gin.H{"error": "missing device key"})
-			c.Abort()
-			return
-		}
-		c.Set("device_key", deviceKey)
-		c.Next()
 	}
 }

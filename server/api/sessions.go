@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -13,28 +12,31 @@ import (
 
 	"ourway/server/events"
 	"ourway/server/models"
-	"ourway/server/sessions"
 	"ourway/server/store"
 	"ourway/server/ws"
 )
 
 // SessionHandler handles session-related API endpoints.
 type SessionHandler struct {
-	store   *store.Store
-	gateway *sessions.Gateway
-	hub     *ws.Hub
+	store *store.Store
+	hub   *ws.Hub
 }
 
 // NewSessionHandler creates a new session handler.
-func NewSessionHandler(store *store.Store, gateway *sessions.Gateway, hub *ws.Hub) *SessionHandler {
+func NewSessionHandler(store *store.Store, hub *ws.Hub) *SessionHandler {
 	return &SessionHandler{
-		store:   store,
-		gateway: gateway,
-		hub:     hub,
+		store: store,
+		hub:   hub,
 	}
 }
 
 // StartSession starts a new remote session with a device.
+//
+// The session is created "pending" and flips to "active" when the agent
+// delivers its first frame (ReportFrame). There is no WebRTC handshake:
+// frames travel over HTTP and input over the device WebSocket, so the
+// browser can render the screen as soon as the first frame arrives.
+//
 // POST /api/devices/:id/sessions
 func (h *SessionHandler) StartSession(c *gin.Context) {
 	deviceID := c.Param("id")
@@ -72,33 +74,6 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 		return
 	}
 
-	// Create WebRTC peer connection
-	if _, err := h.gateway.CreatePeerConnection(session.ID, deviceID, userID); err != nil {
-		c.JSON(500, gin.H{"error": "failed to create peer connection"})
-		return
-	}
-
-	// Create offer
-	offerJSON, err := h.gateway.CreateOffer(session.ID)
-	if err != nil {
-		// The peer connection was already registered in the gateway, so
-		// close it to avoid leaking the Pion PC (ICE agents, timers) and
-		// the gateway map entry.
-		if closeErr := h.gateway.CloseSession(session.ID); closeErr != nil {
-			log.Printf("sessions: failed to close session %s after offer error: %v", session.ID, closeErr)
-		}
-		c.JSON(500, gin.H{"error": "failed to create offer"})
-		return
-	}
-
-	// Update session with offer
-	if err := json.Unmarshal([]byte(offerJSON), &struct{}{}); err == nil {
-		session.OfferSDP = offerJSON
-		if err := h.store.Sessions.Update(session); err != nil {
-			log.Printf("failed to update session with offer: %v", err)
-		}
-	}
-
 	// Tell the device to start capturing: the agent's capture loop only
 	// runs after it receives "session_start" on its WS connection. The
 	// server URL is included so the agent knows where to upload frames.
@@ -122,7 +97,6 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 
 	c.JSON(200, gin.H{
 		"session": session,
-		"offer":   offerJSON,
 	})
 }
 
@@ -146,68 +120,6 @@ func (h *SessionHandler) authorizeSessionAccess(c *gin.Context, sessionID string
 	return session, true
 }
 
-// SubmitAnswer handles the browser's answer to the session offer.
-// POST /api/sessions/:id/answer
-func (h *SessionHandler) SubmitAnswer(c *gin.Context) {
-	sessionID := c.Param("id")
-
-	if _, ok := h.authorizeSessionAccess(c, sessionID); !ok {
-		return
-	}
-
-	var req struct {
-		Answer string `json:"answer" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "invalid request body"})
-		return
-	}
-
-	if err := h.gateway.SetRemoteAnswer(sessionID, req.Answer); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Update session status
-	session, err := h.store.Sessions.GetByID(sessionID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "session not found"})
-		return
-	}
-
-	session.Status = "active"
-	if err := h.store.Sessions.Update(session); err != nil {
-		log.Printf("failed to update session status: %v", err)
-	}
-
-	c.JSON(200, gin.H{"status": "ok"})
-}
-
-// AddICECandidate handles ICE candidate exchange.
-// POST /api/sessions/:id/ice
-func (h *SessionHandler) AddICECandidate(c *gin.Context) {
-	sessionID := c.Param("id")
-
-	if _, ok := h.authorizeSessionAccess(c, sessionID); !ok {
-		return
-	}
-
-	var req struct {
-		Candidate string `json:"candidate" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "invalid request body"})
-		return
-	}
-
-	if err := h.gateway.AddICECandidate(sessionID, req.Candidate); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(200, gin.H{"status": "ok"})
-}
-
 // EndSession ends an active session.
 // DELETE /api/sessions/:id
 func (h *SessionHandler) EndSession(c *gin.Context) {
@@ -216,17 +128,6 @@ func (h *SessionHandler) EndSession(c *gin.Context) {
 	session, ok := h.authorizeSessionAccess(c, sessionID)
 	if !ok {
 		return
-	}
-
-	// Close the WebRTC peer connection if one is live on this instance.
-	// After a server restart the in-memory gateway is empty — in that case
-	// ending the session must still succeed (it is already effectively
-	// over) so clients can reliably clean up.
-	if _, live := h.gateway.GetSession(sessionID); live {
-		if err := h.gateway.CloseSession(sessionID); err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
-			return
-		}
 	}
 
 	if err := h.store.Sessions.EndSession(sessionID); err != nil {
@@ -288,8 +189,8 @@ func (h *SessionHandler) SendInput(c *gin.Context) {
 }
 
 // ReportFrame receives a screen frame (raw JPEG body) from the agent and
-// relays it to the browsers connected to the session. This is the reliable
-// frame path while the WebRTC data channel is not complete.
+// relays it to the session owner's browser connection. This is the frame
+// path for remote sessions.
 // POST /api/sessions/:id/frame (device key auth via X-Device-Key, like /api/agent/*)
 func (h *SessionHandler) ReportFrame(c *gin.Context) {
 	deviceKey := c.GetHeader("X-Device-Key")
@@ -315,6 +216,19 @@ func (h *SessionHandler) ReportFrame(c *gin.Context) {
 		return
 	}
 
+	// M2: reject frames for sessions that are no longer live so a
+	// late/looping agent can't stream (or burn bandwidth on) an ended
+	// session, and the first frame flips pending -> active.
+	if session.Status == "pending" {
+		session.Status = "active"
+		if err := h.store.Sessions.Update(session); err != nil {
+			log.Printf("sessions: failed to mark session %s active: %v", sessionID, err)
+		}
+	} else if session.Status != "active" {
+		c.JSON(409, gin.H{"error": "session is not active"})
+		return
+	}
+
 	// Raw JPEG body, bounded to 10 MB.
 	data, err := io.ReadAll(io.LimitReader(c.Request.Body, 10<<20))
 	if err != nil || len(data) == 0 {
@@ -322,9 +236,8 @@ func (h *SessionHandler) ReportFrame(c *gin.Context) {
 		return
 	}
 
-	// Relay only to the session owner's browser connection. Previously this
-	// broadcast to every connected user, letting any authenticated client
-	// watch another user's live session.
+	// Relay only to the session owner's browser connection so no other
+	// authenticated client can watch a live session.
 	frameMsg := gin.H{
 		"session_id": sessionID,
 		"device_id":  session.DeviceID,
@@ -379,10 +292,22 @@ func (h *SessionHandler) SetQuality(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok"})
 }
 
-// ListSessions returns all pending and active sessions.
+// ListSessions returns live sessions. Non-admins see only their own
+// sessions; admins see every pending and active session fleet-wide (M6).
 // GET /api/sessions
 func (h *SessionHandler) ListSessions(c *gin.Context) {
-	sessions, err := h.store.Sessions.ListActiveAll()
+	userIDVal, _ := c.Get("user_id")
+	userID, _ := userIDVal.(string)
+
+	var (
+		sessions []models.Session
+		err      error
+	)
+	if hasRole(c, "admin") {
+		sessions, err = h.store.Sessions.ListActiveAll()
+	} else {
+		sessions, err = h.store.Sessions.ListActiveByUser(userID)
+	}
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list sessions"})
 		return

@@ -71,9 +71,10 @@ export function useWebSocket(token: string | null) {
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      const url = `${protocol}//${host}/ws?token=${encodeURIComponent(token)}`;
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
+      const url = `${protocol}//${host}/ws`;
+      // C5: the token travels in the subprotocol list, not the query
+      // string (query strings land in access logs and proxy logs).
+      const ws = new WebSocket(url, ['ourway-auth', token]);
 
       ws.onopen = () => setConnected(true);
 

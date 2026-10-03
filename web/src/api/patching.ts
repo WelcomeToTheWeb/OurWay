@@ -1,5 +1,5 @@
 import client from './client';
-import type { SoftwareUpdate, PatchPolicy, PatchDeployment } from '../types/patch';
+import type { SoftwareUpdate, PatchPolicy, PatchDeployment, DeploymentResult } from '../types/patch';
 
 export const getDeviceUpdates = (deviceId: string) =>
   client
@@ -44,3 +44,8 @@ export const rollbackDeployment = (deploymentId: string) =>
   client
     .post<{ deployment_id: string; status: string }>(`/patch/deployments/${deploymentId}/rollback`)
     .then((r) => r.data);
+
+export const listDeploymentResults = (deploymentId: string) =>
+  client
+    .get<{ results: DeploymentResult[] }>(`/patch/deployments/${deploymentId}/results`)
+    .then((r) => r.data.results);

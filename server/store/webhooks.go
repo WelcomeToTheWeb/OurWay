@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"time"
 
 	"gorm.io/gorm"
@@ -50,11 +51,31 @@ func (s *WebhookStore) Delete(id string) error {
 	return s.db.Delete(&models.Webhook{}, "id = ?", id).Error
 }
 
-// ListByEvent returns webhooks subscribed to a specific event.
+// ListByEvent returns webhooks subscribed to a specific event. The event
+// list is stored as a JSON array string; membership is checked exactly in
+// Go rather than with a SQL LIKE on the serialized array, so
+// "device_online" never substring-matches a "device_online_v2"
+// subscription (M12).
 func (s *WebhookStore) ListByEvent(event string) ([]models.Webhook, error) {
-	var webhooks []models.Webhook
-	err := s.db.Where("enabled = ? AND events LIKE ?", true, "%\""+event+"\"%").Find(&webhooks).Error
-	return webhooks, err
+	var all []models.Webhook
+	if err := s.db.Where("enabled = ?", true).Find(&all).Error; err != nil {
+		return nil, err
+	}
+
+	var out []models.Webhook
+	for _, w := range all {
+		var events []string
+		if json.Unmarshal([]byte(w.Events), &events) != nil {
+			continue
+		}
+		for _, e := range events {
+			if e == event {
+				out = append(out, w)
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 // WebhookDeliveryStore provides operations for webhook deliveries.

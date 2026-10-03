@@ -91,6 +91,8 @@ func (h *AgentPatchHandler) ReportDeploymentResult(c *gin.Context) {
 		DeviceID     string `json:"device_id" binding:"required"`
 		DeploymentID string `json:"deployment_id" binding:"required"`
 		Result       string `json:"result" binding:"required"`
+		Kind         string `json:"kind"`
+		Message      string `json:"message"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -102,7 +104,7 @@ func (h *AgentPatchHandler) ReportDeploymentResult(c *gin.Context) {
 		return
 	}
 
-	if err := h.deployer.ReportResult(req.DeploymentID, req.DeviceID, req.Result); err != nil {
+	if err := h.deployer.ReportResult(req.DeploymentID, req.DeviceID, req.Kind, req.Result, req.Message); err != nil {
 		c.JSON(500, gin.H{"error": "failed to record deployment result"})
 		return
 	}
@@ -111,7 +113,17 @@ func (h *AgentPatchHandler) ReportDeploymentResult(c *gin.Context) {
 		"deployment_id": req.DeploymentID,
 		"device_id":     req.DeviceID,
 		"result":        req.Result,
+		"kind":          kindOrDefault(req.Kind),
+		"message":       req.Message,
 	})
 
 	c.JSON(200, gin.H{"status": "ok"})
+}
+
+// kindOrDefault normalizes an empty kind to "deploy".
+func kindOrDefault(kind string) string {
+	if kind == "" {
+		return "deploy"
+	}
+	return kind
 }

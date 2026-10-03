@@ -60,9 +60,14 @@ func (h *APIKeyHandler) CreateKey(c *gin.Context) {
 	}
 
 	if req.Expires != "" && req.Expires != "never" {
-		if exp, err := parseExpiration(req.Expires); err == nil {
-			key.ExpiresAt = &exp
+		exp, err := parseExpiration(req.Expires)
+		if err != nil {
+			// An unparseable expiration must not silently produce a
+			// never-expiring key (L2).
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
+		key.ExpiresAt = &exp
 	}
 
 	if err := h.store.APIKeys.Create(key); err != nil {
@@ -222,9 +227,12 @@ func (h *APIKeyHandler) RotateKey(c *gin.Context) {
 			return
 		}
 		if req.Expires != "" && req.Expires != "never" {
-			if exp, err := parseExpiration(req.Expires); err == nil {
-				key.ExpiresAt = &exp
+			exp, err := parseExpiration(req.Expires)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
 			}
+			key.ExpiresAt = &exp
 		}
 	}
 

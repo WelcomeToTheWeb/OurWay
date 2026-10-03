@@ -6,10 +6,12 @@ import (
 	"io"
 	"net/http"
 	"testing"
+
+	"ourway/server/models"
 )
 
 func TestUserList(t *testing.T) {
-	ts, _, jwtAuth := newTestServer(t)
+	ts, st, jwtAuth := newTestServer(t)
 
 	regResp := registerUser(t, ts.URL, "testuser", "test@example.com", "password123")
 	regBody, _ := io.ReadAll(regResp.Body)
@@ -17,12 +19,15 @@ func TestUserList(t *testing.T) {
 	t.Logf("Register testuser: %d %s", regResp.StatusCode, string(regBody))
 
 	token, _ := jwtAuth.GenerateToken("test-user-id", "testuser", []string{"admin"})
-
-	// Create another user
-	regResp2 := registerUser(t, ts.URL, "user2", "user2@example.com", "password123")
-	regBody2, _ := io.ReadAll(regResp2.Body)
-	regResp2.Body.Close()
-	t.Logf("Register user2: %d %s", regResp2.StatusCode, string(regBody2))
+	// Create another user directly: API registration is first-run only (C1).
+	if err := st.Users.Create(&models.User{
+		ID:           "user2-id",
+		Username:     "user2",
+		Email:        "user2@example.com",
+		PasswordHash: "hash",
+	}); err != nil {
+		t.Fatalf("failed to create user2: %v", err)
+	}
 
 	req, _ := http.NewRequest("GET", ts.URL+"/api/users", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -104,12 +109,19 @@ func TestUserUpdate(t *testing.T) {
 }
 
 func TestUserDelete(t *testing.T) {
-	ts, _, jwtAuth := newTestServer(t)
+	ts, st, jwtAuth := newTestServer(t)
 	registerUser(t, ts.URL, "testuser", "test@example.com", "password123")
 	token, _ := jwtAuth.GenerateToken("test-user-id", "testuser", []string{"admin"})
 
-	// Create user to delete
-	registerUser(t, ts.URL, "tempuser", "temp@example.com", "password123")
+	// Create user to delete directly: API registration is first-run only (C1).
+	if err := st.Users.Create(&models.User{
+		ID:           "temp-user-id",
+		Username:     "tempuser",
+		Email:        "temp@example.com",
+		PasswordHash: "hash",
+	}); err != nil {
+		t.Fatalf("failed to create tempuser: %v", err)
+	}
 
 	// Find the temp user
 	req, _ := http.NewRequest("GET", ts.URL+"/api/users", nil)

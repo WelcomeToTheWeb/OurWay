@@ -43,8 +43,8 @@ func (m *MockAlertStore) GetByID(id string) (*models.Alert, error) {
 func (m *MockAlertStore) MarkResolved(id string) error {
 	for _, a := range m.alerts {
 		if a.ID == id {
-			a.Resolved = true
-			a.ResolvedAt = time.Now()
+			now := time.Now()
+			a.ResolvedAt = &now
 			return nil
 		}
 	}
@@ -55,8 +55,8 @@ func (m *MockAlertStore) Acknowledge(id, userID string) error {
 	for _, a := range m.alerts {
 		if a.ID == id {
 			a.Acknowledged = true
-			a.AcknowledgedBy = userID
-			a.AcknowledgedAt = time.Now()
+			now := time.Now()
+			a.AcknowledgedAt = &now
 			return nil
 		}
 	}

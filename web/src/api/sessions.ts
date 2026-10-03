@@ -1,31 +1,28 @@
 import client from './client';
 
+// H4: frames travel over the user WebSocket (server-relayed) and input
+// over POST /api/sessions/:id/input — no WebRTC SDP/ICE state exists.
 export interface Session {
   id: string;
   device_id: string;
   user_id: string;
   status: string;
-  offer_sdp: string;
-  answer_sdp: string;
-  ice_candidates: string[];
   created_at: string;
   ended_at: string | null;
 }
 
+// Payloads accepted by the agent's input handler.
+export type InputPayload =
+  | { event: 'move' | 'click'; x: number; y: number; button?: 'left' | 'right' }
+  | { event: 'scroll'; delta: number }
+  | { event: 'down' | 'up'; key: string; code: string };
+
 export const startSession = (deviceId: string) =>
   client
-    .post<{ session: Session; offer: string }>(`/devices/${deviceId}/sessions`)
+    .post<{ session: Session }>(`/devices/${deviceId}/sessions`)
     .then((r) => r.data);
 
-export const submitAnswer = (sessionId: string, answer: string) =>
-  client.post(`/sessions/${sessionId}/answer`, { answer }).then((r) => r.data);
-
-export const addICECandidate = (sessionId: string, candidate: string) =>
-  client
-    .post(`/sessions/${sessionId}/ice`, { candidate })
-    .then((r) => r.data);
-
-export const sendInput = (sessionId: string, type: string, payload: any) =>
+export const sendInput = (sessionId: string, type: 'mouse' | 'key', payload: InputPayload) =>
   client.post(`/sessions/${sessionId}/input`, { type, payload }).then((r) => r.data);
 
 export const setQuality = (sessionId: string, quality: number) =>

@@ -324,6 +324,13 @@
     "devicesCount": "{{success}}/{{total}} Geräte",
     "failedCount": "{{count}} fehlgeschlagen",
     "percentComplete": "{{progress}}% abgeschlossen",
+    "results": "Ergebnisse pro Gerät",
+    "noResults": "Noch keine Ergebnisse erfasst",
+    "kindDeploy": "Deployment",
+    "kindRollback": "Rückgängig",
+    "resultSuccess": "erfolgreich",
+    "resultFailed": "fehlgeschlagen",
+    "rollback": "Rückgängig",
     "deployStatuses": {
       "running": "Läuft",
       "completed": "Abgeschlossen",
