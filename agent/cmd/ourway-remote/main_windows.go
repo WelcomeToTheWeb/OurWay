@@ -212,6 +212,19 @@ func main() {
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
+		if useToken {
+			// Frames ride the already-open WebSocket as binary messages:
+			// no per-frame HTTP request or TLS/connection churn.
+			wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
+			werr := conn.Write(wctx, websocket.MessageBinary, frame)
+			wcancel()
+			if werr != nil {
+				log.Printf("ourway-remote: frame write failed: %v; ending", werr)
+				return
+			}
+			time.Sleep(interval)
+			continue
+		}
 		req, err := http.NewRequestWithContext(ctx, "POST", frameURL, bytes.NewReader(frame))
 		if err != nil {
 			continue

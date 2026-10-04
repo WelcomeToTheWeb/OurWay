@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -476,6 +477,9 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	var clientID string
 	var clientType string
 	var deviceKey string
+	// remoteSession is set for a remote exe authenticated with a
+	// per-session token; only those connections may stream frames.
+	var remoteSession *models.Session
 
 	if claims, err := jwtAuth.ValidateToken(credential); err == nil {
 		// User (browser) connection: registered under the user's stable
@@ -494,6 +498,7 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		deviceKey = dev.DeviceKey
 		clientType = "remote"
 		clientID = "remote:" + dev.DeviceKey
+		remoteSession = sess
 	} else if _, err := store.Devices.GetByKey(credential); err == nil {
 		// Reject unknown device keys before accepting the connection.
 		// A device key with the remote marker is still accepted for
@@ -522,6 +527,12 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		log.Printf("ws: accept failed: %v", err)
 		c.JSON(400, gin.H{"error": "websocket accept failed"})
 		return
+	}
+
+	if remoteSession != nil {
+		// Frames arrive as binary messages; the default 32 KiB read
+		// limit would reject nearly every JPEG.
+		conn.SetReadLimit(maxFrameBytes)
 	}
 
 	client := &Client{
@@ -652,6 +663,7 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 
 	// Receiver loop
 	ctx := c.Request.Context()
+	var fs frameState
 	for {
 		// Devices are expected to send a 15s heartbeat; drop a device
 		// connection that goes silent for 60s (e.g. blackholed peer) so the
@@ -667,12 +679,23 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		case "user", "remote":
 			readCtx, cancelRead = context.WithTimeout(ctx, 120*time.Second)
 		}
-		_, data, err := conn.Read(readCtx)
+		msgType, data, err := conn.Read(readCtx)
 		if cancelRead != nil {
 			cancelRead()
 		}
 		if err != nil {
 			return
+		}
+
+		// Binary messages from the remote exe are raw JPEG frames.
+		if msgType == websocket.MessageBinary {
+			if remoteSession != nil && clientType == "remote" {
+				if !h.relayRemoteFrame(store, remoteSession, &fs, data) {
+					conn.Close(websocket.StatusPolicyViolation, "session ended")
+					return
+				}
+			}
+			continue
 		}
 
 		var msg Message
@@ -700,6 +723,53 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 			}
 		}
 	}
+}
+
+// maxFrameBytes bounds one binary frame from the remote exe (matches
+// the 10 MB limit on the HTTP frame endpoint).
+const maxFrameBytes = 10 << 20
+
+// frameState is per-connection bookkeeping for relayRemoteFrame.
+type frameState struct {
+	checked time.Time
+}
+
+// relayRemoteFrame forwards one JPEG frame from a remote exe to the
+// session owner's browser, like POST /api/sessions/:id/frame. The
+// session row is re-read at most every 2 s (not per frame) to flip
+// pending -> active on the first frame and to notice that the session
+// ended. It returns false when the session is no longer live and the
+// connection should be closed.
+func (h *Hub) relayRemoteFrame(store *store.Store, sess *models.Session, fs *frameState, jpeg []byte) bool {
+	if len(jpeg) == 0 {
+		return true
+	}
+	if time.Since(fs.checked) > 2*time.Second {
+		cur, err := store.Sessions.GetByID(sess.ID)
+		if err != nil || (cur.Status != "pending" && cur.Status != "active") {
+			return false
+		}
+		if cur.Status == "pending" {
+			cur.Status = "active"
+			if err := store.Sessions.Update(cur); err != nil {
+				log.Printf("ws: failed to mark session %s active: %v", cur.ID, err)
+			}
+		}
+		fs.checked = time.Now()
+	}
+	// Only the session owner receives frames.
+	if err := h.SendToUser(sess.UserID, "session_frame", map[string]interface{}{
+		"session_id": sess.ID,
+		"device_id":  sess.DeviceID,
+		"data":       base64.StdEncoding.EncodeToString(jpeg),
+	}); err != nil {
+		log.Printf("ws: dropping frame for session %s: %v", sess.ID, err)
+	}
+	events.Publish("session_frame", map[string]interface{}{
+		"session_id": sess.ID,
+		"device_id":  sess.DeviceID,
+	})
+	return true
 }
 
 // wsCredential extracts the credential from the Sec-WebSocket-Protocol
