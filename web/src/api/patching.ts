@@ -26,7 +26,7 @@ export const listPolicies = () =>
     .get<{ policies: PatchPolicy[] }>('/patch/policies')
     .then((r) => r.data.policies);
 
-export const createPolicy = (data: {
+export interface PolicyInput {
   name: string;
   scope?: string;
   scope_value?: string;
@@ -34,8 +34,19 @@ export const createPolicy = (data: {
   auto_reboot?: boolean;
   approval_required?: boolean;
   max_devices_per_batch?: number;
-}) =>
+  window_start?: string;
+  window_hours?: number;
+  timezone?: string;
+}
+
+export const createPolicy = (data: PolicyInput) =>
   client.post<{ policy: PatchPolicy }>('/patch/policies', data).then((r) => r.data.policy);
+
+export const updatePolicy = (id: string, data: PolicyInput) =>
+  client.put<{ policy: PatchPolicy }>(`/patch/policies/${id}`, data).then((r) => r.data.policy);
+
+export const deletePolicy = (id: string) =>
+  client.delete(`/patch/policies/${id}`).then((r) => r.data);
 
 export const listDeployments = () =>
   client

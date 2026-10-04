@@ -27,13 +27,17 @@ export interface PatchPolicy {
   auto_reboot: boolean;
   approval_required: boolean;
   max_devices_per_batch: number;
+  window_start: string;
+  window_hours: number;
+  timezone: string;
+  last_run_at?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface PatchDeployment {
   id: string;
-  policy_id: string;
+  policy_id: string | null;
   status: 'pending' | 'running' | 'completed' | 'failed';
   devices_total: number;
   devices_success: number;
