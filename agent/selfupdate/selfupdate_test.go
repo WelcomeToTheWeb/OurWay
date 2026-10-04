@@ -24,6 +24,12 @@ func serve(t *testing.T, body []byte, listedHash string) *Checker {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v2/installers", func(w http.ResponseWriter, r *http.Request) {
+		// The bare agent is only listed with ?all=1 (the installer
+		// shadows it otherwise), so the checker must ask for it.
+		if r.URL.Query().Get("all") != "1" {
+			fmt.Fprint(w, `{"installers":[]}`)
+			return
+		}
 		fmt.Fprintf(w, `{"installers":[{"name":%q,"sha256":%q}]}`, artifactName(), listedHash)
 	})
 	mux.HandleFunc("/api/v2/installers/", func(w http.ResponseWriter, r *http.Request) { w.Write(body) })

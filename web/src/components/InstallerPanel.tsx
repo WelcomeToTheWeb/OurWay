@@ -163,7 +163,7 @@ export function InstallerPanel() {
               {t('devices.installerManual')}
             </p>
             <div className="flex flex-wrap gap-2">
-              {installers!.map((installer) => {
+              {installers!.filter((i) => i.kind !== 'remote').map((installer) => {
                 const Icon = osIcons[installer.os.toLowerCase()] || Monitor;
                 const isDownloading = downloading === installer.url;
                 return (

@@ -153,10 +153,22 @@ func (h *InstallerHandler) List(c *gin.Context) {
 	// For each platform, prefer the self-contained installer over the bare
 	// agent binary so the list shows one entry per os/arch. Scripts (no
 	// parsed OS) are kept as-is.
+	//
+	// Only installer/agent compete for that slot. The remote-control exe
+	// and the viewer are separate downloads that clients look up by
+	// name (the agent for its remote exe, the viewer for its own
+	// update, the console for the viewer link), so they are always
+	// listed. ?all=1 lists every artifact, including the bare agent that
+	// loses to the installer, so the agent can verify its own update.
+	all := c.Query("all") == "1"
 	seen := make(map[string]int, len(installers))
 	deduped := make([]installerInfo, 0, len(installers))
 	for _, inst := range installers {
 		if inst.OS == "" {
+			continue
+		}
+		if all || inst.Kind == "remote" || inst.Kind == "viewer" {
+			deduped = append(deduped, inst)
 			continue
 		}
 		key := inst.OS + "/" + inst.Arch

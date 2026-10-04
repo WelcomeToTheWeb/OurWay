@@ -265,12 +265,56 @@ func TestInstallerListDedupesAndSorts(t *testing.T) {
 	}
 }
 
-func TestViewerArtifactIsListedAsViewer(t *testing.T) {
-	name := "ourway-viewer-windows-amd64.exe"
-	if !installerFileRe.MatchString(name) {
-		t.Fatalf("%s must match installerFileRe", name)
+// Regression: the list used to keep one entry per os/arch, which hid the
+// viewer (and remote exe) whenever an installer existed for the same
+// platform, so the console reported "No viewer build is available" and
+// the viewer could never find its own update.
+func TestInstallerListIncludesViewerAndRemote(t *testing.T) {
+	withInstallersDir(t, map[string]string{
+		"ourway-installer-windows-amd64.exe": "installer",
+		"ourway-agent-windows-amd64.exe":     "agent",
+		"ourway-remote-windows-amd64.exe":    "remote",
+		"ourway-viewer-windows-amd64.exe":    "viewer",
+	})
+	ts, _, _ := newTestServer(t)
+
+	list := func(query string) map[string]string {
+		resp, err := http.Get(ts.URL + "/api/v2/installers" + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var r struct {
+			Installers []struct{ Name, Kind, SHA256 string } `json:"installers"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, i := range r.Installers {
+			if i.SHA256 == "" {
+				t.Errorf("%s listed without a checksum", i.Name)
+			}
+			out[i.Name] = i.Kind
+		}
+		return out
 	}
-	if got := installerKind(name); got != "viewer" {
-		t.Errorf("installerKind(%s) = %q, want viewer", name, got)
+
+	got := list("")
+	for name, kind := range map[string]string{
+		"ourway-installer-windows-amd64.exe": "installer",
+		"ourway-remote-windows-amd64.exe":    "remote",
+		"ourway-viewer-windows-amd64.exe":    "viewer",
+	} {
+		if got[name] != kind {
+			t.Errorf("%s missing or wrong kind in default list: %v", name, got)
+		}
+	}
+	if _, ok := got["ourway-agent-windows-amd64.exe"]; ok {
+		t.Errorf("bare agent should lose to the installer in the default list: %v", got)
+	}
+	// ?all=1 lists everything, so the agent can verify its own update.
+	if all := list("?all=1"); all["ourway-agent-windows-amd64.exe"] != "agent" || len(all) != 4 {
+		t.Errorf("?all=1 should list all four artifacts: %v", all)
 	}
 }

@@ -157,7 +157,7 @@ func (c *Checker) download(dst string) (string, error) {
 // publishedHash returns the SHA-256 the server lists for an installer
 // artifact, or "" when the list is unavailable or does not include it.
 func (c *Checker) publishedHash(name string) string {
-	resp, err := c.httpClient.Get(c.serverURL + "/api/v2/installers")
+	resp, err := c.httpClient.Get(c.serverURL + "/api/v2/installers?all=1")
 	if err != nil {
 		return ""
 	}
