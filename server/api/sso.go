@@ -93,7 +93,7 @@ func (h *SSOHandler) Authorize(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
 		return
 	}
-	
+
 	// Generate state for CSRF protection
 	stateBytes := make([]byte, 16)
 	if _, err := rand.Read(stateBytes); err != nil {
@@ -132,7 +132,7 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
 		return
 	}
-	
+
 	// Verify state, then consume the cookie so it cannot be replayed (M13).
 	expectedState, err := c.Cookie("sso_state")
 	if err != nil || expectedState != c.Query("state") {

@@ -24,6 +24,9 @@ type PolicyEngine struct {
 	scanner  *Scanner
 	// Now is swappable so tests can pin the evaluation time.
 	Now func() time.Time
+	// ScanWait is how long a run waits for freshly requested scans to
+	// report before approving and deploying (default 2 minutes).
+	ScanWait time.Duration
 }
 
 // NewPolicyEngine creates a patch policy engine.
@@ -35,14 +38,15 @@ func NewPolicyEngine(store *store.Store, hub *ws.Hub, deployer *Deployer, reboot
 		rebooter: rebooter,
 		scanner:  scanner,
 		Now:      time.Now,
+		ScanWait: 2 * time.Minute,
 	}
 }
 
-// Run starts the periodic evaluation loop. The ticker granularity is
-// hourly so a daily/weekly/monthly policy fires within an hour of the
-// local wall-clock window. Stops when ctx is cancelled.
+// Run starts the periodic loop: every minute it starts policies whose
+// maintenance window has opened and retries queued deployments for devices
+// that came back online. Stops when ctx is cancelled.
 func (e *PolicyEngine) Run(ctx context.Context) {
-	const interval = time.Hour
+	const interval = time.Minute
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -51,13 +55,14 @@ func (e *PolicyEngine) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			e.EvaluateDue(ctx)
+			e.ProcessQueue(ctx)
 		}
 	}
 }
 
-// EvaluateDue runs every policy whose schedule window is due at time now.
-// It is exported (and takes now explicitly) so it can be tested without
-// waiting for wall-clock windows.
+// EvaluateDue runs every policy that is inside its maintenance window and
+// has not yet run in it. It is exported (and uses e.Now) so it can be
+// tested without waiting for wall-clock windows.
 func (e *PolicyEngine) EvaluateDue(ctx context.Context) {
 	now := e.Now()
 	policies, err := e.store.PatchPolicies.ListAll()
@@ -67,11 +72,67 @@ func (e *PolicyEngine) EvaluateDue(ctx context.Context) {
 	}
 	for i := range policies {
 		policy := policies[i]
-		if !scheduleDue(policy.Schedule, now) {
+		if _, _, due := policyDue(&policy, now); !due {
+			continue
+		}
+		// Record the run first: a policy that fails halfway must not
+		// restart on the next tick of the same window.
+		ran := now
+		policy.LastRunAt = &ran
+		if err := e.store.PatchPolicies.Update(&policy); err != nil {
+			log.Printf("policy: failed to record run of %s: %v", policy.Name, err)
 			continue
 		}
 		if err := e.applyPolicy(ctx, &policy); err != nil {
 			log.Printf("policy: failed to apply policy %s (%s): %v", policy.Name, policy.ID, err)
+		}
+	}
+}
+
+// ProcessQueue retries queued deployments whose device is back online.
+// Policy entries only run inside their policy's maintenance window;
+// manual entries run as soon as the device returns.
+func (e *PolicyEngine) ProcessQueue(ctx context.Context) {
+	now := e.Now()
+	if err := e.store.QueuedDeploys.DeleteExpired(now); err != nil {
+		log.Printf("policy: failed to prune deploy queue: %v", err)
+	}
+	entries, err := e.store.QueuedDeploys.ListActive(now)
+	if err != nil {
+		log.Printf("policy: failed to read deploy queue: %v", err)
+		return
+	}
+	for _, q := range entries {
+		device, err := e.store.Devices.GetByID(q.DeviceID)
+		if err != nil {
+			_ = e.store.QueuedDeploys.Delete(q.ID)
+			continue
+		}
+		if device.Status != "online" {
+			continue
+		}
+		opts := DeployOptions{}
+		if q.PolicyID != "" {
+			policy, err := e.store.PatchPolicies.GetByID(q.PolicyID)
+			if err != nil {
+				_ = e.store.QueuedDeploys.Delete(q.ID) // policy was deleted
+				continue
+			}
+			if _, _, in := inWindow(policy, now); !in {
+				continue
+			}
+			opts = DeployOptions{PolicyID: policy.ID, AutoReboot: policy.AutoReboot}
+			if !policy.ApprovalRequired {
+				if err := e.autoApprove([]string{q.DeviceID}); err != nil {
+					log.Printf("policy: auto-approve for returning device %s failed: %v", device.Name, err)
+				}
+			}
+		}
+		// Drop the entry first: a still-unreachable device re-queues
+		// itself inside DeployToDevicesWithOptions.
+		_ = e.store.QueuedDeploys.Delete(q.ID)
+		if _, err := e.deployer.DeployToDevicesWithOptions(ctx, []string{q.DeviceID}, opts); err != nil && err != ErrNoApprovedUpdates {
+			log.Printf("policy: queued deploy for %s failed: %v", device.Name, err)
 		}
 	}
 }
@@ -90,6 +151,10 @@ func (e *PolicyEngine) applyPolicy(ctx context.Context, policy *models.PatchPoli
 		return nil
 	}
 	online := make([]string, 0, len(deviceIDs))
+	windowEnd := e.Now().Add(time.Hour)
+	if _, end, in := inWindow(policy, e.Now()); in {
+		windowEnd = end
+	}
 	for _, id := range deviceIDs {
 		device, err := e.store.Devices.GetByID(id)
 		if err != nil {
@@ -97,13 +162,12 @@ func (e *PolicyEngine) applyPolicy(ctx context.Context, policy *models.PatchPoli
 		}
 		if device.Status == "online" {
 			online = append(online, id)
+		} else if err := e.store.QueuedDeploys.Enqueue(id, policy.ID, windowEnd); err != nil {
+			// Offline now: queued so it patches if it returns during the window.
+			log.Printf("policy: failed to queue offline device %s: %v", device.Name, err)
 		}
 	}
-	if len(online) == 0 {
-		log.Printf("policy: %s: 0 of %d matched devices online, skipping run", policy.Name, len(deviceIDs))
-		return nil
-	}
-	// Refresh patch inventory for the matched devices so approvals are
+	// Refresh patch inventory for the online devices so approvals are
 	// made against current data, then auto-approve when allowed.
 	for _, id := range online {
 		device, err := e.store.Devices.GetByID(id)
@@ -116,24 +180,37 @@ func (e *PolicyEngine) applyPolicy(ctx context.Context, policy *models.PatchPoli
 			log.Printf("policy: scan send failed for device %s: %v", id, err)
 		}
 	}
+	if len(online) > 0 && e.ScanWait > 0 {
+		// Give the agents time to report what the scan found, otherwise
+		// this run would approve and deploy last cycle's inventory.
+		select {
+		case <-time.After(e.ScanWait):
+		case <-ctxDone(ctx):
+			return ctx.Err()
+		}
+	}
 	if !policy.ApprovalRequired {
 		if err := e.autoApprove(deviceIDs); err != nil {
 			return err
 		}
 	}
-	// Batch the deploy (MaxDevicesPerBatch, default 10 when unset).
+	// Batch the deploy (MaxDevicesPerBatch, default 10 when unset). Reboots
+	// happen when each device reports its result (DeployOptions.AutoReboot).
 	batchSize := policy.MaxDevicesPerBatch
 	if batchSize <= 0 {
 		batchSize = 10
 	}
-	var rebootKeys []string
 	for start := 0; start < len(online); start += batchSize {
 		end := start + batchSize
 		if end > len(online) {
 			end = len(online)
 		}
 		batch := online[start:end]
-		deploymentID, err := e.deployer.DeployToDevices(ctx, batch)
+		deploymentID, err := e.deployer.DeployToDevicesWithOptions(ctx, batch, DeployOptions{
+			PolicyID:   policy.ID,
+			AutoReboot: policy.AutoReboot,
+			QueueTTL:   windowEnd.Sub(e.Now()),
+		})
 		if err != nil {
 			if err == ErrNoApprovedUpdates {
 				continue
@@ -142,43 +219,8 @@ func (e *PolicyEngine) applyPolicy(ctx context.Context, policy *models.PatchPoli
 			continue
 		}
 		log.Printf("policy: %s deployment %s started for %d devices", policy.Name, deploymentID, len(batch))
-		if policy.AutoReboot {
-			rebootKeys = append(rebootKeys, e.successKeys(deploymentID, batch)...)
-		}
-	}
-	if policy.AutoReboot && len(rebootKeys) > 0 {
-		e.rebooter.RebootDevices(rebootKeys)
-		log.Printf("policy: %s rebooted %d device(s) after patching", policy.Name, len(rebootKeys))
 	}
 	return nil
-}
-
-// successKeys returns the device keys of the batch's devices whose deploy
-// result is success. Devices that have not reported yet are skipped; the
-// reboot only touches devices known to have patched cleanly.
-func (e *PolicyEngine) successKeys(deploymentID string, batch []string) []string {
-	results, err := e.store.DeploymentResults.ListByDeployment(deploymentID)
-	if err != nil {
-		return nil
-	}
-	succeeded := make(map[string]bool, len(results))
-	for _, result := range results {
-		if result.Result == "success" {
-			succeeded[result.DeviceID] = true
-		}
-	}
-	var keys []string
-	for _, id := range batch {
-		if !succeeded[id] {
-			continue
-		}
-		device, err := e.store.Devices.GetByID(id)
-		if err != nil {
-			continue
-		}
-		keys = append(keys, device.DeviceKey)
-	}
-	return keys
 }
 
 // resolveScope maps a policy's Scope/ScopeValue to concrete device IDs.
@@ -241,9 +283,8 @@ func (e *PolicyEngine) autoApprove(deviceIDs []string) error {
 }
 
 // scheduleDue reports whether the schedule (daily/weekly/monthly) is due
-// at now. Daily fires every day; weekly on Sundays; monthly on the 1st.
-// The evaluation time is truncated to the hour so the hourly Run loop
-// fires each due window exactly once.
+// on the day of t. Daily matches every day; weekly Sundays; monthly the
+// 1st. Run-once-per-window is enforced by policyDue via LastRunAt.
 func scheduleDue(schedule string, now time.Time) bool {
 	switch strings.ToLower(strings.TrimSpace(schedule)) {
 	case "daily":
@@ -255,4 +296,78 @@ func scheduleDue(schedule string, now time.Time) bool {
 	default:
 		return false
 	}
+}
+
+// ctxDone returns ctx.Done(), or a nil channel (never ready) for a nil ctx.
+func ctxDone(ctx context.Context) <-chan struct{} {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Done()
+}
+
+// parseWindowStart parses "HH:MM" (empty means midnight).
+func parseWindowStart(v string) (hour, min int, ok bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, 0, true
+	}
+	t, err := time.Parse("15:04", v)
+	if err != nil {
+		return 0, 0, false
+	}
+	return t.Hour(), t.Minute(), true
+}
+
+// policyLocation resolves the policy's time zone (UTC when empty/unknown).
+func policyLocation(policy *models.PatchPolicy) *time.Location {
+	if policy.Timezone == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(policy.Timezone)
+	if err != nil {
+		log.Printf("policy: unknown timezone %q on %s, using UTC", policy.Timezone, policy.Name)
+		return time.UTC
+	}
+	return loc
+}
+
+// inWindow reports whether now falls inside one of the policy's scheduled
+// maintenance windows, returning that window's bounds. A window starts at
+// WindowStart (policy time zone) on a day the schedule selects and lasts
+// WindowHours (default 24); it may run past midnight, so yesterday's
+// window is considered too.
+func inWindow(policy *models.PatchPolicy, now time.Time) (start, end time.Time, in bool) {
+	hour, min, ok := parseWindowStart(policy.WindowStart)
+	if !ok {
+		return time.Time{}, time.Time{}, false
+	}
+	dur := time.Duration(policy.WindowHours) * time.Hour
+	if policy.WindowHours <= 0 || policy.WindowHours > 24 {
+		dur = 24 * time.Hour
+	}
+	loc := policyLocation(policy)
+	local := now.In(loc)
+	for _, back := range []int{0, -1} {
+		day := local.AddDate(0, 0, back)
+		start = time.Date(day.Year(), day.Month(), day.Day(), hour, min, 0, 0, loc)
+		end = start.Add(dur)
+		if !local.Before(start) && local.Before(end) && scheduleDue(policy.Schedule, start) {
+			return start, end, true
+		}
+	}
+	return time.Time{}, time.Time{}, false
+}
+
+// policyDue reports whether the policy should start now: it is inside a
+// scheduled window and has not already run in that window.
+func policyDue(policy *models.PatchPolicy, now time.Time) (start, end time.Time, due bool) {
+	start, end, in := inWindow(policy, now)
+	if !in {
+		return start, end, false
+	}
+	if policy.LastRunAt != nil && !policy.LastRunAt.Before(start) {
+		return start, end, false
+	}
+	return start, end, true
 }

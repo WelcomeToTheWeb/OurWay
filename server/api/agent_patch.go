@@ -120,11 +120,6 @@ func (h *AgentPatchHandler) ReportDeploymentResult(c *gin.Context) {
 		return
 	}
 
-	if err := h.deployer.ReportResult(req.DeploymentID, req.DeviceID, req.Kind, req.Result, req.Message); err != nil {
-		c.JSON(500, gin.H{"error": "failed to record deployment result"})
-		return
-	}
-
 	if req.RebootRequired && kindOrDefault(req.Kind) == "deploy" && req.Result == "success" {
 		if dev, err := h.store.Devices.GetByID(req.DeviceID); err == nil && !dev.RebootPending {
 			dev.RebootPending = true
@@ -132,6 +127,11 @@ func (h *AgentPatchHandler) ReportDeploymentResult(c *gin.Context) {
 				log.Printf("patching: failed to flag reboot pending for %s: %v", req.DeviceID, err)
 			}
 		}
+	}
+
+	if err := h.deployer.ReportResult(req.DeploymentID, req.DeviceID, req.Kind, req.Result, req.Message); err != nil {
+		c.JSON(500, gin.H{"error": "failed to record deployment result"})
+		return
 	}
 
 	events.Publish("patch_deployed", map[string]interface{}{

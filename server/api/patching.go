@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+	"regexp"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -111,35 +113,66 @@ func (h *PatchHandler) ListPolicies(c *gin.Context) {
 	c.JSON(200, gin.H{"policies": policies})
 }
 
-// CreatePolicy creates a new patch policy.
-// POST /api/patch/policies
-func (h *PatchHandler) CreatePolicy(c *gin.Context) {
-	var req struct {
-		Name               string `json:"name" binding:"required"`
-		Scope              string `json:"scope"`
-		ScopeValue         string `json:"scope_value"`
-		Schedule           string `json:"schedule"`
-		AutoReboot         bool   `json:"auto_reboot"`
-		ApprovalRequired   *bool  `json:"approval_required"`
-		MaxDevicesPerBatch int    `json:"max_devices_per_batch"`
-	}
+// policyRequest is the writable shape of a patch policy.
+type policyRequest struct {
+	Name               string `json:"name" binding:"required"`
+	Scope              string `json:"scope"`
+	ScopeValue         string `json:"scope_value"`
+	Schedule           string `json:"schedule"`
+	AutoReboot         bool   `json:"auto_reboot"`
+	ApprovalRequired   *bool  `json:"approval_required"`
+	MaxDevicesPerBatch int    `json:"max_devices_per_batch"`
+	WindowStart        string `json:"window_start"`
+	WindowHours        int    `json:"window_hours"`
+	Timezone           string `json:"timezone"`
+}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "invalid request body"})
-		return
-	}
+var windowStartRe = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 
+// apply validates req and copies it onto policy, applying defaults for
+// anything left blank. It returns a client-facing error message, or "".
+func (req *policyRequest) apply(policy *models.PatchPolicy) string {
 	scope := req.Scope
 	if scope == "" {
 		scope = "all"
+	}
+	if scope != "all" && scope != "tags" && scope != "devices" {
+		return "scope must be all, tags or devices"
 	}
 	schedule := req.Schedule
 	if schedule == "" {
 		schedule = "weekly"
 	}
+	if schedule != "daily" && schedule != "weekly" && schedule != "monthly" {
+		return "schedule must be daily, weekly or monthly"
+	}
 	maxBatch := req.MaxDevicesPerBatch
 	if maxBatch == 0 {
 		maxBatch = 10
+	}
+	if maxBatch < 0 {
+		return "max_devices_per_batch must be positive"
+	}
+	windowStart := req.WindowStart
+	if windowStart == "" {
+		windowStart = "02:00"
+	}
+	if !windowStartRe.MatchString(windowStart) {
+		return "window_start must be HH:MM (24-hour)"
+	}
+	windowHours := req.WindowHours
+	if windowHours == 0 {
+		windowHours = 4
+	}
+	if windowHours < 1 || windowHours > 24 {
+		return "window_hours must be between 1 and 24"
+	}
+	tz := req.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
+	if _, err := time.LoadLocation(tz); err != nil {
+		return "unknown timezone"
 	}
 	// The model carries no gorm default for this bool (a default tag
 	// silently overrode an explicit false on create), so apply the safe
@@ -148,25 +181,78 @@ func (h *PatchHandler) CreatePolicy(c *gin.Context) {
 	if req.ApprovalRequired != nil {
 		approvalRequired = *req.ApprovalRequired
 	}
+	policy.Name = req.Name
+	policy.Scope = scope
+	policy.ScopeValue = req.ScopeValue
+	policy.Schedule = schedule
+	policy.AutoReboot = req.AutoReboot
+	policy.ApprovalRequired = approvalRequired
+	policy.MaxDevicesPerBatch = maxBatch
+	policy.WindowStart = windowStart
+	policy.WindowHours = windowHours
+	policy.Timezone = tz
+	return ""
+}
 
-
-	policy := &models.PatchPolicy{
-		ID:                 uuid.New().String(),
-		Name:               req.Name,
-		Scope:              scope,
-		ScopeValue:         req.ScopeValue,
-		Schedule:           schedule,
-		AutoReboot:         req.AutoReboot,
-		ApprovalRequired:   approvalRequired,
-		MaxDevicesPerBatch: maxBatch,
+// CreatePolicy creates a new patch policy.
+// POST /api/patch/policies
+func (h *PatchHandler) CreatePolicy(c *gin.Context) {
+	var req policyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
 	}
-
+	policy := &models.PatchPolicy{ID: uuid.New().String()}
+	if msg := req.apply(policy); msg != "" {
+		c.JSON(400, gin.H{"error": msg})
+		return
+	}
 	if err := h.store.PatchPolicies.Create(policy); err != nil {
 		c.JSON(500, gin.H{"error": "failed to create policy"})
 		return
 	}
-
 	c.JSON(201, gin.H{"policy": policy})
+}
+
+// UpdatePolicy replaces a policy's settings. Changing the schedule or
+// window does not reset LastRunAt, so a policy that already ran today will
+// not run again until its next window.
+// PUT /api/patch/policies/:id
+func (h *PatchHandler) UpdatePolicy(c *gin.Context) {
+	var req policyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
+	}
+	policy, err := h.store.PatchPolicies.GetByID(c.Param("id"))
+	if err != nil {
+		c.JSON(404, gin.H{"error": "policy not found"})
+		return
+	}
+	if msg := req.apply(policy); msg != "" {
+		c.JSON(400, gin.H{"error": msg})
+		return
+	}
+	if err := h.store.PatchPolicies.Update(policy); err != nil {
+		c.JSON(500, gin.H{"error": "failed to update policy"})
+		return
+	}
+	c.JSON(200, gin.H{"policy": policy})
+}
+
+// DeletePolicy removes a policy (queued deployments for it are dropped the
+// next time the queue is processed).
+// DELETE /api/patch/policies/:id
+func (h *PatchHandler) DeletePolicy(c *gin.Context) {
+	if _, err := h.store.PatchPolicies.GetByID(c.Param("id")); err != nil {
+		c.JSON(404, gin.H{"error": "policy not found"})
+		return
+	}
+	if err := h.store.PatchPolicies.Delete(c.Param("id")); err != nil {
+		c.JSON(500, gin.H{"error": "failed to delete policy"})
+		return
+	}
+	c.JSON(200, gin.H{"status": "deleted"})
 }
 
 // ListDeployments returns all patch deployments.

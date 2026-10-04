@@ -231,7 +231,7 @@ func TestRollbackDeployment(t *testing.T) {
 	// Create a deployment first
 	deployment := &models.PatchDeployment{
 		ID:             "deploy-1",
-		PolicyID:       "policy-1",
+		PolicyID:       strPtr("policy-1"),
 		Status:         "completed",
 		DevicesTotal:   1,
 		DevicesSuccess: 1,
@@ -289,7 +289,7 @@ func TestRollbackResultTracking(t *testing.T) {
 
 	deployment := &models.PatchDeployment{
 		ID:             "deploy-rb",
-		PolicyID:       "policy-1",
+		PolicyID:       strPtr("policy-1"),
 		Status:         "completed",
 		DeviceIDs:      []string{"device-1"},
 		DevicesTotal:   1,
@@ -404,3 +404,5 @@ func TestRollbackResultTracking(t *testing.T) {
 			dep.Status, dep.DevicesSuccess, dep.DevicesFailed)
 	}
 }
+
+func strPtr(s string) *string { return &s }

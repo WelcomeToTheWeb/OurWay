@@ -38,6 +38,10 @@ func fleetFixture(t *testing.T) (*gin.Engine, *store.Store) {
 	r.GET("/updates", h.ListFleetUpdates)
 	r.POST("/approve", h.BulkApprove)
 	r.POST("/skip", h.BulkSkip)
+	r.POST("/policies", h.CreatePolicy)
+	r.PUT("/policies/:id", h.UpdatePolicy)
+	r.DELETE("/policies/:id", h.DeletePolicy)
+	r.GET("/policies", h.ListPolicies)
 
 	for _, d := range []*models.Device{
 		{ID: "d1", DeviceKey: "k1", Name: "alpha", Hostname: "a", OS: "windows", Arch: "amd64", Status: "online"},
@@ -117,5 +121,60 @@ func TestFleetUpdatesGroupAndBulkApprove(t *testing.T) {
 	}
 	if code, _ := doJSON(r, "POST", "/skip", map[string]interface{}{"update_ids": []string{}}); code != http.StatusBadRequest {
 		t.Fatalf("empty ids must 400, got %d", code)
+	}
+}
+
+func TestPolicyCreateDefaultsAndValidation(t *testing.T) {
+	r, _ := fleetFixture(t)
+
+	code, out := doJSON(r, "POST", "/policies", map[string]interface{}{"name": "Nightly"})
+	if code != 201 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	p := out["policy"].(map[string]interface{})
+	if p["window_start"] != "02:00" || p["window_hours"].(float64) != 4 || p["timezone"] != "UTC" || p["schedule"] != "weekly" {
+		t.Fatalf("defaults not applied: %v", p)
+	}
+	if p["id"] == "" {
+		t.Fatal("policy needs an id")
+	}
+
+	for name, body := range map[string]map[string]interface{}{
+		"bad time":     {"name": "x", "window_start": "25:00"},
+		"bad hours":    {"name": "x", "window_hours": 30},
+		"bad timezone": {"name": "x", "timezone": "Mars/Base"},
+		"bad schedule": {"name": "x", "schedule": "hourly"},
+		"bad scope":    {"name": "x", "scope": "galaxy"},
+	} {
+		if code, _ := doJSON(r, "POST", "/policies", body); code != 400 {
+			t.Errorf("%s: want 400, got %d", name, code)
+		}
+	}
+}
+
+func TestPolicyUpdateAndDelete(t *testing.T) {
+	r, st := fleetFixture(t)
+	_, out := doJSON(r, "POST", "/policies", map[string]interface{}{"name": "A"})
+	id := out["policy"].(map[string]interface{})["id"].(string)
+
+	code, out := doJSON(r, "PUT", "/policies/"+id, map[string]interface{}{
+		"name": "A2", "scope": "tags", "scope_value": "prod", "schedule": "daily",
+		"window_start": "22:30", "window_hours": 6, "timezone": "America/New_York", "auto_reboot": true,
+	})
+	if code != 200 {
+		t.Fatalf("update: %d %v", code, out)
+	}
+	got, _ := st.PatchPolicies.GetByID(id)
+	if got.Name != "A2" || got.WindowStart != "22:30" || got.Timezone != "America/New_York" || !got.AutoReboot {
+		t.Fatalf("update not persisted: %+v", got)
+	}
+	if code, _ := doJSON(r, "PUT", "/policies/nope", map[string]interface{}{"name": "x"}); code != 404 {
+		t.Fatalf("update missing: %d", code)
+	}
+	if code, _ := doJSON(r, "DELETE", "/policies/"+id, nil); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+	if _, err := st.PatchPolicies.GetByID(id); err == nil {
+		t.Fatal("policy should be gone")
 	}
 }

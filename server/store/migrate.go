@@ -83,6 +83,33 @@ var migrations = []migration{
 		}
 		return db.Migrator().AddColumn(&models.Device{}, "Tags")
 	}},
+	{version: 5, name: "maintenance_windows_and_deploy_queue", fn: func(db *gorm.DB) error {
+		m := db.Migrator()
+		for _, col := range []string{"WindowStart", "WindowHours", "Timezone", "LastRunAt"} {
+			if !m.HasColumn(&models.PatchPolicy{}, col) {
+				if err := m.AddColumn(&models.PatchPolicy{}, col); err != nil {
+					return err
+				}
+			}
+		}
+		if !m.HasColumn(&models.PatchDeployment{}, "AutoReboot") {
+			if err := m.AddColumn(&models.PatchDeployment{}, "AutoReboot"); err != nil {
+				return err
+			}
+		}
+		// Manual deployments have no policy; the original NOT NULL uuid
+		// column rejected them on PostgreSQL. (SQLite cannot alter a
+		// column, but only ever sees fresh schemas built from the model.)
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("ALTER TABLE patch_deployments ALTER COLUMN policy_id DROP NOT NULL").Error; err != nil {
+				return err
+			}
+		}
+		if !m.HasTable(&models.QueuedDeploy{}) {
+			return m.CreateTable(&models.QueuedDeploy{})
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

@@ -235,6 +235,8 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		protected.POST("/devices/:id/reboot", RequireAnyRole("admin", "manager", "technician"), rebootHandler.RebootDevice)
 		protected.GET("/patch/policies", patchHandler.ListPolicies)
 		protected.POST("/patch/policies", RequireRole("admin"), patchHandler.CreatePolicy)
+		protected.PUT("/patch/policies/:id", RequireRole("admin"), patchHandler.UpdatePolicy)
+		protected.DELETE("/patch/policies/:id", RequireRole("admin"), patchHandler.DeletePolicy)
 		protected.GET("/patch/deployments", patchHandler.ListDeployments)
 		protected.GET("/patch/deployments/:id/results", patchHandler.ListDeploymentResults)
 		protected.POST("/patch/deploy", RequireAnyRole("admin", "manager"), patchHandler.DeployNow)

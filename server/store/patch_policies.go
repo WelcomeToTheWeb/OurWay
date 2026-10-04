@@ -18,8 +18,9 @@ type PatchPolicyStore struct {
 // column default (true) instead and never auto-approve.
 func (s *PatchPolicyStore) Create(policy *models.PatchPolicy) error {
 	return s.db.Select(
-		"Name", "Scope", "ScopeValue", "Schedule",
+		"ID", "Name", "Scope", "ScopeValue", "Schedule",
 		"AutoReboot", "ApprovalRequired", "MaxDevicesPerBatch",
+		"WindowStart", "WindowHours", "Timezone", "LastRunAt", "CreatedAt", "UpdatedAt",
 	).Create(policy).Error
 }
 

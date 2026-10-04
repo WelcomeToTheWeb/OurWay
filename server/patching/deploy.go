@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -51,6 +52,27 @@ func (d *Deployer) FinalizeTimedOut() {
 // deployment is never started with an empty update set (which the agent
 // would interpret as a request for a full OS upgrade).
 func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (string, error) {
+	return d.DeployToDevicesWithOptions(ctx, deviceIDs, DeployOptions{})
+}
+
+// DeployOptions tunes a deployment started by a policy or a person.
+type DeployOptions struct {
+	// PolicyID links the deployment to the policy that started it ("" for
+	// manual deployments).
+	PolicyID string
+	// AutoReboot reboots a device whose install succeeded and reported that
+	// a reboot is required.
+	AutoReboot bool
+	// QueueTTL is how long an undeliverable (offline-device) deployment is
+	// kept for retry. Zero means 24 hours.
+	QueueTTL time.Duration
+}
+
+// DeployToDevicesWithOptions is DeployToDevices with policy linkage, auto
+// reboot and offline queueing: a device that cannot be reached keeps its
+// updates approved and is queued so the deploy is retried when it
+// reconnects (see PolicyEngine.processQueue).
+func (d *Deployer) DeployToDevicesWithOptions(ctx context.Context, deviceIDs []string, opts DeployOptions) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -78,9 +100,14 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 
 	// Create deployment record (tracking the targeted devices so rollback can find them)
 	deployment := &models.PatchDeployment{
-		ID:        uuid.New().String(),
-		Status:    "pending",
-		DeviceIDs: deviceIDs,
+		ID:         uuid.New().String(),
+		Status:     "pending",
+		DeviceIDs:  deviceIDs,
+		AutoReboot: opts.AutoReboot,
+	}
+	if opts.PolicyID != "" {
+		pid := opts.PolicyID
+		deployment.PolicyID = &pid
 	}
 	if err := d.store.PatchDeployments.Create(deployment); err != nil {
 		return "", fmt.Errorf("failed to create deployment: %w", err)
@@ -130,7 +157,17 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 			if rerr := d.store.SoftwareUpdates.RevertToApproved(deployment.ID, deviceID); rerr != nil {
 				log.Printf("patching: failed to revert updates for %s: %v", deviceID, rerr)
 			}
-			d.recordResult(deployment.ID, deviceID, "deploy", "failed", "deploy command not delivered (device unreachable)")
+			ttl := opts.QueueTTL
+			if ttl <= 0 {
+				ttl = 24 * time.Hour
+			}
+			msg := "deploy command not delivered (device unreachable)"
+			if qerr := d.store.QueuedDeploys.Enqueue(deviceID, opts.PolicyID, time.Now().Add(ttl)); qerr != nil {
+				log.Printf("patching: failed to queue deploy for %s: %v", deviceID, qerr)
+			} else {
+				msg += "; queued to retry when the device reconnects"
+			}
+			d.recordResult(deployment.ID, deviceID, "deploy", "failed", msg)
 		}
 	}
 
@@ -160,6 +197,9 @@ func (d *Deployer) recordResult(deploymentID, deviceID, kind, result, message st
 		return
 	}
 	if changed {
+		if result == "success" {
+			d.maybeAutoReboot(deploymentID, deviceID)
+		}
 		if err := d.store.SoftwareUpdates.FinishDeployment(deploymentID, deviceID, result == "success", message); err != nil {
 			log.Printf("patching: failed to resolve updates for %s/%s: %v", deploymentID, deviceID, err)
 		}
@@ -186,4 +226,30 @@ func (d *Deployer) recordResult(deploymentID, deviceID, kind, result, message st
 func (d *Deployer) ReportResult(deploymentID, deviceID, kind, result, message string) error {
 	d.recordResult(deploymentID, deviceID, kind, result, message)
 	return nil
+}
+
+// shouldAutoReboot reports whether a successful deploy should be followed
+// by a reboot: the deployment asked for it and the device says it needs one.
+func shouldAutoReboot(dep *models.PatchDeployment, dev *models.Device) bool {
+	return dep != nil && dev != nil && dep.AutoReboot && dev.RebootPending
+}
+
+// maybeAutoReboot reboots the device after a successful deploy when the
+// deployment is flagged for it and the device reported a required reboot.
+// It runs when the result arrives, not when the command is sent, so the
+// install has actually finished.
+func (d *Deployer) maybeAutoReboot(deploymentID, deviceID string) {
+	dep, err := d.store.PatchDeployments.GetByID(deploymentID)
+	if err != nil {
+		return
+	}
+	dev, err := d.store.Devices.GetByID(deviceID)
+	if err != nil || !shouldAutoReboot(dep, dev) {
+		return
+	}
+	if err := NewRebooter(d.hub).WithStore(d.store).RebootDevice(dev.DeviceKey); err != nil {
+		log.Printf("patching: auto-reboot of %s failed: %v", dev.Name, err)
+		return
+	}
+	log.Printf("patching: auto-rebooted %s after deployment %s", dev.Name, deploymentID)
 }
