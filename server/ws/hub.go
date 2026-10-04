@@ -321,12 +321,14 @@ func (h *Hub) SendToDevice(deviceKey string, msgType string, payload interface{}
 	if client, ok := h.clients["remote:"+deviceKey]; ok {
 		clients = append(clients, client)
 	}
-	if msgType == "session_end" || msgType == "session_quality" {
-		if client, ok := h.clients["device:"+deviceKey]; ok {
-			clients = append(clients, client)
-		}
-	} else if client, ok := h.clients["device:"+deviceKey]; ok {
-		clients = append(clients, client)
+	_, haveRemote := h.clients["remote:"+deviceKey]
+	deviceClient, haveDevice := h.clients["device:"+deviceKey]
+	// Input goes to the exe alone when it is connected: the agent
+	// service runs in Session 0, where SendInput fails with "Access is
+	// denied". Other messages (quality, session_end) still reach the
+	// agent so it keeps its own session state in step.
+	if haveDevice && !(haveRemote && msgType == "input") {
+		clients = append(clients, deviceClient)
 	}
 	h.mu.RUnlock()
 
