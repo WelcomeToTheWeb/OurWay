@@ -133,6 +133,14 @@ func (sm *SessionManager) StartSession(ctx context.Context, payload interface{})
 		sm.onSessionStart()
 	}
 
+	// Windows: prefer the per-session remote-control executable (the
+	// ScreenConnect-style split). It runs in the interactive user
+	// session and owns capture, input and frame upload; the agent only
+	// spawns and supervises it. On failure the legacy in-process path
+	// remains the fallback.
+	if startRemoteSession(sm) {
+		return
+	}
 	// Platform session setup (e.g. Windows: spawn the per-user capture
 	// helper when running as a Session 0 service).
 	if ex, ok := sm.capture.(sessionExtras); ok {
@@ -156,6 +164,7 @@ func (sm *SessionManager) EndSession() {
 	sm.mu.Unlock()
 
 	log.Printf("session: ending session")
+	stopRemoteSession()
 
 	if ex, ok := sm.capture.(sessionExtras); ok {
 		ex.stopSession()

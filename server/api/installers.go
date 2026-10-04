@@ -39,7 +39,7 @@ func SetInstallersDir(dir string) {
 
 // installerFileRe matches ourway-{kind}-{os}-{arch}[.exe] filenames so the
 // list endpoint can report os and arch per file.
-var installerFileRe = regexp.MustCompile(`^ourway-(installer|agent)-(linux|darwin|windows)-(amd64|arm64|arm)(\.exe)?$`)
+var installerFileRe = regexp.MustCompile(`^ourway-(installer|agent|remote)-(linux|darwin|windows)-(amd64|arm64|arm)(\.exe)?$`)
 
 // installerInfo describes one downloadable installer artifact.
 type installerInfo struct {
@@ -65,6 +65,8 @@ func installerKind(name string) string {
 		return "installer"
 	case strings.HasPrefix(name, "ourway-agent-"):
 		return "agent"
+	case strings.HasPrefix(name, "ourway-remote-"):
+		return "remote"
 	default:
 		return "script"
 	}
