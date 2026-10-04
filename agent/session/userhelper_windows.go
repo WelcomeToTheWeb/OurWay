@@ -278,40 +278,101 @@ type fullStartupInfo struct {
 }
 
 // createProcessAsUser launches exe with the given command line as the
-// user of the active console session, on the interactive desktop.
+// user of the first session that holds a logged-on user, on the
+// interactive desktop.
+// wtsSessionInfoW mirrors Win32 WTS_SESSION_INFOW (wtsapi32.h).
+type wtsSessionInfoW struct {
+	SessionID      uint32
+	WinStationName *uint16
+	State          uint32
+}
+
+var (
+	wtsapiDLL            = syscall.NewLazyDLL("wtsapi32.dll")
+	wtsEnumerateSessions = wtsapiDLL.NewProc("WTSEnumerateSessionsW")
+	wtsFreeMemory        = wtsapiDLL.NewProc("WTSFreeMemory")
+)
+
+// activeUserSessionIDs returns candidate session IDs that may hold a
+// logged-on user: every WTSActive session (console or RDP, excluding
+// services session 0), then disconnected sessions, then the console
+// session. WTSGetActiveConsoleSessionId alone is not enough: when the
+// machine is administered over RDP the console session has no user and
+// the RDP session is the live one.
+func activeUserSessionIDs() []uint32 {
+	var ids []uint32
+	var info *wtsSessionInfoW
+	var count uint32
+	const wtsActive, wtsDisconnected = 1, 4
+	r1, _, _ := wtsEnumerateSessions.Call(0, 0, 1, uintptr(unsafe.Pointer(&info)), uintptr(unsafe.Pointer(&count)))
+	if r1 != 0 && info != nil {
+		defer wtsFreeMemory.Call(uintptr(unsafe.Pointer(info)))
+		slice := unsafe.Slice(info, count)
+		var disconnected []uint32
+		for i := range slice {
+			switch slice[i].State {
+			case wtsActive:
+				if slice[i].SessionID != 0 {
+					ids = append(ids, slice[i].SessionID)
+				}
+			case wtsDisconnected:
+				disconnected = append(disconnected, slice[i].SessionID)
+			}
+		}
+		ids = append(ids, disconnected...)
+	}
+	if console := windows.WTSGetActiveConsoleSessionId(); console != 0 && console != ^uint32(0) {
+		ids = append(ids, console)
+	}
+	return ids
+}
+
 func createProcessAsUser(exe, cmdLine string) (int, error) {
-	sessionID := windows.WTSGetActiveConsoleSessionId()
-	if sessionID == 0 || sessionID == ^uint32(0) {
-		return 0, fmt.Errorf("no active console session")
+	var token windows.Token
+	tokenSource := ""
+	sessionID := uint32(0)
+	var lastErr error
+	for _, candidate := range activeUserSessionIDs() {
+		if err := windows.WTSQueryUserToken(candidate, &token); err != nil {
+			pid, ferr := findProcessInSession(candidate)
+			if ferr != nil {
+				lastErr = fmt.Errorf("session %d: no logged-on user (WTSQueryUserToken: %v; %w)", candidate, err, ferr)
+				continue
+			}
+			hProc, oerr := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+			if oerr != nil {
+				lastErr = fmt.Errorf("session %d: open process %d: %w", candidate, pid, oerr)
+				continue
+			}
+			if err := windows.OpenProcessToken(hProc, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
+				windows.CloseHandle(hProc)
+				lastErr = fmt.Errorf("session %d: open process token: %w", candidate, err)
+				continue
+			}
+			var dup windows.Token
+			if err := windows.DuplicateTokenEx(token, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &dup); err != nil {
+				windows.CloseHandle(hProc)
+				windows.CloseHandle(windows.Handle(token))
+				lastErr = fmt.Errorf("session %d: duplicate token: %w", candidate, err)
+				continue
+			}
+			windows.CloseHandle(hProc)
+			windows.CloseHandle(windows.Handle(token))
+			token = dup
+			tokenSource = fmt.Sprintf("process %d", pid)
+		} else {
+			tokenSource = "WTSQueryUserToken"
+		}
+		sessionID = candidate
+		break
+	}
+	if sessionID == 0 {
+		if lastErr == nil {
+			lastErr = fmt.Errorf("no active user session")
+		}
+		return 0, lastErr
 	}
 
-	// Primary path: WTSQueryUserToken returns the primary token of the
-	// user logged on to the session directly — no process enumeration.
-	// The service runs as LocalSystem, which has SE_TCB.
-	var token windows.Token
-	tokenSource := "WTSQueryUserToken"
-	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
-		// Fallback: duplicate the token of a process in the session.
-		pid, ferr := findProcessInSession(sessionID)
-		if ferr != nil {
-			return 0, fmt.Errorf("no logged-on user in session %d (WTSQueryUserToken: %v; %w)", sessionID, err, ferr)
-		}
-		tokenSource = fmt.Sprintf("process %d", pid)
-		hProc, oerr := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-		if oerr != nil {
-			return 0, fmt.Errorf("open process %d: %w", pid, oerr)
-		}
-		defer windows.CloseHandle(hProc)
-		if err := windows.OpenProcessToken(hProc, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
-			return 0, fmt.Errorf("open process token: %w", err)
-		}
-		var dup windows.Token
-		if err := windows.DuplicateTokenEx(token, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &dup); err != nil {
-			return 0, fmt.Errorf("duplicate token: %w", err)
-		}
-		windows.CloseHandle(windows.Handle(token))
-		token = dup
-	}
 	defer windows.CloseHandle(windows.Handle(token))
 
 	var envBlock *uint16
