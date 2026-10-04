@@ -370,15 +370,54 @@ func userSessionToken() (windows.Token, error) {
 	return windows.Token(0), lastErr
 }
 
+// systemSessionToken returns a primary token for the agent's own
+// identity (LocalSystem when running as the service) retargeted to the
+// first interactive session, or an error when the agent is not running
+// as a Session 0 service or no session exists.
+func systemSessionToken() (windows.Token, error) {
+	if !runningInSession0() {
+		return 0, fmt.Errorf("agent is not running as a service")
+	}
+	ids := activeUserSessionIDs()
+	if len(ids) == 0 {
+		return 0, fmt.Errorf("no interactive session")
+	}
+	var self windows.Token
+	const want = windows.TOKEN_DUPLICATE | windows.TOKEN_QUERY | windows.TOKEN_ASSIGN_PRIMARY |
+		windows.TOKEN_ADJUST_DEFAULT | windows.TOKEN_ADJUST_SESSIONID
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), want, &self); err != nil {
+		return 0, fmt.Errorf("open own token: %w", err)
+	}
+	defer windows.CloseHandle(windows.Handle(self))
+	var dup windows.Token
+	if err := windows.DuplicateTokenEx(self, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &dup); err != nil {
+		return 0, fmt.Errorf("duplicate own token: %w", err)
+	}
+	sid := ids[0]
+	if err := windows.SetTokenInformation(dup, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sid)), uint32(unsafe.Sizeof(sid))); err != nil {
+		windows.CloseHandle(windows.Handle(dup))
+		return 0, fmt.Errorf("set token session %d: %w", sid, err)
+	}
+	return dup, nil
+}
+
 // SpawnRemote launches the per-session remote-control executable in
 // the interactive user session with its window suppressed (the binary
 // is GUI-subsystem; CREATE_NO_WINDOW keeps any stray console hidden).
 // The agent supervises the returned PID and kills it when the session
 // ends.
 func SpawnRemote(exe, cmdLine string) (int, error) {
-	token, err := userSessionToken()
+	// Prefer a SYSTEM token placed in the user's session: that process
+	// can attach to the Winlogon desktop, so UAC prompts and the
+	// logon/lock screen are visible and controllable. Fall back to the
+	// logged-on user's token (normal desktop only).
+	token, err := systemSessionToken()
 	if err != nil {
-		return 0, err
+		log.Printf("session: SYSTEM remote token unavailable (%v); using the user token", err)
+		token, err = userSessionToken()
+		if err != nil {
+			return 0, err
+		}
 	}
 	defer windows.CloseHandle(windows.Handle(token))
 
