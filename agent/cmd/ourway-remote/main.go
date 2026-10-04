@@ -69,7 +69,9 @@ func main() {
 		StartCapture(ctx context.Context) error
 	}); ok {
 		if err := c.StartCapture(ctx); err != nil {
-			log.Printf("ourway-remote: capture start failed: %v", err)
+			// Nothing to stream: exit so the agent sees the failure
+			// instead of a session that connects and shows nothing.
+			log.Fatalf("ourway-remote: capture start failed: %v", err)
 		}
 		defer func() {
 			if c, ok := capture.(interface{ StopCapture() }); ok {
