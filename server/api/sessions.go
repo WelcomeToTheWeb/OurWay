@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -72,6 +73,14 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 		return
 	}
 
+	// Token for the native viewer (ourway:// launch). Same scheme and
+	// scope as the remote token, but a distinct secret.
+	viewerToken, viewerHash, err := models.NewRemoteToken()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to create session"})
+		return
+	}
+
 	// Create session
 	session := &models.Session{
 		ID:              uuid.NewString(),
@@ -79,6 +88,7 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 		UserID:          userID,
 		Status:          "pending",
 		RemoteTokenHash: remoteHash,
+		ViewerTokenHash: viewerHash,
 	}
 	if err := h.store.Sessions.Create(session); err != nil {
 		c.JSON(500, gin.H{"error": "failed to create session"})
@@ -107,8 +117,16 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 		"user_id":    userID,
 	})
 
+	// The viewer launch URL carries the viewer token; the server URL is
+	// what the viewer dials. The token is returned only here, once.
+	q := url.Values{}
+	q.Set("server", serverURL)
+	q.Set("token", viewerToken)
+	q.Set("device", device.Name)
 	c.JSON(200, gin.H{
-		"session": session,
+		"session":      session,
+		"viewer_token": viewerToken,
+		"viewer_url":   "ourway://session/" + session.ID + "?" + q.Encode(),
 	})
 }
 
@@ -155,6 +173,8 @@ func (h *SessionHandler) EndSession(c *gin.Context) {
 			log.Printf("sessions: failed to notify device of session end: %v", err)
 		}
 	}
+
+	h.hub.SendToViewer(sessionID, "session_end", gin.H{"session_id": sessionID})
 
 	c.JSON(200, gin.H{"status": "ended"})
 }

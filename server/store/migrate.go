@@ -110,6 +110,12 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 6, name: "sessions_viewer_token_hash", fn: func(db *gorm.DB) error {
+		if db.Migrator().HasColumn(&models.Session{}, "viewer_token_hash") {
+			return nil
+		}
+		return db.Migrator().AddColumn(&models.Session{}, "ViewerTokenHash")
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

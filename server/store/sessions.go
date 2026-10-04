@@ -37,6 +37,16 @@ func (s *SessionStore) GetLiveByTokenHash(tokenHash string) (*models.Session, er
 	return &session, nil
 }
 
+// GetLiveByViewerTokenHash fetches the pending or active session whose
+// viewer token hashes to tokenHash.
+func (s *SessionStore) GetLiveByViewerTokenHash(tokenHash string) (*models.Session, error) {
+	var session models.Session
+	if err := s.db.First(&session, "viewer_token_hash = ? AND status IN (?)", tokenHash, []string{"pending", "active"}).Error; err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
 // Update persists changes to a session record.
 func (s *SessionStore) Update(session *models.Session) error {
 	return s.db.Save(session).Error

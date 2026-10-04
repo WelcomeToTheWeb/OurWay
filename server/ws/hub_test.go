@@ -237,28 +237,29 @@ func TestHubUnknownDeviceKeyRejected(t *testing.T) {
 func TestHubCredentialExtraction(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {
-		name     string
-		header   string
-		want     string
-		isRemote bool
+		name   string
+		header string
+		want   string
+		role   string
 	}{
-		{"well formed", "ourway-auth, device-key-123", "device-key-123", false},
-		{"extra whitespace", "  ourway-auth ,   device-key-123  ", "device-key-123", false},
-		{"remote role", "ourway-auth, device-key-123, remote", "device-key-123", true},
-		{"remote role whitespace", "  ourway-auth , key ,  remote ", "key", true},
-		{"unknown third element", "ourway-auth, key, other", "key", false},
-		{"missing credential", "ourway-auth", "", false},
-		{"wrong protocol", "other-auth, key", "", false},
-		{"empty", "", "", false},
+		{"well formed", "ourway-auth, device-key-123", "device-key-123", ""},
+		{"extra whitespace", "  ourway-auth ,   device-key-123  ", "device-key-123", ""},
+		{"remote role", "ourway-auth, device-key-123, remote", "device-key-123", "remote"},
+		{"remote role whitespace", "  ourway-auth , key ,  remote ", "key", "remote"},
+		{"unknown third element", "ourway-auth, key, other", "key", ""},
+		{"missing credential", "ourway-auth", "", ""},
+		{"wrong protocol", "other-auth, key", "", ""},
+		{"viewer role", "ourway-auth, tok, viewer", "tok", "viewer"},
+		{"empty", "", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest("GET", "/ws", nil)
 			c.Request.Header.Set("Sec-WebSocket-Protocol", tt.header)
-			got, isRemote := wsCredential(c)
-			if got != tt.want || isRemote != tt.isRemote {
-				t.Errorf("wsCredential(%q) = (%q, %v), want (%q, %v)", tt.header, got, isRemote, tt.want, tt.isRemote)
+			got, role := wsCredential(c)
+			if got != tt.want || role != tt.role {
+				t.Errorf("wsCredential(%q) = (%q, %q), want (%q, %q)", tt.header, got, role, tt.want, tt.role)
 			}
 		})
 	}

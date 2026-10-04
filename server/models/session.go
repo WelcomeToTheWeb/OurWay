@@ -19,7 +19,11 @@ type Session struct {
 	// RemoteTokenHash is the SHA-256 (hex) of the per-session token handed
 	// to the remote-control exe. It authenticates that exe for this session
 	// only, so the device key never leaves the agent service.
-	RemoteTokenHash string     `gorm:"index" json:"-"`
+	RemoteTokenHash string `gorm:"index" json:"-"`
+	// ViewerTokenHash is the SHA-256 (hex) of the token handed to the
+	// technician's native viewer (ourway:// launch URL). Like the
+	// remote token it is scoped to this one session.
+	ViewerTokenHash string     `gorm:"index" json:"-"`
 	CreatedAt       time.Time  `json:"created_at"`
 	EndedAt         *time.Time `json:"ended_at"`
 }

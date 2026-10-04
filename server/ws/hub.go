@@ -45,10 +45,13 @@ func toFloat(v interface{}) float64 {
 // Client is a registered WebSocket client.
 type Client struct {
 	ID        string
-	Type      string // "user" or "device"
+	Type      string // "user", "device", "remote" or "viewer"
 	DeviceKey string
 	Conn      *websocket.Conn
 	SendCh    chan []byte
+	// BinCh carries perishable binary frames to a viewer (nil for other
+	// client types). It is never closed; the writer stops with SendCh.
+	BinCh chan []byte
 }
 
 // Message is the envelope for WebSocket messages.
@@ -210,6 +213,9 @@ func (h *Hub) handleRemoteBroadcast(data []byte) {
 	}
 	h.mu.RLock()
 	for _, client := range h.clients {
+		if client.Type == "viewer" {
+			continue
+		}
 		select {
 		case client.SendCh <- env.Data:
 		default:
@@ -244,6 +250,9 @@ func (h *Hub) Run() {
 			// Deliver to local clients
 			h.mu.RLock()
 			for _, client := range h.clients {
+				if client.Type == "viewer" {
+					continue
+				}
 				select {
 				case client.SendCh <- msg:
 				default:
@@ -460,7 +469,8 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	// logs, and the Referer header). Clients propose
 	// "ourway-auth, <credential>" where credential is a device key or a
 	// user access token.
-	credential, isRemote := wsCredential(c)
+	credential, role := wsCredential(c)
+	isRemote, isViewer := role == "remote", role == "viewer"
 	if credential == "" {
 		c.JSON(400, gin.H{"error": "provide a credential via Sec-WebSocket-Protocol: ourway-auth, <device key or token>"})
 		return
@@ -480,6 +490,9 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	// remoteSession is set for a remote exe authenticated with a
 	// per-session token; only those connections may stream frames.
 	var remoteSession *models.Session
+	// viewerSession is set for a native viewer; it may only talk to
+	// this session's device.
+	var viewerSession *models.Session
 
 	if claims, err := jwtAuth.ValidateToken(credential); err == nil {
 		// User (browser) connection: registered under the user's stable
@@ -499,7 +512,17 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		clientType = "remote"
 		clientID = "remote:" + dev.DeviceKey
 		remoteSession = sess
-	} else if _, err := store.Devices.GetByKey(credential); err == nil {
+	} else if sess, err := store.Sessions.GetLiveByViewerTokenHash(models.HashRemoteToken(credential)); isViewer && err == nil {
+		dev, derr := store.Devices.GetByID(sess.DeviceID)
+		if derr != nil {
+			c.JSON(401, gin.H{"error": "invalid session token"})
+			return
+		}
+		deviceKey = dev.DeviceKey
+		clientType = "viewer"
+		clientID = "viewer:" + sess.ID
+		viewerSession = sess
+	} else if _, err := store.Devices.GetByKey(credential); !isViewer && err == nil {
 		// Reject unknown device keys before accepting the connection.
 		// A device key with the remote marker is still accepted for
 		// exes older than the per-session token; the agent's own
@@ -535,12 +558,19 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		conn.SetReadLimit(maxFrameBytes)
 	}
 
+	if viewerSession != nil {
+		conn.SetReadLimit(maxViewerMsgBytes)
+	}
+
 	client := &Client{
 		ID:        clientID,
 		Type:      clientType,
 		DeviceKey: deviceKey,
 		Conn:      conn,
 		SendCh:    make(chan []byte, 100),
+	}
+	if viewerSession != nil {
+		client.BinCh = make(chan []byte, 4)
 	}
 
 	// Ensure the stale-device reaper is running (no-op after the first start)
@@ -590,8 +620,27 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	}
 
 	h.register <- client
+	if viewerSession != nil {
+		// The remote exe streams legacy JPEGs for the browser until a
+		// viewer attaches; then it switches to the framed protocol.
+		if out, err := json.Marshal(Message{Type: "viewer_attach", Payload: map[string]string{"session_id": viewerSession.ID}}); err == nil {
+			h.sendRemoteExe(deviceKey, out)
+		}
+	}
+	if remoteSession != nil && h.hasViewer(remoteSession.ID) {
+		if out, err := json.Marshal(Message{Type: "viewer_attach", Payload: map[string]string{"session_id": remoteSession.ID}}); err == nil {
+			h.sendRemoteExe(deviceKey, out)
+		}
+	}
 	defer func() {
 		h.unregister <- client
+		if viewerSession != nil {
+			if out, err := json.Marshal(Message{Type: "viewer_detach", Payload: map[string]string{"session_id": viewerSession.ID}}); err == nil {
+				h.sendRemoteExe(deviceKey, out)
+			}
+			conn.Close(websocket.StatusNormalClosure, "closing")
+			return
+		}
 		if clientType == "remote" {
 			// The remote-control exe leaving must not affect device
 			// presence: the agent's connection owns that.
@@ -650,9 +699,20 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	// On write failure we close the conn so the read loop unblocks and the
 	// deferred unregister runs.
 	go func() {
-		for data := range client.SendCh {
+		for {
+			var data []byte
+			msgType := websocket.MessageText
+			select {
+			case d, ok := <-client.SendCh:
+				if !ok {
+					return
+				}
+				data = d
+			case d := <-client.BinCh: // nil (never ready) unless a viewer
+				data, msgType = d, websocket.MessageBinary
+			}
 			writeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err := conn.Write(writeCtx, websocket.MessageText, data)
+			err := conn.Write(writeCtx, msgType, data)
 			cancel()
 			if err != nil {
 				conn.Close(websocket.StatusInternalError, "write failed")
@@ -676,7 +736,7 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		switch clientType {
 		case "device":
 			readCtx, cancelRead = context.WithTimeout(ctx, 60*time.Second)
-		case "user", "remote":
+		case "user", "remote", "viewer":
 			readCtx, cancelRead = context.WithTimeout(ctx, 120*time.Second)
 		}
 		msgType, data, err := conn.Read(readCtx)
@@ -690,7 +750,14 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		// Binary messages from the remote exe are raw JPEG frames.
 		if msgType == websocket.MessageBinary {
 			if remoteSession != nil && clientType == "remote" {
-				if !h.relayRemoteFrame(store, remoteSession, &fs, data) {
+				if len(data) > 0 && data[0] != jpegSOI {
+					// Framed protocol for the native viewer.
+					if !h.sessionLive(store, remoteSession, &fs, true) {
+						conn.Close(websocket.StatusPolicyViolation, "session ended")
+						return
+					}
+					h.relayRichFrame(remoteSession, data)
+				} else if !h.relayRemoteFrame(store, remoteSession, &fs, data) {
 					conn.Close(websocket.StatusPolicyViolation, "session ended")
 					return
 				}
@@ -707,7 +774,17 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		switch clientType {
 		case "device":
 			h.handleDeviceMessage(client, msg, store, deviceKey)
+		case "viewer":
+			h.handleViewerMessage(client, viewerSession, data)
+			// A session ended from elsewhere must close the viewer.
+			if !h.sessionLive(store, viewerSession, &fs, false) {
+				conn.Close(websocket.StatusPolicyViolation, "session ended")
+				return
+			}
 		case "remote", "user":
+			if remoteSession != nil && msg.Type != "ping" {
+				h.handleRemoteTextMessage(remoteSession, data)
+			}
 			// H1: browsers cannot initiate protocol-level pings, so the
 			// web client sends an app-level ping every 30 s; answer with a
 			// pong to keep the read deadline fresh on receive-only
@@ -734,6 +811,27 @@ type frameState struct {
 	checked time.Time
 }
 
+// sessionLive reports whether the session is still pending or active,
+// re-reading the row at most every 2 s (not per message). It flips
+// pending -> active when activate is set (frame paths only).
+func (h *Hub) sessionLive(store *store.Store, sess *models.Session, fs *frameState, activate bool) bool {
+	if time.Since(fs.checked) <= 2*time.Second {
+		return true
+	}
+	cur, err := store.Sessions.GetByID(sess.ID)
+	if err != nil || (cur.Status != "pending" && cur.Status != "active") {
+		return false
+	}
+	if activate && cur.Status == "pending" {
+		cur.Status = "active"
+		if err := store.Sessions.Update(cur); err != nil {
+			log.Printf("ws: failed to mark session %s active: %v", cur.ID, err)
+		}
+	}
+	fs.checked = time.Now()
+	return true
+}
+
 // relayRemoteFrame forwards one JPEG frame from a remote exe to the
 // session owner's browser, like POST /api/sessions/:id/frame. The
 // session row is re-read at most every 2 s (not per frame) to flip
@@ -744,18 +842,12 @@ func (h *Hub) relayRemoteFrame(store *store.Store, sess *models.Session, fs *fra
 	if len(jpeg) == 0 {
 		return true
 	}
-	if time.Since(fs.checked) > 2*time.Second {
-		cur, err := store.Sessions.GetByID(sess.ID)
-		if err != nil || (cur.Status != "pending" && cur.Status != "active") {
-			return false
-		}
-		if cur.Status == "pending" {
-			cur.Status = "active"
-			if err := store.Sessions.Update(cur); err != nil {
-				log.Printf("ws: failed to mark session %s active: %v", cur.ID, err)
-			}
-		}
-		fs.checked = time.Now()
+	if !h.sessionLive(store, sess, fs, true) {
+		return false
+	}
+	if h.hasViewer(sess.ID) {
+		// Old exe (legacy JPEG) with a viewer attached: wrap it.
+		h.sendViewerFrame(sess.ID, append([]byte{frameKindFull, 0}, jpeg...))
 	}
 	// Only the session owner receives frames.
 	if err := h.SendToUser(sess.UserID, "session_frame", map[string]interface{}{
@@ -776,20 +868,24 @@ func (h *Hub) relayRemoteFrame(store *store.Store, sess *models.Session, fs *fra
 // header (C5). Expected form: "ourway-auth, <credential>" for agents and
 // browsers, or "ourway-auth, <credential>, remote" for the per-session
 // remote-control executable, which connects with the device's key but
-// must not supersede the agent's own connection.
-func wsCredential(c *gin.Context) (string, bool) {
+// must not supersede the agent's own connection, or "..., viewer" for
+// the native viewer (the second result is the role marker).
+func wsCredential(c *gin.Context) (credential, role string) {
 	raw := c.GetHeader("Sec-WebSocket-Protocol")
 	if raw == "" {
-		return "", false
+		return "", ""
 	}
 	parts := strings.Split(raw, ",")
 	for i := range parts {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 	if len(parts) >= 2 && parts[0] == "ourway-auth" {
-		return parts[1], len(parts) >= 3 && parts[2] == "remote"
+		if len(parts) >= 3 && (parts[2] == "remote" || parts[2] == "viewer") {
+			return parts[1], parts[2]
+		}
+		return parts[1], ""
 	}
-	return "", false
+	return "", ""
 }
 
 // originAllowed reports whether a browser Origin header may open a WS
