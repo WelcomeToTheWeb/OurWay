@@ -183,19 +183,33 @@ func (h *Hub) handleRemoteTargeted(data []byte) {
 		return
 	}
 
+	for _, client := range h.clientsFor(msg.Target) {
+		select {
+		case client.SendCh <- msg.Data:
+		default:
+			h.dropped.Add(1)
+		}
+	}
+}
+
+// clientsFor returns the connections addressed by target: the exact
+// client ID, plus (for "user:<id>") every browser connection that user has
+// open. A user may have several (tabs, the device page and its session
+// viewer), and a message for the user must reach all of them.
+func (h *Hub) clientsFor(target string) []*Client {
 	h.mu.RLock()
-	client, ok := h.clients[msg.Target]
-	h.mu.RUnlock()
-
-	if !ok {
-		return
+	defer h.mu.RUnlock()
+	var out []*Client
+	if c, ok := h.clients[target]; ok {
+		out = append(out, c)
 	}
-
-	select {
-	case client.SendCh <- msg.Data:
-	default:
-		h.dropped.Add(1)
+	prefix := target + "#"
+	for id, c := range h.clients {
+		if strings.HasPrefix(id, prefix) {
+			out = append(out, c)
+		}
 	}
+	return out
 }
 
 func (h *Hub) handleRemoteBroadcast(data []byte) {
@@ -385,17 +399,20 @@ func (h *Hub) SendToUser(userID string, msgType string, payload interface{}) err
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	h.mu.RLock()
-	client, ok := h.clients[clientID]
-	h.mu.RUnlock()
-
-	if ok {
-		select {
-		case client.SendCh <- data:
-			return nil
-		default:
-			return fmt.Errorf("user %s send buffer full", userID)
+	if clients := h.clientsFor(clientID); len(clients) > 0 {
+		delivered := false
+		for _, client := range clients {
+			select {
+			case client.SendCh <- data:
+				delivered = true
+			default:
+				h.dropped.Add(1)
+			}
 		}
+		if delivered {
+			return nil
+		}
+		return fmt.Errorf("user %s send buffer full", userID)
 	}
 
 	// User not on this instance, publish to Redis
@@ -485,7 +502,11 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		// User (browser) connection: registered under the user's stable
 		// ID (not the rotating JWT) so messages can be targeted by user ID.
 		clientType = "user"
-		clientID = "user:" + claims.UserID
+		// Browsers may hold several connections at once (tabs, the device
+		// page plus its session viewer). Each gets its own unique ID so one
+		// never supersedes another; messages for the user fan out to all
+		// (see clientsFor).
+		clientID = "user:" + claims.UserID + "#" + uuid.NewString()
 	} else if sess, err := store.Sessions.GetLiveByTokenHash(models.HashRemoteToken(credential)); isRemote && err == nil {
 		// The remote-control exe authenticates with a per-session token
 		// (not the device key) and registers under the device's remote
