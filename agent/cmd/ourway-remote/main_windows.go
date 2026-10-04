@@ -112,6 +112,32 @@ func main() {
 	// Session start/end arrive over this connection; input too. Read
 	// in a goroutine, run the capture loop on the main goroutine.
 	var ended atomic.Bool
+	// H1 parity with the browser client: the server enforces a 120 s
+	// read deadline on remote connections and browsers cannot initiate
+	// protocol-level pings, so an app-level ping every 30 s keeps the
+	// deadline fresh. nhooyr answers the server's protocol pings
+	// automatically, but the read deadline needs inbound traffic too.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		ping, _ := json.Marshal(struct {
+			Type string `json:"type"`
+		}{"ping"})
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				wctx, wcancel := context.WithTimeout(ctx, 5*time.Second)
+				err := conn.Write(wctx, websocket.MessageText, ping)
+				wcancel()
+				if err != nil {
+					ended.Store(true)
+					return
+				}
+			}
+		}
+	}()
 	go func() {
 		for {
 			_, data, err := conn.Read(ctx)
