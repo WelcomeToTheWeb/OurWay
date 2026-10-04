@@ -98,10 +98,7 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 	// Tell the device to start capturing: the agent's capture loop only
 	// runs after it receives "session_start" on its WS connection. The
 	// server URL is included so the agent knows where to upload frames.
-	serverURL := "http://" + c.Request.Host
-	if c.Request.TLS != nil {
-		serverURL = "https://" + c.Request.Host
-	}
+	serverURL := publicServerURL(c)
 	if err := h.hub.SendToDevice(device.DeviceKey, "session_start", gin.H{
 		"session_id":   session.ID,
 		"server_url":   serverURL,
@@ -128,6 +125,25 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 		"viewer_token": viewerToken,
 		"viewer_url":   "ourway://session/" + session.ID + "?" + q.Encode(),
 	})
+}
+
+// publicServerURL is the base URL remote parties (agent, native viewer)
+// should dial to reach this server. Behind a reverse proxy the request's
+// own Host/TLS describe the hop from the proxy, so prefer the forwarded
+// headers; the proxy must preserve the port (nginx: $http_host, not $host).
+func publicServerURL(c *gin.Context) string {
+	scheme := "http"
+	if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	if p := c.GetHeader("X-Forwarded-Proto"); p == "http" || p == "https" {
+		scheme = p
+	}
+	host := c.Request.Host
+	if h := c.GetHeader("X-Forwarded-Host"); h != "" {
+		host = h
+	}
+	return scheme + "://" + host
 }
 
 // authorizeSessionAccess verifies the session exists and belongs to the
