@@ -18,7 +18,7 @@ import (
 //
 // Frames reach the viewer as binary WebSocket messages, not base64
 // JSON. Two formats exist (the first byte tells them apart; a legacy
-// raw JPEG starts with 0xFF):
+// raw JPEG starts with 0xFF, never 0x01 or 0x02):
 //
 //	0x01 full frame: [0x01][monitor u8][JPEG ...]
 //	0x02 tile update: [0x02][monitor u8][width u16][height u16][n u16]
@@ -31,7 +31,6 @@ import (
 const (
 	frameKindFull  = 0x01
 	frameKindTiles = 0x02
-	jpegSOI        = 0xFF // first byte of a legacy raw JPEG frame
 
 	// maxViewerMsgBytes bounds a text message from the viewer
 	// (clipboard text is the largest legitimate one).
@@ -54,6 +53,12 @@ var remoteToViewer = map[string]bool{
 	"monitor_list": true,
 	"clipboard":    true,
 	"session_info": true,
+}
+
+// isFramedFrame reports whether a binary message from the remote exe
+// uses the framed viewer protocol rather than being a raw JPEG.
+func isFramedFrame(b []byte) bool {
+	return len(b) > 0 && (b[0] == frameKindFull || b[0] == frameKindTiles)
 }
 
 // rawMessage is Message with an undecoded payload, so relayed
