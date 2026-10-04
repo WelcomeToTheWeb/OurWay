@@ -108,4 +108,23 @@ func (d *dxgiCapture) Frame(quality int) ([]byte, error) {
 	return d.lastJPEG, nil
 }
 
+// desktopChanged is called by the capture thread when it attaches to a
+// different input desktop. Desktop Duplication only works on the
+// default desktop, so on the secure (Winlogon) desktop it is released
+// and GDI takes over; back on Default it is re-initialised.
+func (d *dxgiCapture) desktopChanged(name string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.dup != nil {
+		d.dup.Release()
+		d.dup = nil
+	}
+	d.lastJPEG = nil
+	if isDefaultDesktop(name) {
+		d.inited, d.broken = false, false
+	} else {
+		d.inited, d.broken = true, true
+	}
+}
+
 var errDXGIFrameStale = fmt.Errorf("dxgi: no new frame")

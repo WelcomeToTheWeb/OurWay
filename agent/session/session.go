@@ -17,21 +17,13 @@ import (
 const maxSessionDuration = 24 * time.Hour
 
 // sessionExtras is implemented by platform captures that need
-// per-session setup. On Windows, a Session 0 service cannot see the
-// interactive user's desktop, so this spawns a per-user helper process
-// for capture and input.
+// per-session setup (Windows: the frame producer, which refuses to run
+// in the service's Session 0).
 type sessionExtras interface {
 	startSession(ctx context.Context) error
 	stopSession()
 }
 
-// inputSink is implemented by platform captures that route synthesized
-// input events themselves (e.g. forwarding them to a per-user helper
-// process).
-type inputSink interface {
-	inputKey(key, event string)
-	inputMouse(event string, x, y float64, button string, delta float64)
-}
 type SessionManager struct {
 	deviceKey string
 	capture   ScreenCapture
@@ -147,16 +139,19 @@ func (sm *SessionManager) StartSession(ctx context.Context, payload interface{})
 	// Windows: prefer the per-session remote-control executable (the
 	// ScreenConnect-style split). It runs in the interactive user
 	// session and owns capture, input and frame upload; the agent only
-	// spawns and supervises it. On failure the legacy in-process path
-	// remains the fallback.
+	// spawns and supervises it. Where the split does not apply (interactive
+	// runs, unsupported platforms) or the exe cannot start, the in-process
+	// capture below runs instead.
 	if startRemoteSession(sm) {
 		return
 	}
-	// Platform session setup (e.g. Windows: spawn the per-user capture
-	// helper when running as a Session 0 service).
+	// Platform session setup (Windows: the frame producer; it fails in
+	// Session 0 when the remote-control exe could not be started).
 	if ex, ok := sm.capture.(sessionExtras); ok {
 		if err := ex.startSession(ctx); err != nil {
-			log.Printf("session: platform session setup failed: %v", err)
+			log.Printf("session: platform session setup failed: %v; ending session", err)
+			sm.EndSession()
+			return
 		}
 	}
 
@@ -321,10 +316,6 @@ func (sm *SessionManager) handleKeyEvent(input map[string]interface{}) {
 		return
 	}
 	log.Printf("session: key event: %s %s", event, key)
-	if s, ok := sm.capture.(inputSink); ok {
-		s.inputKey(key, event)
-		return
-	}
 	synthesizeKey(key, event)
 }
 
@@ -335,10 +326,6 @@ func (sm *SessionManager) handleMouseEvent(input map[string]interface{}) {
 	button, _ := input["button"].(string)
 	delta, _ := input["delta"].(float64)
 	log.Printf("session: mouse event: %s at (%.0f, %.0f) button=%s", event, x, y, button)
-	if s, ok := sm.capture.(inputSink); ok {
-		s.inputMouse(event, x, y, button, delta)
-		return
-	}
 	synthesizeMouse(event, x, y, button, delta)
 }
 
