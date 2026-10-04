@@ -107,6 +107,8 @@ func main() {
 	// Session start/end arrive over this connection; input too. Read
 	// in a goroutine, run the capture loop on the main goroutine.
 	var ended atomic.Bool
+	// binaryOK is set once the server announces it accepts binary frames.
+	var binaryOK atomic.Bool
 	// H1 parity with the browser client: the server enforces a 120 s
 	// read deadline on remote connections and browsers cannot initiate
 	// protocol-level pings, so an app-level ping every 30 s keeps the
@@ -148,6 +150,9 @@ func main() {
 				continue
 			}
 			switch msg.Type {
+			case "binary_frames":
+				binaryOK.Store(true)
+				log.Printf("ourway-remote: server accepts binary frames")
 			case "session_end":
 				ended.Store(true)
 				return
@@ -187,6 +192,7 @@ func main() {
 		}
 	}()
 
+	loggedFirst := false
 	frameURL := config.HTTPBaseURL(serverURL) + "/api/sessions/" + sessionID + "/frame"
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 
@@ -203,7 +209,7 @@ func main() {
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
-		if useToken {
+		if useToken && binaryOK.Load() {
 			// Frames ride the already-open WebSocket as binary messages:
 			// no per-frame HTTP request or TLS/connection churn.
 			wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
@@ -212,6 +218,10 @@ func main() {
 			if werr != nil {
 				log.Printf("ourway-remote: frame write failed: %v; ending", werr)
 				return
+			}
+			if !loggedFirst {
+				loggedFirst = true
+				log.Printf("ourway-remote: first frame sent over websocket (%d bytes)", len(frame))
 			}
 			time.Sleep(interval)
 			continue
@@ -233,6 +243,10 @@ func main() {
 			continue
 		}
 		resp.Body.Close()
+		if !loggedFirst && resp.StatusCode < 300 {
+			loggedFirst = true
+			log.Printf("ourway-remote: first frame sent over HTTP (%d bytes)", len(frame))
+		}
 		if resp.StatusCode >= 300 {
 			log.Printf("ourway-remote: frame upload returned %d; ending", resp.StatusCode)
 			return

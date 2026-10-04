@@ -590,6 +590,18 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	}
 
 	h.register <- client
+
+	if remoteSession != nil {
+		// Tell the exe this server accepts binary frame messages; exes
+		// fall back to HTTP frame upload until they hear it, so a newer
+		// exe never streams into an older server that would drop frames.
+		if msg, err := json.Marshal(Message{Type: "binary_frames"}); err == nil {
+			select {
+			case client.SendCh <- msg:
+			default:
+			}
+		}
+	}
 	defer func() {
 		h.unregister <- client
 		if clientType == "remote" {
