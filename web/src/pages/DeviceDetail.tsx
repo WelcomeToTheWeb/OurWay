@@ -27,6 +27,7 @@ import type { Session } from '../api/sessions';
 import { Gauge } from '../components/Gauge';
 import { LineChart } from '../components/LineChart';
 import { InfoRow } from '../components/InfoRow';
+import { TagEditor } from '../components/TagEditor';
 import { CopyButton } from '../components/CopyButton';
 import { StatusBadge } from '../components/StatusBadge';
 import { SessionView } from '../components/SessionView';
@@ -59,7 +60,8 @@ function osLabel(os: string): string {
 export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { accessToken } = useAuth();
+  const { accessToken, hasAnyRole } = useAuth();
+  const canEditTags = hasAnyRole(['admin', 'manager', 'technician']);
   const [device, setDevice] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -317,6 +319,17 @@ export function DeviceDetail() {
                 {device.hostname} • {osLabel(device.os)} • {device.arch}
                 {device.agent_version && ` • v${device.agent_version}`}
               </p>
+              <div className="mt-1.5">
+                <TagEditor
+                  deviceId={device.id}
+                  tags={device.tags ?? []}
+                  readOnly={!canEditTags}
+                  onChange={(tags) => setDevice((d) => (d ? { ...d, tags } : d))}
+                />
+              </div>
+              {device.reboot_pending && (
+                <p className="mt-1.5 text-xs text-status-warning">Reboot pending — updates installed, restart required.</p>
+              )}
             </div>
           </div>
         </div>

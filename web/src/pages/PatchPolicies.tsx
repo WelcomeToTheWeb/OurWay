@@ -20,6 +20,7 @@ import {
   rollbackDeployment,
 } from '../api/patching';
 import { useTranslation } from 'react-i18next';
+import { listTags, type TagCount } from '../api/tags';
 import type { PatchPolicy, PatchDeployment, DeploymentResult } from '../types/patch';
 
 function timeAgo(dateStr: string): string {
@@ -46,11 +47,16 @@ export function PatchPolicies() {
   const [newPolicy, setNewPolicy] = useState({
     name: '',
     scope: 'all',
+    scope_value: '',
     schedule: 'weekly',
     auto_reboot: false,
     approval_required: true,
     max_devices_per_batch: 10,
   });
+  const [knownTags, setKnownTags] = useState<TagCount[]>([]);
+  useEffect(() => {
+    listTags().then(setKnownTags).catch(() => setKnownTags([]));
+  }, []);
   const [resultsFor, setResultsFor] = useState<string | null>(null);
   const [results, setResults] = useState<DeploymentResult[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
@@ -113,6 +119,7 @@ export function PatchPolicies() {
       setNewPolicy({
         name: '',
         scope: 'all',
+        scope_value: '',
         schedule: 'weekly',
         auto_reboot: false,
         approval_required: true,
@@ -218,6 +225,30 @@ export function PatchPolicies() {
                   <option value="devices">{t('patchPolicies.specificDevices')}</option>
                 </select>
               </div>
+              {newPolicy.scope !== 'all' && (
+                <div>
+                  <label className="block text-xs text-text-secondary" htmlFor="policy-scope-value">
+                    {newPolicy.scope === 'tags'
+                      ? t('patchPolicies.scopeTagsHelp')
+                      : t('patchPolicies.scopeDevicesHelp')}
+                  </label>
+                  <input
+                    id="policy-scope-value"
+                    list="policy-tag-suggestions"
+                    value={newPolicy.scope_value}
+                    onChange={(e) => setNewPolicy({ ...newPolicy, scope_value: e.target.value })}
+                    placeholder={newPolicy.scope === 'tags' ? 'prod, web' : 'server-01, laptop-7'}
+                    className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                  />
+                  {newPolicy.scope === 'tags' && (
+                    <datalist id="policy-tag-suggestions">
+                      {knownTags.map((tg) => (
+                        <option key={tg.tag} value={tg.tag} />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-text-secondary">
                   {t('patchPolicies.maxBatch')}
