@@ -390,7 +390,7 @@ func (c *Client) connect(ctx context.Context) error {
 						currentInterval = c.metricsSec
 						log.Printf("streaming ended, reverting to %v interval", currentInterval)
 						metricsTimer.Reset(currentInterval)
-					case "session_start", "session_end", "session_quality", "input", "command":
+					case "session_start", "session_end", "session_quality", "input", "command", "send_sas":
 						c.sessionMgr.HandleMessage(ctx, msgTypeName, msgData["payload"])
 					case "file_push":
 						go c.fileHandler.HandlePush(ctx, msgData["payload"])

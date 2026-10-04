@@ -133,3 +133,39 @@ func TestViewerSessionRelay(t *testing.T) {
 	hub.SendToViewer(sess.ID, "session_end", nil)
 	readUntil(t, viewer, 5*time.Second, func(m Message) bool { return m.Type == "session_end" })
 }
+
+// A slow viewer loses the oldest frames; since later frames may be
+// diffs against a dropped one, the exe must be asked for a keyframe.
+func TestViewerDropRequestsKeyframe(t *testing.T) {
+	h := NewHub("", "")
+	remote := &Client{ID: "remote:k", Type: "remote", SendCh: make(chan []byte, 8)}
+	viewer := &Client{ID: "viewer:s1", Type: "viewer", DeviceKey: "k", SendCh: make(chan []byte, 8), BinCh: make(chan []byte, 4)}
+	h.clients[remote.ID], h.clients[viewer.ID] = remote, viewer
+
+	for i := 0; i < 6; i++ {
+		h.sendViewerFrame("s1", []byte{frameKindFull, 0, byte(i)})
+	}
+	select {
+	case m := <-remote.SendCh:
+		if !strings.Contains(string(m), "request_keyframe") {
+			t.Errorf("unexpected message to exe: %s", m)
+		}
+	default:
+		t.Fatal("no keyframe request after dropping frames")
+	}
+	// Newest frames are kept.
+	var last byte
+	for len(viewer.BinCh) > 0 {
+		last = (<-viewer.BinCh)[2]
+	}
+	if last != 5 {
+		t.Errorf("newest frame not kept, last=%d", last)
+	}
+	// Rate limited: more drops within a second send no second request.
+	for i := 0; i < 6; i++ {
+		h.sendViewerFrame("s1", []byte{frameKindFull, 0, 9})
+	}
+	if len(remote.SendCh) != 0 {
+		t.Error("keyframe request not rate limited")
+	}
+}

@@ -34,6 +34,15 @@ type windowsCapture struct {
 
 	lastFrame atomic.Value // []byte
 	lastAt    atomic.Int64 // unix nano
+
+	// Native-viewer mode: the producer publishes raw frames of the
+	// selected monitor instead of JPEGs.
+	viewerMode atomic.Bool
+	selMonitor atomic.Int32
+	rawMu      sync.Mutex
+	raw        RawFrame
+	monCache   []Monitor
+	monAt      time.Time
 }
 
 // NewScreenCapture creates the Windows screen capture.
@@ -113,7 +122,11 @@ func (c *windowsCapture) startLocalLoopLocked() {
 			if name, changed := td.attach(); changed {
 				dxgiState.desktopChanged(name)
 			}
-			c.pushLocalFrame()
+			if c.viewerMode.Load() {
+				c.pushRawFrame()
+			} else {
+				c.pushLocalFrame()
+			}
 		}
 		// First frame immediately so the viewer does not sit on
 		// "waiting for first frame".
@@ -145,6 +158,96 @@ func (c *windowsCapture) pushLocalFrame() {
 	}
 	c.lastFrame.Store(data)
 	c.lastAt.Store(time.Now().UnixNano())
+}
+
+// SetViewerMode implements RawSource.
+func (c *windowsCapture) SetViewerMode(on bool) {
+	c.viewerMode.Store(on)
+	if on {
+		c.applyInputRegion()
+	} else {
+		setInputRegion(nil) // browser path: primary monitor mapping
+	}
+}
+
+// Monitors implements RawSource.
+func (c *windowsCapture) Monitors() []Monitor { return enumMonitors() }
+
+// SelectMonitor implements RawSource.
+func (c *windowsCapture) SelectMonitor(id int) error {
+	if id != MonitorAll {
+		mons := enumMonitors()
+		if id < 0 || id >= len(mons) {
+			return fmt.Errorf("no monitor %d", id)
+		}
+	}
+	c.selMonitor.Store(int32(id))
+	c.applyInputRegion()
+	return nil
+}
+
+// selectedRect resolves the selected monitor to its rectangle,
+// falling back to monitor 0 if the layout changed under it.
+func (c *windowsCapture) selectedRect() (id int, r image.Rectangle) {
+	id = int(c.selMonitor.Load())
+	if id == MonitorAll {
+		return id, virtualScreenRect()
+	}
+	c.rawMu.Lock()
+	if time.Since(c.monAt) > time.Second || len(c.monCache) == 0 {
+		c.monCache, c.monAt = enumMonitors(), time.Now()
+	}
+	mons := c.monCache
+	c.rawMu.Unlock()
+	if id < 0 || id >= len(mons) {
+		id = 0
+	}
+	return id, mons[id].Rect()
+}
+
+// applyInputRegion points mouse input at the selected monitor.
+func (c *windowsCapture) applyInputRegion() {
+	_, r := c.selectedRect()
+	setInputRegion(&r)
+}
+
+// NextRaw implements RawSource.
+func (c *windowsCapture) NextRaw(after uint64, timeout time.Duration) (RawFrame, bool) {
+	deadline := time.Now().Add(timeout)
+	for {
+		c.rawMu.Lock()
+		f := c.raw
+		c.rawMu.Unlock()
+		if f.Img != nil && f.Seq > after {
+			return f, true
+		}
+		if time.Now().After(deadline) {
+			return RawFrame{}, false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// pushRawFrame grabs the selected monitor and publishes it when it
+// changed. It runs on the capture thread.
+func (c *windowsCapture) pushRawFrame() {
+	id, rect := c.selectedRect()
+	img, changed, ok := dxgiState.Raw(rect)
+	if !ok {
+		var err error
+		if img, err = gdiCaptureRGBA(rect); err != nil {
+			log.Printf("session: viewer capture failed: %v", err)
+			return
+		}
+		changed = true
+	}
+	c.rawMu.Lock()
+	defer c.rawMu.Unlock()
+	// A monitor switch must publish even when the pixels are unchanged.
+	if !changed && c.raw.Monitor == id && c.raw.Img != nil {
+		return
+	}
+	c.raw = RawFrame{Img: img, Seq: c.raw.Seq + 1, Monitor: id}
 }
 
 // runningInSession0 reports whether this process runs in the Windows

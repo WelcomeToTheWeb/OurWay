@@ -3,8 +3,10 @@
 package session
 
 import (
+	"image"
 	"log"
 	"strings"
+	"sync/atomic"
 
 	"golang.org/x/sys/windows"
 )
@@ -73,6 +75,13 @@ func synthesizeKey(key, event string) {
 	}
 }
 
+// inputRegion, when set, is the monitor (virtual-desktop pixels) that
+// mouse percentages are relative to; nil keeps the primary-monitor
+// mapping the browser viewer uses.
+var inputRegion atomic.Pointer[image.Rectangle]
+
+func setInputRegion(r *image.Rectangle) { inputRegion.Store(r) }
+
 // synthesizeMouse injects a mouse event via SendInput. x and y are
 // 0-100 percentages of the captured frame; the browser client converts
 // to absolute screen pixels so a native implementation can pass them
@@ -118,8 +127,14 @@ func synthesizeMouse(event string, x, y float64, button string, delta float64) {
 
 	var in input
 	in.Type = inputMouse
-	in.mi().Dx = int32(x / 100 * 65535)
-	in.mi().Dy = int32(y / 100 * 65535)
+	if region := inputRegion.Load(); region != nil && flags&mouseeventfAbsolute != 0 {
+		dx, dy := absVirtualCoords(*region, virtualScreenRect(), x, y)
+		in.mi().Dx, in.mi().Dy = dx, dy
+		flags |= mouseeventfVirtualDesk
+	} else {
+		in.mi().Dx = int32(x / 100 * 65535)
+		in.mi().Dy = int32(y / 100 * 65535)
+	}
 	in.mi().MouseData = uint32(mouseD)
 	in.mi().DwFlags = flags
 	if err := sendInputOne(&in); err != nil {

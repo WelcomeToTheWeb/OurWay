@@ -90,10 +90,26 @@ func (sm *SessionManager) HandleMessage(ctx context.Context, msgType string, pay
 		sm.HandleQuality(payload)
 	case "command":
 		sm.HandleCommand(ctx, payload)
+	case "send_sas":
+		sm.HandleSendSAS()
 	}
 	// scan_updates / deploy_updates are intentionally NOT handled here:
 	// the client routes them to the patch handler, which is the real
 	// implementation.
+}
+
+// HandleSendSAS raises Ctrl+Alt+Del for the technician's viewer. Only
+// this service (SYSTEM) may do so; the user-session exe cannot.
+func (sm *SessionManager) HandleSendSAS() {
+	if !sm.IsActive() {
+		log.Printf("session: send_sas ignored: no active session")
+		return
+	}
+	if err := SendSAS(); err != nil {
+		log.Printf("session: send_sas failed: %v", err)
+		return
+	}
+	log.Printf("session: Ctrl+Alt+Del sent")
 }
 
 // StartSession begins a remote control session.

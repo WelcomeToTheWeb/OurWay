@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"log"
+	"time"
 
 	"ourway/server/models"
 )
@@ -110,6 +111,15 @@ func (h *Hub) sendViewerFrame(sessionID string, frame []byte) {
 		select {
 		case <-v.BinCh:
 			h.dropped.Add(1)
+			// A dropped frame may have been a tile update the viewer
+			// now lacks; the next frames are diffs against it, so
+			// ask the exe for a full keyframe (at most once a second).
+			now := time.Now().UnixNano()
+			if last := v.lastKeyReq.Load(); now-last > int64(time.Second) && v.lastKeyReq.CompareAndSwap(last, now) {
+				if out, err := json.Marshal(Message{Type: "request_keyframe"}); err == nil {
+					h.sendRemoteExe(v.DeviceKey, out)
+				}
+			}
 		default:
 		}
 	}

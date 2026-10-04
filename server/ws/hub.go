@@ -52,6 +52,8 @@ type Client struct {
 	// BinCh carries perishable binary frames to a viewer (nil for other
 	// client types). It is never closed; the writer stops with SendCh.
 	BinCh chan []byte
+	// lastKeyReq (unix nano) rate-limits keyframe requests after drops.
+	lastKeyReq atomic.Int64
 }
 
 // Message is the envelope for WebSocket messages.

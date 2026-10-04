@@ -173,5 +173,6 @@ const (
 	mouseeventfMiddledown = 0x0020
 	mouseeventfMiddleup   = 0x0040
 	mouseeventfWheel      = 0x0800
+	mouseeventfVirtualDesk = 0x4000
 	mouseeventfAbsolute   = 0x8000
 )

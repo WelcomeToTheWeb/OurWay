@@ -63,6 +63,10 @@ func main() {
 
 	log.Printf("ourway-remote: session %s starting (server %s)", sessionID, serverURL)
 
+	// Physical-pixel coordinates everywhere (capture, monitor layout,
+	// mouse mapping); must happen before any display call.
+	session.EnableDPIAwareness()
+
 	capture := session.NewScreenCapture()
 	capture.SetQuality(80)
 	if c, ok := capture.(interface {
@@ -102,6 +106,34 @@ func main() {
 		log.Fatalf("ourway-remote: cannot connect: %v", err)
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "session done")
+	// Clipboard text from the viewer can exceed the 32 KiB default.
+	conn.SetReadLimit(4 << 20)
+
+	// Native viewer support: framed frames, monitors, clipboard. The
+	// server tells us when a viewer attaches; until then (and for the
+	// browser viewer) the legacy JPEG loop below runs.
+	var link *session.ViewerLink
+	if src, ok := capture.(session.RawSource); ok {
+		sendText := func(typ string, payload any) error {
+			data, err := json.Marshal(struct {
+				Type    string `json:"type"`
+				Payload any    `json:"payload"`
+			}{typ, payload})
+			if err != nil {
+				return err
+			}
+			wctx, wcancel := context.WithTimeout(ctx, 5*time.Second)
+			defer wcancel()
+			return conn.Write(wctx, websocket.MessageText, data)
+		}
+		sendBinary := func(data []byte) error {
+			wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
+			defer wcancel()
+			return conn.Write(wctx, websocket.MessageBinary, data)
+		}
+		link = session.NewViewerLink(src, session.NewClipboard(), sendText, sendBinary)
+		go link.Run(ctx)
+	}
 	log.Printf("ourway-remote: connected as remote for session %s", sessionID)
 
 	// Session start/end arrive over this connection; input too. Read
@@ -157,6 +189,13 @@ func main() {
 				}
 				if json.Unmarshal(msg.Payload, &q) == nil {
 					capture.SetQuality(q.Quality)
+					if link != nil {
+						link.SetQuality(q.Quality)
+					}
+				}
+			case "viewer_attach", "viewer_detach", "request_keyframe", "monitor_select", "clipboard":
+				if link != nil {
+					link.Handle(msg.Type, msg.Payload)
 				}
 			case "input":
 				var in struct {
@@ -196,6 +235,11 @@ func main() {
 		select {
 		case <-ctx.Done():
 		default:
+		}
+		if link != nil && link.Attached() {
+			// The viewer link owns streaming while a viewer is attached.
+			time.Sleep(50 * time.Millisecond)
+			continue
 		}
 		frame, err := capture.Capture()
 		if err != nil {
