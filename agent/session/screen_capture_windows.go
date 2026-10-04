@@ -3,11 +3,12 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"log"
-	"os"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -164,15 +165,6 @@ func (c *windowsCapture) startLocalLoopLocked() {
 	c.localLoopActive = true
 	stop := c.localStop
 	go func() {
-		// GDI+ is per-thread and the Go scheduler moves goroutines
-		// between OS threads, so pin this goroutine and start GDI+
-		// exactly once on its thread.
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		if err := gdiplusEnsureStarted(); err != nil {
-			log.Printf("session: GDI+ startup failed: %v", err)
-			return
-		}
 		// First frame immediately so the viewer does not sit on
 		// "waiting for first frame".
 		c.pushLocalFrame()
@@ -210,8 +202,7 @@ func runningInSession0() bool {
 }
 
 // gdiCaptureJPEG grabs the primary display with BitBlt and encodes it
-// as JPEG at the given quality. Must run on a thread that called
-// gdiplusEnsureStarted().
+// as JPEG at the given quality.
 func gdiCaptureJPEG(quality int) ([]byte, error) {
 	w, h := fetchDisplayGeometry()
 	if w <= 0 || h <= 0 {
@@ -240,31 +231,37 @@ func gdiCaptureJPEG(quality int) ([]byte, error) {
 	if old == 0 {
 		return nil, fmt.Errorf("SelectObject failed: %v", serr)
 	}
-	defer gdiSelectObjectProc.Call(hDC, old)
+	deferSelect := old
+	defer gdiSelectObjectProc.Call(hDC, deferSelect)
 
 	ok, _, berr := gdiBitBltProc.Call(hDC, 0, 0, uintptr(w), uintptr(h), hScreen, 0, 0, gdiSrcCopy)
 	if ok == 0 {
 		return nil, fmt.Errorf("BitBlt failed: %v", berr)
 	}
 
-	// Encode with the system JPEG encoder (GDI+). The HBITMAP is still
-	// selected into hDC, which owns it, so no explicit delete here.
-	tmp, err := os.CreateTemp("", "ourway-frame-*.jpg")
-	if err != nil {
-		return nil, fmt.Errorf("temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-	tmp.Close()
-	defer os.Remove(tmpName)
+	// Deselect the bitmap so GetDIBits can read it, then pull the raw
+	// pixels and encode in pure Go. The GDI+ file-based encoder returned
+	// Win32Error (10) on every save on some systems, so it is gone.
+	gdiSelectObjectProc.Call(hDC, old)
 
-	if err := gdiplusSaveJPEG(uintptr(hBmp), tmpName, int32(quality)); err != nil {
+	pixels, err := gdiCaptureToBGRA(hDC, hBmp, w, h)
+	if err != nil {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(tmpName)
-	if err != nil {
-		return nil, fmt.Errorf("read encoded frame: %w", err)
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := 0; i < len(pixels); i += 4 {
+		img.Pix[i] = pixels[i+2]
+		img.Pix[i+1] = pixels[i+1]
+		img.Pix[i+2] = pixels[i]
+		img.Pix[i+3] = 0xff
 	}
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
+		return nil, fmt.Errorf("jpeg encode: %w", err)
+	}
+	data := buf.Bytes()
 	if len(data) == 0 {
 		return nil, fmt.Errorf("encoded frame is empty")
 	}

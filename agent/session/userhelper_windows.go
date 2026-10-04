@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -423,14 +422,6 @@ func RunUserHelper(addr string) int {
 				})
 			}
 		}()
-		// GDI+ is per-thread; pin this goroutine to one OS thread and
-		// start GDI+ exactly once there.
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-		if serr := gdiplusEnsureStarted(); serr != nil {
-			send(map[string]interface{}{"type": "error", "message": serr.Error()})
-			return
-		}
 		tick := time.NewTicker(helperFrameInterval)
 		defer tick.Stop()
 		for {

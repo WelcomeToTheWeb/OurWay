@@ -30,7 +30,59 @@ var (
 	gdiDeleteObjectProc       = gdi32DLL.NewProc("DeleteObject")
 	gdiSelectObjectProc       = gdi32DLL.NewProc("SelectObject")
 	gdiBitBltProc             = gdi32DLL.NewProc("BitBlt")
+	gdiGetDIBitsProc          = gdi32DLL.NewProc("GetDIBits")
 )
+
+// bitmapInfoHeader mirrors Win32 BITMAPINFOHEADER (wingdi.h).
+type bitmapInfoHeader struct {
+	Size              uint32
+	Width             int32
+	Height            int32
+	Planes            uint16
+	BitCount          uint16
+	Compression        uint32
+	SizeImage         uint32
+	XPelsPerMeter     int32
+	YPelsPerMeter     int32
+	ClrUsed           uint32
+	ClrImportant      uint32
+}
+
+// bitmapInfo mirrors Win32 BITMAPINFO with room for one color entry.
+type bitmapInfo struct {
+	Header bitmapInfoHeader
+	Colors [1]uint32
+}
+
+// gdiCaptureToBGRA copies an HBITMAP's pixels into a top-down 32bpp BGRA
+// buffer via GetDIBits. The bitmap must not be selected into a DC when
+// GetDIBits is called; the caller deselects it first. hdc is any valid DC
+// handle (GetDIBits ignores its contents).
+func gdiCaptureToBGRA(hdc, hBmp uintptr, w, h int) ([]byte, error) {
+	var bi bitmapInfo
+	bi.Header.Size = uint32(unsafe.Sizeof(bi.Header))
+	bi.Header.Width = int32(w)
+	bi.Header.Height = int32(-h)
+	bi.Header.Planes = 1
+	bi.Header.BitCount = 32
+	bi.Header.Compression = 0
+
+	pixels := make([]byte, w*h*4)
+	const dibRGBColors = 0
+	r1, _, err := gdiGetDIBitsProc.Call(
+		hdc,
+		hBmp,
+		0,
+		uintptr(h),
+		uintptr(unsafe.Pointer(&pixels[0])),
+		uintptr(unsafe.Pointer(&bi)),
+		dibRGBColors,
+	)
+	if int(r1) != h {
+		return nil, fmt.Errorf("GetDIBits failed: %d (err %v)", int(r1), err)
+	}
+	return pixels, nil
+}
 
 // gdiSrcCopy is the Win32 SRCCOPY raster-operation.
 const gdiSrcCopy = 0x00CC0020
