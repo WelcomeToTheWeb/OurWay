@@ -44,6 +44,19 @@ GOOS=windows GOARCH=arm64 go build -C agent \
     -ldflags "-s -w -X ourway/agent/config.Version=${VERSION}" \
     -o ../dist/agents/ourway-agent-windows-arm64.exe .
 
+# Build the Windows remote-control exe and the native viewer. The server
+# serves both from /api/v2/installers (the agent downloads the remote exe
+# per session; the console links the viewer).
+echo "Building Windows remote-control exe..."
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C agent \
+    -ldflags "-s -w -H windowsgui -X ourway/agent/config.Version=${VERSION}" \
+    -o ../dist/agents/ourway-remote-windows-amd64.exe ./cmd/ourway-remote
+
+echo "Building Windows viewer..."
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C cmd/ourway-viewer \
+    -ldflags "-s -w -H windowsgui" \
+    -o ../../dist/agents/ourway-viewer-windows-amd64.exe .
+
 # Build installer CLI for all platforms.
 # For each platform, the matching agent binary is copied into
 # cmd/ourway-installer/assets/agent and embedded into the installer
