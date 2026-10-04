@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/jpeg"
 	"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -165,9 +166,20 @@ func (c *windowsCapture) startLocalLoopLocked() {
 	c.localLoopActive = true
 	stop := c.localStop
 	go func() {
+		// Capture runs on one locked OS thread that follows the input
+		// desktop (UAC / logon screen), and owns all DXGI/GDI calls.
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		var td threadDesktop
+		push := func() {
+			if name, changed := td.attach(); changed {
+				dxgiState.desktopChanged(name)
+			}
+			c.pushLocalFrame()
+		}
 		// First frame immediately so the viewer does not sit on
 		// "waiting for first frame".
-		c.pushLocalFrame()
+		push()
 		tick := time.NewTicker(helperFrameInterval)
 		defer tick.Stop()
 		for {
@@ -175,7 +187,7 @@ func (c *windowsCapture) startLocalLoopLocked() {
 			case <-stop:
 				return
 			case <-tick.C:
-				c.pushLocalFrame()
+				push()
 			}
 		}
 	}()
