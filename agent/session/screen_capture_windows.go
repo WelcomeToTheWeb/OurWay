@@ -273,3 +273,29 @@ func gdiCaptureJPEG(quality int) ([]byte, error) {
 	}
 	return data, nil
 }
+
+// InjectKey synthesizes a key event in this process's session. Exported
+// for the per-session remote-control executable, which receives input
+// over its own WebSocket and injects it directly (it runs in the
+// interactive user session, so no helper hop is needed).
+func InjectKey(key, event string) {
+	synthesizeKey(key, event)
+}
+
+// InjectMouse synthesizes a mouse event in this process's session.
+// Exported for the remote-control executable (see InjectKey).
+func InjectMouse(event string, x, y float64, button string, delta float64) {
+	synthesizeMouse(event, x, y, button, delta)
+}
+
+// StartCapture begins producing frames on the capture's internal loop
+// so Capture() can serve them. Exported for the remote-control
+// executable, which runs the loop in its own process.
+func (c *windowsCapture) StartCapture(ctx context.Context) error {
+	return c.startSession(ctx)
+}
+
+// StopCapture stops the internal frame loop.
+func (c *windowsCapture) StopCapture() {
+	c.stopSession()
+}

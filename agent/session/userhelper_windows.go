@@ -327,6 +327,101 @@ func activeUserSessionIDs() []uint32 {
 	return ids
 }
 
+// userSessionToken finds a user token for the first session that holds
+// a logged-on user (see activeUserSessionIDs). Exported indirectly via
+// spawnRemote: the remote-control executable needs the same token
+// discovery but a different process.
+func userSessionToken() (windows.Token, error) {
+	var lastErr error
+	for _, candidate := range activeUserSessionIDs() {
+		var token windows.Token
+		if err := windows.WTSQueryUserToken(candidate, &token); err != nil {
+			pid, ferr := findProcessInSession(candidate)
+			if ferr != nil {
+				lastErr = fmt.Errorf("session %d: no logged-on user (WTSQueryUserToken: %v; %w)", candidate, err, ferr)
+				continue
+			}
+			hProc, oerr := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+			if oerr != nil {
+				lastErr = fmt.Errorf("session %d: open process %d: %w", candidate, pid, oerr)
+				continue
+			}
+			if err := windows.OpenProcessToken(hProc, windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &token); err != nil {
+				windows.CloseHandle(hProc)
+				lastErr = fmt.Errorf("session %d: open process token: %w", candidate, err)
+				continue
+			}
+			var dup windows.Token
+			if err := windows.DuplicateTokenEx(token, windows.MAXIMUM_ALLOWED, nil, windows.SecurityImpersonation, windows.TokenPrimary, &dup); err != nil {
+				windows.CloseHandle(hProc)
+				windows.CloseHandle(windows.Handle(token))
+				lastErr = fmt.Errorf("session %d: duplicate token: %w", candidate, err)
+				continue
+			}
+			windows.CloseHandle(hProc)
+			windows.CloseHandle(windows.Handle(token))
+			return dup, nil
+		}
+		return token, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no active user session")
+	}
+	return windows.Token(0), lastErr
+}
+
+// SpawnRemote launches the per-session remote-control executable in
+// the interactive user session with its window suppressed (the binary
+// is GUI-subsystem; CREATE_NO_WINDOW keeps any stray console hidden).
+// The agent supervises the returned PID and kills it when the session
+// ends.
+func SpawnRemote(exe, cmdLine string) (int, error) {
+	token, err := userSessionToken()
+	if err != nil {
+		return 0, err
+	}
+	defer windows.CloseHandle(windows.Handle(token))
+
+	var envBlock *uint16
+	if err := windows.CreateEnvironmentBlock(&envBlock, token, false); err != nil {
+		return 0, fmt.Errorf("create environment block: %w", err)
+	}
+	defer windows.DestroyEnvironmentBlock(envBlock)
+
+	var si fullStartupInfo
+	si.Cb = uint32(unsafe.Sizeof(si))
+	desktop, _ := windows.UTF16PtrFromString(`winsta0\default`)
+	si.Desktop = desktop
+	exe16, err := windows.UTF16PtrFromString(exe)
+	if err != nil {
+		return 0, err
+	}
+	cmd16, err := windows.UTF16PtrFromString(cmdLine)
+	if err != nil {
+		return 0, err
+	}
+	const createNoWindow = 0x08000000
+	var pi windows.ProcessInformation
+	r, _, cpaErr := createProcessAsUserProc.Call(
+		uintptr(token),
+		uintptr(unsafe.Pointer(exe16)),
+		uintptr(unsafe.Pointer(cmd16)),
+		0, 0,
+		1,
+		uintptr(windows.CREATE_UNICODE_ENVIRONMENT|createNoWindow),
+		uintptr(unsafe.Pointer(envBlock)),
+		0,
+		uintptr(unsafe.Pointer(&si)),
+		uintptr(unsafe.Pointer(&pi)),
+	)
+	if r == 0 {
+		return 0, fmt.Errorf("CreateProcessAsUser: %w", cpaErr)
+	}
+	windows.CloseHandle(pi.Process)
+	windows.CloseHandle(pi.Thread)
+	return int(pi.ProcessId), nil
+}
+
 func createProcessAsUser(exe, cmdLine string) (int, error) {
 	var token windows.Token
 	tokenSource := ""

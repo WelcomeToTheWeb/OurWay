@@ -302,25 +302,49 @@ func (h *Hub) BroadcastMessage(msgType string, payload interface{}) {
 // SendToDevice sends a message to a specific device by its device key.
 // If the device is not on this instance, it publishes to Redis.
 func (h *Hub) SendToDevice(deviceKey string, msgType string, payload interface{}) error {
-	clientID := "device:" + deviceKey
 	msg := Message{Type: msgType, Payload: payload}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
+	// Session messages (input, quality) prefer the per-session
+	// remote-control executable when it is connected: it owns capture
+	// and input during the session. The agent connection is the
+	// fallback and also receives stream/reboot/maintenance messages.
+	// session_end is delivered to both: the exe must stop streaming and
+	// the agent must clear its own session state so the next
+	// session_start is not ignored as "already active".
 	h.mu.RLock()
-	client, ok := h.clients[clientID]
+	clients := make([]*Client, 0, 2)
+	if client, ok := h.clients["remote:"+deviceKey]; ok {
+		clients = append(clients, client)
+	}
+	if msgType == "session_end" || msgType == "session_quality" {
+		if client, ok := h.clients["device:"+deviceKey]; ok {
+			clients = append(clients, client)
+		}
+	} else if client, ok := h.clients["device:"+deviceKey]; ok {
+		clients = append(clients, client)
+	}
 	h.mu.RUnlock()
 
-	if ok {
-		select {
-		case client.SendCh <- data:
-			return nil
-		default:
-			h.dropped.Add(1)
-			return fmt.Errorf("device %s send buffer full", deviceKey)
+	if len(clients) > 0 {
+		delivered := false
+		for _, client := range clients {
+			select {
+			case client.SendCh <- data:
+				delivered = true
+			default:
+				h.dropped.Add(1)
+			}
 		}
+		if delivered {
+			return nil
+		}
+		return fmt.Errorf("device %s send buffer full", deviceKey)
+	}
+	clientID := "device:" + deviceKey
 	}
 
 	// Device not on this instance. In distributed mode, verify it is
@@ -433,7 +457,7 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	// logs, and the Referer header). Clients propose
 	// "ourway-auth, <credential>" where credential is a device key or a
 	// user access token.
-	credential := wsCredential(c)
+	credential, isRemote := wsCredential(c)
 	if credential == "" {
 		c.JSON(400, gin.H{"error": "provide a credential via Sec-WebSocket-Protocol: ourway-auth, <device key or token>"})
 		return
@@ -458,9 +482,17 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		clientID = "user:" + claims.UserID
 	} else if _, err := store.Devices.GetByKey(credential); err == nil {
 		// Reject unknown device keys before accepting the connection.
-		clientType = "device"
+		// The remote-control executable authenticates with the same
+		// device key but registers under its own ID so it coexists
+		// with (rather than supersedes) the agent's connection.
 		deviceKey = credential
-		clientID = "device:" + credential
+		if isRemote {
+			clientType = "remote"
+			clientID = "remote:" + credential
+		} else {
+			clientType = "device"
+			clientID = "device:" + credential
+		}
 	} else {
 		c.JSON(401, gin.H{"error": "invalid token or device key"})
 		return
@@ -535,6 +567,11 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	h.register <- client
 	defer func() {
 		h.unregister <- client
+		if clientType == "remote" {
+			// The remote-control exe leaving must not affect device
+			// presence: the agent's connection owns that.
+			return
+		}
 		if clientType == "device" && deviceKey != "" {
 			// Only write "offline" if this connection is still the
 			// registered one; the old conn's teardown must not knock a
@@ -613,7 +650,7 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		switch clientType {
 		case "device":
 			readCtx, cancelRead = context.WithTimeout(ctx, 60*time.Second)
-		case "user":
+		case "user", "remote":
 			readCtx, cancelRead = context.WithTimeout(ctx, 120*time.Second)
 		}
 		_, data, err := conn.Read(readCtx)
@@ -633,7 +670,7 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		switch clientType {
 		case "device":
 			h.handleDeviceMessage(client, msg, store, deviceKey)
-		case "user":
+		case "remote", "user":
 			// H1: browsers cannot initiate protocol-level pings, so the
 			// web client sends an app-level ping every 30 s; answer with a
 			// pong to keep the read deadline fresh on receive-only
@@ -652,20 +689,23 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 }
 
 // wsCredential extracts the credential from the Sec-WebSocket-Protocol
-// header (C5). Expected form: "ourway-auth, <credential>".
-func wsCredential(c *gin.Context) string {
+// header (C5). Expected form: "ourway-auth, <credential>" for agents and
+// browsers, or "ourway-auth, <credential>, remote" for the per-session
+// remote-control executable, which connects with the device's key but
+// must not supersede the agent's own connection.
+func wsCredential(c *gin.Context) (string, bool) {
 	raw := c.GetHeader("Sec-WebSocket-Protocol")
 	if raw == "" {
-		return ""
+		return "", false
 	}
 	parts := strings.Split(raw, ",")
 	for i := range parts {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 	if len(parts) >= 2 && parts[0] == "ourway-auth" {
-		return parts[1]
+		return parts[1], len(parts) >= 3 && parts[2] == "remote"
 	}
-	return ""
+	return "", false
 }
 
 // originAllowed reports whether a browser Origin header may open a WS

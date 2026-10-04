@@ -54,6 +54,12 @@ jobs:
             GOOS=$os GOARCH=$arch go build -C agent \
               -ldflags "-s -w -X ourway/agent/config.Version=$VERSION" \
               -o "../dist/agents/ourway-agent-${os}-${arch}${suffix}" .
+            if [ "$os" = "windows" ]; then
+              echo "Building remote-control exe for $os/$arch..."
+              GOOS=$os GOARCH=$arch go build -C agent \
+                -ldflags "-s -w -H windowsgui -X ourway/agent/config.Version=$VERSION" \
+                -o "../dist/agents/ourway-remote-${os}-${arch}${suffix}" ./cmd/ourway-remote
+            fi
           done
 
           echo "Building installers..."

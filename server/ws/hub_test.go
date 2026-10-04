@@ -237,23 +237,28 @@ func TestHubUnknownDeviceKeyRejected(t *testing.T) {
 func TestHubCredentialExtraction(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {
-		name   string
-		header string
-		want   string
+		name     string
+		header   string
+		want     string
+		isRemote bool
 	}{
-		{"well formed", "ourway-auth, device-key-123", "device-key-123"},
-		{"extra whitespace", "  ourway-auth ,   device-key-123  ", "device-key-123"},
-		{"missing credential", "ourway-auth", ""},
-		{"wrong protocol", "other-auth, key", ""},
-		{"empty", "", ""},
+		{"well formed", "ourway-auth, device-key-123", "device-key-123", false},
+		{"extra whitespace", "  ourway-auth ,   device-key-123  ", "device-key-123", false},
+		{"remote role", "ourway-auth, device-key-123, remote", "device-key-123", true},
+		{"remote role whitespace", "  ourway-auth , key ,  remote ", "key", true},
+		{"unknown third element", "ourway-auth, key, other", "key", false},
+		{"missing credential", "ourway-auth", "", false},
+		{"wrong protocol", "other-auth, key", "", false},
+		{"empty", "", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest("GET", "/ws", nil)
 			c.Request.Header.Set("Sec-WebSocket-Protocol", tt.header)
-			if got := wsCredential(c); got != tt.want {
-				t.Errorf("wsCredential(%q) = %q, want %q", tt.header, got, tt.want)
+			got, isRemote := wsCredential(c)
+			if got != tt.want || isRemote != tt.isRemote {
+				t.Errorf("wsCredential(%q) = (%q, %v), want (%q, %v)", tt.header, got, isRemote, tt.want, tt.isRemote)
 			}
 		})
 	}
