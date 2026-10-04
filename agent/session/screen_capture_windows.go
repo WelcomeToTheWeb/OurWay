@@ -182,8 +182,14 @@ func (c *windowsCapture) startLocalLoopLocked() {
 }
 
 func (c *windowsCapture) pushLocalFrame() {
-	data, err := gdiCaptureJPEG(int(c.quality.Load()))
+	quality := int(c.quality.Load())
+	// Desktop Duplication first (GPU compositor, fast, sees everything);
+	// it internally falls back to GDI when unavailable.
+	data, err := dxgiState.Frame(quality)
 	if err != nil {
+		if err == errDXGIFrameStale {
+			return
+		}
 		log.Printf("session: local capture failed: %v", err)
 		return
 	}

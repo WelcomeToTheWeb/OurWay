@@ -30,6 +30,10 @@ COPY server/ ./
 COPY agent/ ../agent/
 COPY cmd/ourway-installer/ ../cmd/ourway-installer/
 
+# Resolve the agent module's dependencies (its go.sum may lag go.mod by
+# a commit; tidy fills the sums before the multi-platform agent builds).
+RUN go mod tidy -C ../agent
+
 # Build the server binary with version info embedded
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \

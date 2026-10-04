@@ -3,6 +3,7 @@ module ourway/agent
 go 1.24.0
 
 require (
+	github.com/kirides/go-d3d v1.0.1
 	github.com/pion/webrtc/v3 v3.3.6
 	github.com/shirou/gopsutil/v4 v4.26.8
 	golang.org/x/sys v0.41.0
