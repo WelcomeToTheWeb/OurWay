@@ -6,7 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"syscall"
+
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 
 	"ourway/agent/config"
 )
@@ -39,6 +44,10 @@ func Install(cfg *config.Config) error {
 		fmt.Printf("Warning: could not set service recovery actions: %v\n", err)
 	}
 
+	if err := RegisterUninstallEntry(exe); err != nil {
+		fmt.Printf("Warning: could not add the Add/Remove Programs entry: %v\n", err)
+	}
+
 	// Start the service
 	if err := runCommand("sc.exe", "start", ServiceName); err != nil {
 		fmt.Printf("Warning: could not start service: %v\n", err)
@@ -49,11 +58,87 @@ func Install(cfg *config.Config) error {
 	return nil
 }
 
-// Uninstall removes the Windows service.
+// arpKey is the Add/Remove Programs entry ("Apps & features").
+const arpKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\OurWayAgent`
+
+// RegisterUninstallEntry lists the agent in Add/Remove Programs with an
+// uninstall command that runs this binary's --uninstall.
+func RegisterUninstallEntry(exe string) error {
+	k, _, err := registry.CreateKey(registry.LOCAL_MACHINE, arpKey, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer k.Close()
+	for name, val := range map[string]string{
+		"DisplayName":     "OurWay Agent",
+		"DisplayVersion":  config.Version,
+		"Publisher":       "OurWay",
+		"InstallLocation": filepath.Dir(exe),
+		"UninstallString": fmt.Sprintf(`"%s" --uninstall --pause`, exe),
+	} {
+		if err := k.SetStringValue(name, val); err != nil {
+			return err
+		}
+	}
+	k.SetDWordValue("NoModify", 1)
+	k.SetDWordValue("NoRepair", 1)
+	return nil
+}
+
+func isElevated() bool { return windows.GetCurrentProcessToken().IsElevated() }
+
+// relaunchElevated reruns this binary with --uninstall through the UAC
+// prompt ("runas"); the elevated copy does the work.
+func relaunchElevated(exe string) error {
+	verb, _ := windows.UTF16PtrFromString("runas")
+	file, _ := windows.UTF16PtrFromString(exe)
+	args, _ := windows.UTF16PtrFromString("--uninstall --yes --pause")
+	if err := windows.ShellExecute(0, verb, file, args, nil, windows.SW_NORMAL); err != nil {
+		return fmt.Errorf("could not request administrator rights: %w", err)
+	}
+	return ErrElevating
+}
+
+// Uninstall removes the service, running remote-control processes, the
+// Add/Remove Programs entry, logs and the install directory. The
+// running binary cannot delete itself, so a detached helper removes it
+// (and the directory) just after this process exits.
 func Uninstall() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate agent binary: %w", err)
+	}
+	if !isElevated() {
+		return relaunchElevated(exe)
+	}
+
 	runCommand("sc.exe", "stop", ServiceName)
 	runCommand("sc.exe", "delete", ServiceName)
-	fmt.Println("Service uninstalled")
+	fmt.Println("Service removed")
+	runCommand("taskkill.exe", "/F", "/IM", "ourway-remote.exe")
+	registry.DeleteKey(registry.LOCAL_MACHINE, arpKey)
+
+	if pd := os.Getenv("ProgramData"); pd != "" {
+		os.RemoveAll(filepath.Join(pd, "OurWay")) // agent.log, crash logs
+	}
+
+	dir := filepath.Dir(exe)
+	removed, err := RemoveInstallFiles(dir, exe)
+	if err != nil {
+		fmt.Printf("Skipped file removal: %v\n", err)
+		return nil
+	}
+	for _, p := range removed {
+		fmt.Println("Removed", p)
+	}
+	// Give the service a moment to release the binary, then delete it,
+	// the install directory and the (now possibly empty) vendor folder.
+	script := fmt.Sprintf(`ping -n 4 127.0.0.1 >nul & del /f /q "%s" & rmdir "%s" & rmdir "%s"`, exe, dir, filepath.Dir(dir))
+	cmd := exec.Command("cmd.exe", "/c", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008}
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("Warning: could not schedule removal of %s: %v\n", exe, err)
+	}
 	return nil
 }
 

@@ -226,7 +226,21 @@ if (-not $SkipService) {
     Write-Host "View logs: sc.exe query OurWayAgent"
 }
 Write-Host ""
-Write-Host "To uninstall:"
-Write-Host "  Stop-Service OurWayAgent"
-Write-Host "  sc.exe delete OurWayAgent"
-Write-Host "  Remove-Item -Recurse -Force $InstallDir"
+# Uninstall entry points next to the agent: uninstall.cmd and an
+# Add/Remove Programs entry that run "ourway-agent.exe --uninstall".
+$agentExe = Join-Path $InstallDir "ourway-agent.exe"
+try {
+    Set-Content -Path (Join-Path $InstallDir "uninstall.cmd") -Value "@echo off`r`n`"%~dp0ourway-agent.exe`" --uninstall --pause`r`n" -Encoding ASCII
+    $arp = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OurWayAgent"
+    New-Item -Path $arp -Force | Out-Null
+    Set-ItemProperty -Path $arp -Name DisplayName -Value "OurWay Agent"
+    Set-ItemProperty -Path $arp -Name Publisher -Value "OurWay"
+    Set-ItemProperty -Path $arp -Name InstallLocation -Value $InstallDir
+    Set-ItemProperty -Path $arp -Name UninstallString -Value "`"$agentExe`" --uninstall --pause"
+    Set-ItemProperty -Path $arp -Name NoModify -Value 1 -Type DWord
+    Set-ItemProperty -Path $arp -Name NoRepair -Value 1 -Type DWord
+} catch {
+    Write-Host "Warning: could not register the uninstaller: $_"
+}
+Write-Host "To uninstall: Settings > Apps > OurWay Agent, or run:"
+Write-Host "  $InstallDir\uninstall.cmd"

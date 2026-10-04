@@ -68,13 +68,43 @@ func Install(cfg *config.Config) error {
 	return nil
 }
 
-// Uninstall removes the launchd agent.
+// Uninstall removes the launchd job (the per-user agent this package
+// installs and the system daemon the installer creates) and the
+// agent's files, including the running binary.
 func Uninstall() error {
 	home, _ := os.UserHomeDir()
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
-	runCommand("launchctl", "unload", plistPath)
-	os.Remove(plistPath)
-	fmt.Println("Agent uninstalled")
+	plists := []string{
+		filepath.Join(home, "Library", "LaunchAgents", label+".plist"),
+		"/Library/LaunchDaemons/" + label + ".plist",
+	}
+	for _, p := range plists {
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		runCommand("launchctl", "unload", "-w", p)
+		if err := os.Remove(p); err != nil {
+			fmt.Printf("Warning: could not remove %s (run with sudo?): %v\n", p, err)
+		} else {
+			fmt.Println("Removed", p)
+		}
+	}
+	os.Remove("/usr/local/bin/ourway-uninstall")
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate agent binary: %w", err)
+	}
+	dir := filepath.Dir(exe)
+	removed, err := RemoveInstallFiles(dir, exe)
+	if err != nil {
+		fmt.Printf("Skipped file removal: %v\n", err)
+		return nil
+	}
+	for _, p := range removed {
+		fmt.Println("Removed", p)
+	}
+	removeSelfAndDir(dir, exe)
+	fmt.Println("Removed", exe)
 	return nil
 }
 

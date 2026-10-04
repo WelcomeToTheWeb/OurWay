@@ -24,6 +24,8 @@ type Config struct {
 	LogFile         string        `json:"log_file"`
 	Install         bool          `json:"-"`
 	Uninstall       bool          `json:"-"`
+	Yes             bool          `json:"-"` // --yes: no confirmation prompt
+	Pause           bool          `json:"-"` // --pause: wait for Enter before exiting
 	ShowVersion     bool          `json:"-"`
 }
 
@@ -70,7 +72,9 @@ func Load() (*Config, error) {
 	key := flag.String("key", cfg.DeviceKey, "Device key")
 	deviceID := flag.String("device-id", cfg.DeviceID, "Device ID (optional; fetched from the server when empty)")
 	install := flag.Bool("install", false, "Install as a service and exit")
-	uninstall := flag.Bool("uninstall", false, "Uninstall service and exit")
+	uninstall := flag.Bool("uninstall", false, "Uninstall the agent (service and files) and exit")
+	yes := flag.Bool("yes", false, "Do not ask for confirmation (with --uninstall)")
+	pause := flag.Bool("pause", false, "Wait for Enter before exiting (with --uninstall)")
 	version := flag.Bool("version", false, "Print version and exit")
 	logFile := flag.String("log-file", "", "Log file path")
 	flag.Parse()
@@ -80,6 +84,8 @@ func Load() (*Config, error) {
 	cfg.DeviceID = *deviceID
 	cfg.Install = *install
 	cfg.Uninstall = *uninstall
+	cfg.Yes = *yes
+	cfg.Pause = *pause
 	cfg.ShowVersion = *version
 	cfg.LogFile = *logFile
 

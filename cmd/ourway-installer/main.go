@@ -126,6 +126,8 @@ func main() {
 		installService(osName, binaryPath, *flagServer, deviceKey)
 	}
 
+	installUninstaller(osName, installDir, binaryPath)
+
 	fmt.Println()
 	fmt.Println("======================================")
 	fmt.Println("  Installation complete!")
@@ -383,5 +385,48 @@ func run(name string, args ...string) {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Warning: %s %v failed: %v\n", name, args, err)
+	}
+}
+
+// installUninstaller puts an uninstall entry point next to the agent so
+// removal never needs this installer again. The real work is done by
+// the agent's own --uninstall (service, files, logs); this only makes it
+// easy to find: Add/Remove Programs plus uninstall.cmd on Windows, and
+// uninstall.sh (linked as ourway-uninstall) on Linux and macOS.
+func installUninstaller(osName, installDir, binaryPath string) {
+	switch osName {
+	case "windows":
+		script := "@echo off\r\n\"%~dp0" + filepath.Base(binaryPath) + "\" --uninstall --pause\r\n"
+		if err := os.WriteFile(filepath.Join(installDir, "uninstall.cmd"), []byte(script), 0755); err != nil {
+			fmt.Printf("Warning: could not write uninstall.cmd: %v\n", err)
+		}
+		key := `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\OurWayAgent`
+		for _, v := range [][3]string{
+			{"DisplayName", "REG_SZ", "OurWay Agent"},
+			{"DisplayVersion", "REG_SZ", version},
+			{"Publisher", "REG_SZ", "OurWay"},
+			{"InstallLocation", "REG_SZ", installDir},
+			{"UninstallString", "REG_SZ", fmt.Sprintf(`"%s" --uninstall --pause`, binaryPath)},
+			{"NoModify", "REG_DWORD", "1"},
+			{"NoRepair", "REG_DWORD", "1"},
+		} {
+			run("reg", "add", key, "/v", v[0], "/t", v[1], "/d", v[2], "/f")
+		}
+		fmt.Printf("Uninstall: Settings > Apps > OurWay Agent, or run %s\n", filepath.Join(installDir, "uninstall.cmd"))
+	case "linux", "darwin":
+		script := "#!/bin/sh\n# Removes the OurWay agent (service, files, logs).\n" +
+			"if [ \"$(id -u)\" -ne 0 ]; then echo \"Run with sudo\" >&2; exit 1; fi\n" +
+			"exec \"" + binaryPath + "\" --uninstall \"$@\"\n"
+		path := filepath.Join(installDir, "uninstall.sh")
+		if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+			fmt.Printf("Warning: could not write uninstall.sh: %v\n", err)
+			return
+		}
+		os.Remove("/usr/local/bin/ourway-uninstall")
+		if err := os.Symlink(path, "/usr/local/bin/ourway-uninstall"); err == nil {
+			fmt.Println("Uninstall: sudo ourway-uninstall")
+		} else {
+			fmt.Printf("Uninstall: sudo %s\n", path)
+		}
 	}
 }

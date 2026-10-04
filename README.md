@@ -187,16 +187,21 @@ docker run -d --name ourway-agent \
 
 ### Uninstalling
 
+The installer leaves an uninstaller next to the agent. It removes the service,
+the agent and remote-control binaries, config, logs and (on Windows) the
+Add/Remove Programs entry.
+
 ```bash
-# Linux
-sudo systemctl stop ourway-agent && sudo systemctl disable ourway-agent && sudo rm -rf /opt/ourway
+# Linux / macOS
+sudo ourway-uninstall            # or: sudo /opt/ourway/uninstall.sh
 
-# macOS
-sudo launchctl unload -w /Library/LaunchDaemons/com.ourway.agent.plist && sudo rm -rf /opt/ourway
-
-# Windows
-sc.exe stop OurWayAgent && sc.exe delete OurWayAgent
+# Windows: Settings > Apps > OurWay Agent > Uninstall
+# or run:  "C:\Program Files\OurWay\Agent\uninstall.cmd"
 ```
+
+All of these run `ourway-agent --uninstall` (add `--yes` to skip the confirmation
+prompt for scripted removal). On Windows it asks for administrator approval.
+Files you added to the install directory are left alone.
 
 ## Roadmap
 

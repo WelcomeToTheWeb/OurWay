@@ -448,7 +448,9 @@ Flags:
   --server string       WebSocket server URL (default "ws://localhost:8080")
   --key string          Device key
   --install             Install as a service and exit
-  --uninstall           Uninstall service and exit
+  --uninstall           Uninstall the agent (service, files, logs) and exit
+  --yes                 Skip the uninstall confirmation prompt
+  --pause               Wait for Enter before exiting (with --uninstall)
   --version             Print version and exit
   --log-file string     Log file path
   -h, --help            help for ourway-agent

@@ -6,7 +6,9 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
+	"time"
 
 	"gioui.org/app"
 	"golang.org/x/sys/windows"
@@ -52,6 +54,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if relaunched := autoUpdate(launch, args[0]); relaunched {
+		return
+	}
+
 	v := newViewer(launch)
 	ctx, cancel := context.WithCancel(context.Background())
 	v.connect(ctx)
@@ -63,4 +69,43 @@ func main() {
 		os.Exit(0)
 	}()
 	app.Main()
+}
+
+// autoUpdate brings the viewer up to date with the server it was
+// launched from, then starts the new build with the same launch URL. It
+// reports true when a new process took over. Any failure is logged and
+// the current build carries on: a session must never be blocked by an
+// update problem.
+func autoUpdate(l Launch, launchURL string) bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	removeLeftovers(exe)
+	if os.Getenv("OURWAY_VIEWER_NO_UPDATE") != "" || os.Getenv("OURWAY_VIEWER_UPDATED") != "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	u := NewUpdater(l.Server, exe)
+	want, err := u.Check(ctx)
+	if err != nil {
+		log.Printf("viewer update check: %v", err)
+		return false
+	}
+	if want == "" {
+		return false
+	}
+	log.Printf("viewer: updating to build %s", want[:12])
+	if err := u.Apply(ctx, want); err != nil {
+		log.Printf("viewer update failed: %v", err)
+		return false
+	}
+	cmd := exec.Command(exe, launchURL)
+	cmd.Env = append(os.Environ(), "OURWAY_VIEWER_UPDATED=1") // no update loop
+	if err := cmd.Start(); err != nil {
+		log.Printf("viewer: could not start the updated build: %v", err)
+		return false
+	}
+	return true
 }

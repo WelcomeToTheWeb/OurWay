@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 
 	"ourway/agent/config"
@@ -58,13 +59,34 @@ WantedBy=multi-user.target
 	return nil
 }
 
-// Uninstall removes the systemd service.
+// Uninstall stops and removes the systemd service and the agent's
+// files (including the running binary). It must run as root.
 func Uninstall() error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("uninstall must run as root (try: sudo ourway-agent --uninstall)")
+	}
 	runCommand("systemctl", "stop", serviceName)
 	runCommand("systemctl", "disable", serviceName)
 	os.Remove(unitPath)
 	runCommand("systemctl", "daemon-reload")
-	fmt.Println("Service uninstalled")
+	fmt.Println("Service removed")
+
+	os.Remove("/usr/local/bin/ourway-uninstall")
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate agent binary: %w", err)
+	}
+	dir := filepath.Dir(exe)
+	removed, err := RemoveInstallFiles(dir, exe)
+	if err != nil {
+		fmt.Printf("Skipped file removal: %v\n", err)
+		return nil
+	}
+	for _, p := range removed {
+		fmt.Println("Removed", p)
+	}
+	removeSelfAndDir(dir, exe)
+	fmt.Println("Removed", exe)
 	return nil
 }
 

@@ -5,6 +5,8 @@
 package selfupdate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -133,7 +135,8 @@ func (c *Checker) download(dst string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(f, h), resp.Body); err != nil {
 		f.Close()
 		os.Remove(dst)
 		return "", err
@@ -142,7 +145,41 @@ func (c *Checker) download(dst string) (string, error) {
 		os.Remove(dst)
 		return "", err
 	}
+	// Never swap in a corrupt or truncated binary: the service would
+	// restart into it. When the server publishes a checksum it must match.
+	if want := c.publishedHash(remote); want != "" && !strings.EqualFold(want, hex.EncodeToString(h.Sum(nil))) {
+		os.Remove(dst)
+		return "", fmt.Errorf("checksum mismatch for %s", remote)
+	}
 	return dst, nil
+}
+
+// publishedHash returns the SHA-256 the server lists for an installer
+// artifact, or "" when the list is unavailable or does not include it.
+func (c *Checker) publishedHash(name string) string {
+	resp, err := c.httpClient.Get(c.serverURL + "/api/v2/installers")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var body struct {
+		Installers []struct {
+			Name   string `json:"name"`
+			SHA256 string `json:"sha256"`
+		} `json:"installers"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return ""
+	}
+	for _, e := range body.Installers {
+		if e.Name == name {
+			return e.SHA256
+		}
+	}
+	return ""
 }
 
 func ext() string {

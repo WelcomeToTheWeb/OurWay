@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"ourway/agent/client"
@@ -42,11 +44,7 @@ func main() {
 
 	// Handle --uninstall
 	if cfg.Uninstall {
-		fmt.Println("Uninstalling OurWay Agent service...")
-		if err := install.Uninstall(); err != nil {
-			log.Fatalf("uninstall failed: %v", err)
-		}
-		fmt.Println("Uninstallation complete.")
+		runUninstall(cfg)
 		return
 	}
 
@@ -152,4 +150,38 @@ func runAgent(ctx context.Context, cfg *config.Config) {
 	}
 
 	log.Println("Agent stopped.")
+}
+
+// runUninstall removes the agent after a confirmation (skipped with
+// --yes), optionally waiting for Enter so a double-clicked console
+// window stays readable.
+func runUninstall(cfg *config.Config) {
+	wait := func() {
+		if cfg.Pause {
+			fmt.Print("\nPress Enter to exit...")
+			fmt.Scanln()
+		}
+	}
+	if !cfg.Yes {
+		fmt.Print("Remove the OurWay Agent from this computer? [y/N] ")
+		var ans string
+		fmt.Scanln(&ans)
+		if ans = strings.ToLower(strings.TrimSpace(ans)); ans != "y" && ans != "yes" {
+			fmt.Println("Cancelled.")
+			wait()
+			return
+		}
+	}
+	fmt.Println("Uninstalling OurWay Agent...")
+	switch err := install.Uninstall(); {
+	case errors.Is(err, install.ErrElevating):
+		fmt.Println("Administrator approval requested; the uninstall continues in a new window.")
+	case err != nil:
+		fmt.Printf("Uninstall failed: %v\n", err)
+		wait()
+		os.Exit(1)
+	default:
+		fmt.Println("Uninstallation complete.")
+		wait()
+	}
 }

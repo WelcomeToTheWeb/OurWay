@@ -40,6 +40,20 @@ Only a SYSTEM service can raise the Secure Attention Sequence, so the **agent
 service** (not the user-session exe) calls `SendSAS`. On first use it sets
 `HKLM\…\Policies\System\SoftwareSASGeneration` to allow services (bit 1).
 
+## Updates
+
+The viewer keeps itself current. At each launch it asks the launching server
+(`GET /api/v2/installers`, public) for the published SHA-256 of
+`ourway-viewer-windows-amd64.exe`. If that differs from the running exe it
+downloads the new build, verifies the checksum, swaps it in (the old exe is
+renamed aside and removed on the next start) and restarts itself with the same
+`ourway://` link. Any failure is logged and the current build carries on, so an
+update problem never blocks a session. Set `OURWAY_VIEWER_NO_UPDATE=1` to skip.
+
+The agent updates itself the same way (`agent/selfupdate`): it polls
+`/api/agent/version`, downloads the new agent and remote exe, verifies their
+checksums, swaps them in and restarts the service.
+
 ## Building
 
 ```

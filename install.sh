@@ -360,15 +360,16 @@ if [ "$SKIP_SERVICE" != true ]; then
 fi
 
 echo ""
+# Uninstall entry point next to the agent (removes service, files, logs).
+cat > "${INSTALL_DIR}/uninstall.sh" <<UNINSTALL
+#!/bin/sh
+# Removes the OurWay agent (service, files, logs).
+if [ "\$(id -u)" -ne 0 ]; then echo "Run with sudo" >&2; exit 1; fi
+exec "${INSTALL_DIR}/ourway-agent" --uninstall "\$@"
+UNINSTALL
+chmod 755 "${INSTALL_DIR}/uninstall.sh" 2>/dev/null || true
+ln -sf "${INSTALL_DIR}/uninstall.sh" /usr/local/bin/ourway-uninstall 2>/dev/null || true
+
+echo ""
 echo "To uninstall, run:"
-if [ "$OS" = "linux" ]; then
-    echo "  sudo systemctl stop ourway-agent"
-    echo "  sudo systemctl disable ourway-agent"
-    echo "  sudo rm /etc/systemd/system/ourway-agent.service"
-    echo "  sudo systemctl daemon-reload"
-    echo "  sudo rm -rf ${INSTALL_DIR}"
-else
-    echo "  sudo launchctl unload -w /Library/LaunchDaemons/com.ourway.agent.plist"
-    echo "  sudo rm /Library/LaunchDaemons/com.ourway.agent.plist"
-    echo "  sudo rm -rf ${INSTALL_DIR}"
-fi
+echo "  sudo ${INSTALL_DIR}/uninstall.sh"
