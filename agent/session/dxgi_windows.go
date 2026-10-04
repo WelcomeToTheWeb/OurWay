@@ -76,10 +76,20 @@ func (d *dxgiCapture) Frame(quality int) ([]byte, error) {
 	if err := d.dup.GetImage(d.img, 50); err != nil {
 		if err == outputduplication.ErrNoImageYet {
 			// No new frame within the timeout: the screen is unchanged.
+			// When a previous JPEG exists it is re-served without
+			// re-encoding; when it does not (fresh session on an idle
+			// desktop) DXGI would never deliver a first frame at all,
+			// so seed one via GDI.
 			if d.lastJPEG != nil && d.lastQ == quality {
 				return d.lastJPEG, nil
 			}
-			return nil, errDXGIFrameStale
+			data, gerr := gdiCaptureJPEG(quality)
+			if gerr != nil {
+				return nil, errDXGIFrameStale
+			}
+			d.lastJPEG = data
+			d.lastQ = quality
+			return data, nil
 		}
 		// Access lost (mode change, session switch) or a hard error:
 		// rebuild once, then give up to GDI.
