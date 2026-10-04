@@ -63,6 +63,53 @@ var migrations = []migration{
 		}
 		return db.Migrator().AddColumn(&models.Session{}, "RemoteTokenHash")
 	}},
+	{version: 3, name: "patch_update_metadata_and_reboot_pending", fn: func(db *gorm.DB) error {
+		m := db.Migrator()
+		for _, col := range []string{"ExternalID", "KB", "Severity", "Category", "DeploymentID"} {
+			if !m.HasColumn(&models.SoftwareUpdate{}, col) {
+				if err := m.AddColumn(&models.SoftwareUpdate{}, col); err != nil {
+					return err
+				}
+			}
+		}
+		if !m.HasColumn(&models.Device{}, "RebootPending") {
+			return m.AddColumn(&models.Device{}, "RebootPending")
+		}
+		return nil
+	}},
+	{version: 4, name: "devices_tags", fn: func(db *gorm.DB) error {
+		if db.Migrator().HasColumn(&models.Device{}, "Tags") {
+			return nil
+		}
+		return db.Migrator().AddColumn(&models.Device{}, "Tags")
+	}},
+	{version: 5, name: "maintenance_windows_and_deploy_queue", fn: func(db *gorm.DB) error {
+		m := db.Migrator()
+		for _, col := range []string{"WindowStart", "WindowHours", "Timezone", "LastRunAt"} {
+			if !m.HasColumn(&models.PatchPolicy{}, col) {
+				if err := m.AddColumn(&models.PatchPolicy{}, col); err != nil {
+					return err
+				}
+			}
+		}
+		if !m.HasColumn(&models.PatchDeployment{}, "AutoReboot") {
+			if err := m.AddColumn(&models.PatchDeployment{}, "AutoReboot"); err != nil {
+				return err
+			}
+		}
+		// Manual deployments have no policy; the original NOT NULL uuid
+		// column rejected them on PostgreSQL. (SQLite cannot alter a
+		// column, but only ever sees fresh schemas built from the model.)
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("ALTER TABLE patch_deployments ALTER COLUMN policy_id DROP NOT NULL").Error; err != nil {
+				return err
+			}
+		}
+		if !m.HasTable(&models.QueuedDeploy{}) {
+			return m.CreateTable(&models.QueuedDeploy{})
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

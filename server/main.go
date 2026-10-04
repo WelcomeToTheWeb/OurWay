@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // policy time zones must resolve in minimal containers
 
 	"github.com/gin-gonic/gin"
 

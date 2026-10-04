@@ -1,15 +1,30 @@
-import { Server, CheckCircle, XCircle, Bell, Activity } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Server, CheckCircle, XCircle, Bell, Activity, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDevices } from '../hooks/useDevices';
 import { DeviceCard } from '../components/DeviceCard';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../auth/context';
+import { getPatchOverview } from '../api/patching';
+import type { PatchOverview } from '../types/patch';
+import { buildAttentionList, osBreakdown } from '../utils/attention';
 
 export function Dashboard() {
   const { t } = useTranslation();
   const { devices, loading, error } = useDevices();
-  const { accessToken } = useAuth();
+  const { accessToken, hasAnyRole } = useAuth();
   const { connected } = useWebSocket(accessToken);
+  const canSeePatches = hasAnyRole(['admin', 'manager', 'technician']);
+  const [overview, setOverview] = useState<PatchOverview | null>(null);
+
+  useEffect(() => {
+    if (!canSeePatches) return;
+    getPatchOverview().then(setOverview).catch(() => setOverview(null));
+  }, [canSeePatches]);
+
+  const attention = useMemo(() => buildAttentionList(devices, overview), [devices, overview]);
+  const osCounts = useMemo(() => osBreakdown(devices), [devices]);
 
   if (loading) {
     return (
@@ -49,6 +64,71 @@ export function Dashboard() {
         <StatCard icon={CheckCircle} label={t('common.online')} value={online} color="text-status-online" />
         <StatCard icon={XCircle} label={t('common.offline')} value={offline} color="text-status-offline" />
         <StatCard icon={Bell} label={t('dashboard.activeAlerts')} value={alerts} color="text-status-error" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <section aria-label="Needs attention" className="rounded-xl border border-bg-border bg-bg-card p-4 lg:col-span-2">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-text-muted">Needs attention</h2>
+          {attention.length === 0 ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-text-secondary">
+              <ShieldCheck className="h-5 w-5 text-status-online" /> Nothing needs attention right now.
+            </div>
+          ) : (
+            <ul className="divide-y divide-bg-border">
+              {attention.map(({ device, reasons }) => (
+                <li key={device.id}>
+                  <Link to={`/devices/${device.id}`} className="flex items-center justify-between gap-3 py-2.5 hover:text-accent">
+                    <span className="text-sm font-medium text-text-primary">{device.name}</span>
+                    <span className="text-xs text-text-secondary">{reasons.join(' · ')}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <div className="space-y-4">
+          {canSeePatches && overview && (
+            <Link to="/patches" aria-label="Patch compliance" className="block rounded-xl border border-bg-border bg-bg-card p-4 transition-colors hover:border-accent">
+              <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-text-muted">Patch compliance</h2>
+              <div className="flex items-center gap-3">
+                {overview.totals.critical > 0 ? (
+                  <ShieldAlert className="h-8 w-8 text-status-error" />
+                ) : (
+                  <ShieldCheck className="h-8 w-8 text-status-online" />
+                )}
+                <div>
+                  <p className="text-2xl font-semibold text-text-primary">
+                    {overview.totals.devices > 0 ? Math.round((overview.totals.compliant / overview.totals.devices) * 100) : 100}%
+                  </p>
+                  <p className="text-xs text-text-secondary">
+                    {overview.totals.pending} outstanding · {overview.totals.critical} critical
+                  </p>
+                </div>
+              </div>
+            </Link>
+          )}
+          <section aria-label="Operating systems" className="rounded-xl border border-bg-border bg-bg-card p-4">
+            <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-text-muted">Systems</h2>
+            {osCounts.length === 0 ? (
+              <p className="text-sm text-text-secondary">No devices yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {osCounts.map(({ os, count }) => (
+                  <li key={os} className="text-xs text-text-secondary">
+                    <div className="mb-1 flex justify-between">
+                      <span>{os === 'darwin' ? 'macOS' : os === 'windows' ? 'Windows' : 'Linux'}</span>
+                      <span>{count}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-bg">
+                      <div className="h-full rounded-full bg-accent" style={{ width: `${(count / devices.length) * 100}%` }} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
 
       <div>

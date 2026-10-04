@@ -60,6 +60,7 @@ func TestResolveScope(t *testing.T) {
 	st := newPolicyTestStore(t)
 	hub := ws.NewHub("http://localhost:3000", "")
 	engine := NewPolicyEngine(st, hub, NewDeployer(st, hub), NewRebooter(hub), NewScanner(st, hub))
+	engine.ScanWait = 0
 
 	// Three devices: two online, one offline.
 	devices := []models.Device{
@@ -121,6 +122,7 @@ func TestEvaluateDueAppliesPolicy(t *testing.T) {
 	rebooter := NewRebooter(hub)
 	scanner := NewScanner(st, hub)
 	engine := NewPolicyEngine(st, hub, deployer, rebooter, scanner)
+	engine.ScanWait = 0
 
 	device := &models.Device{ID: "dev-1", Name: "laptop-1", Hostname: "laptop-1", OS: "linux", Arch: "amd64", Status: "online", DeviceKey: "key-1"}
 	if err := st.Devices.Create(device); err != nil {
@@ -171,6 +173,7 @@ func TestEvaluateDueSkipsNonDueSchedule(t *testing.T) {
 	st := newPolicyTestStore(t)
 	hub := ws.NewHub("http://localhost:3000", "")
 	engine := NewPolicyEngine(st, hub, NewDeployer(st, hub), NewRebooter(hub), NewScanner(st, hub))
+	engine.ScanWait = 0
 
 	device := &models.Device{ID: "dev-1", Name: "laptop-1", Hostname: "laptop-1", OS: "linux", Arch: "amd64", Status: "online", DeviceKey: "key-1"}
 	if err := st.Devices.Create(device); err != nil {
@@ -210,6 +213,7 @@ func TestEvaluateDueRespectsApprovalRequired(t *testing.T) {
 	st := newPolicyTestStore(t)
 	hub := ws.NewHub("http://localhost:3000", "")
 	engine := NewPolicyEngine(st, hub, NewDeployer(st, hub), NewRebooter(hub), NewScanner(st, hub))
+	engine.ScanWait = 0
 
 	device := &models.Device{ID: "dev-1", Name: "laptop-1", Hostname: "laptop-1", OS: "linux", Arch: "amd64", Status: "online", DeviceKey: "key-1"}
 	if err := st.Devices.Create(device); err != nil {

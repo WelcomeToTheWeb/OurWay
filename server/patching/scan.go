@@ -73,3 +73,23 @@ func (s *Scanner) ScanAll(ctx context.Context, interval time.Duration) {
 		}
 	}
 }
+
+// ScanDeviceIDs asks the given devices (only those online) to scan. It
+// returns how many scan commands were sent.
+func (s *Scanner) ScanDeviceIDs(ids []string) int {
+	sent := 0
+	for _, id := range ids {
+		device, err := s.store.Devices.GetByID(id)
+		if err != nil || device.Status != "online" {
+			continue
+		}
+		if err := s.hub.SendToDevice(device.DeviceKey, "scan_updates", map[string]interface{}{
+			"device_id": device.ID,
+		}); err != nil {
+			log.Printf("patching: failed to send scan to device %s: %v", device.Name, err)
+			continue
+		}
+		sent++
+	}
+	return sent
+}

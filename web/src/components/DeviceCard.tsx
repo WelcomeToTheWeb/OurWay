@@ -59,6 +59,19 @@ export function DeviceCard({ device }: { device: Device }) {
         <StatusBadge status={device.status} />
       </div>
 
+      {(device.tags?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {device.tags!.slice(0, 3).map((t) => (
+            <span key={t} className="rounded-full border border-bg-border bg-bg px-2 py-0.5 text-[11px] text-text-secondary">
+              {t}
+            </span>
+          ))}
+          {device.tags!.length > 3 && (
+            <span className="text-[11px] text-text-muted">+{device.tags!.length - 3}</span>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-xs">
         <span className="text-text-secondary">{osLabel(device.os)}</span>
         <span className="text-text-muted">

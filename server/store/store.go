@@ -31,6 +31,7 @@ type Store struct {
 	APIKeys           *APIKeyStore
 	MetricHistory     *MetricHistoryStore
 	DeploymentResults *DeploymentResultStore
+	QueuedDeploys     *QueuedDeployStore
 }
 
 // NewWithDB creates a Store from an existing *gorm.DB instance,
@@ -58,6 +59,7 @@ func NewWithDB(db *gorm.DB) (*Store, error) {
 		APIKeys:           &APIKeyStore{db: db},
 		MetricHistory:     NewMetricHistoryStore(db),
 		DeploymentResults: NewDeploymentResultStore(db),
+		QueuedDeploys:     &QueuedDeployStore{db: db},
 	}
 
 	// Seed built-in roles
@@ -108,6 +110,7 @@ func New(dsn string) (*Store, error) {
 		APIKeys:           &APIKeyStore{db: db},
 		MetricHistory:     NewMetricHistoryStore(db),
 		DeploymentResults: NewDeploymentResultStore(db),
+		QueuedDeploys:     &QueuedDeployStore{db: db},
 	}
 
 	// Seed built-in roles

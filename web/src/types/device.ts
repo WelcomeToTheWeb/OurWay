@@ -10,6 +10,8 @@ export interface Device {
   public_ip: string;
   private_ip: string;
   device_key?: string;
+  tags?: string[];
+  reboot_pending?: boolean;
   created_at: string;
   updated_at: string;
 }

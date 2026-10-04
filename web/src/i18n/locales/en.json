@@ -338,7 +338,9 @@
       "completed": "Completed",
       "failed": "Failed",
       "pending": "Pending"
-    }
+    },
+    "scopeTagsHelp": "Tags (comma-separated, any match)",
+    "scopeDevicesHelp": "Device names or IDs (comma-separated)"
   },
   "users": {
     "title": "Users",

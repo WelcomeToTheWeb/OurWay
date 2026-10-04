@@ -14,12 +14,16 @@ import {
 import {
   listPolicies,
   createPolicy,
+  deletePolicy,
   listDeployments,
   deployNow,
   listDeploymentResults,
   rollbackDeployment,
 } from '../api/patching';
 import { useTranslation } from 'react-i18next';
+import { listTags, type TagCount } from '../api/tags';
+import { useAuth } from '../auth/context';
+import { browserTimeZone, formatWindow, timeZoneOptions } from '../utils/patchWindow';
 import type { PatchPolicy, PatchDeployment, DeploymentResult } from '../types/patch';
 
 function timeAgo(dateStr: string): string {
@@ -38,6 +42,8 @@ function timeAgo(dateStr: string): string {
 
 export function PatchPolicies() {
   const { t } = useTranslation();
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('admin');
   const [policies, setPolicies] = useState<PatchPolicy[]>([]);
   const [deployments, setDeployments] = useState<PatchDeployment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,11 +52,19 @@ export function PatchPolicies() {
   const [newPolicy, setNewPolicy] = useState({
     name: '',
     scope: 'all',
+    scope_value: '',
     schedule: 'weekly',
+    window_start: '02:00',
+    window_hours: 4,
+    timezone: browserTimeZone(),
     auto_reboot: false,
     approval_required: true,
     max_devices_per_batch: 10,
   });
+  const [knownTags, setKnownTags] = useState<TagCount[]>([]);
+  useEffect(() => {
+    listTags().then(setKnownTags).catch(() => setKnownTags([]));
+  }, []);
   const [resultsFor, setResultsFor] = useState<string | null>(null);
   const [results, setResults] = useState<DeploymentResult[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
@@ -104,6 +118,16 @@ export function PatchPolicies() {
     }
   }
 
+  async function handleDelete(policy: PatchPolicy) {
+    if (!window.confirm(`Delete policy "${policy.name}"? Queued deployments for it are dropped.`)) return;
+    try {
+      await deletePolicy(policy.id);
+      await load();
+    } catch {
+      // ignore
+    }
+  }
+
   async function handleCreate() {
     if (!newPolicy.name) return;
     try {
@@ -113,7 +137,11 @@ export function PatchPolicies() {
       setNewPolicy({
         name: '',
         scope: 'all',
+        scope_value: '',
         schedule: 'weekly',
+        window_start: '02:00',
+        window_hours: 4,
+        timezone: browserTimeZone(),
         auto_reboot: false,
         approval_required: true,
         max_devices_per_batch: 10,
@@ -164,13 +192,15 @@ export function PatchPolicies() {
               <Play className="h-3.5 w-3.5" />
               {t('patches.deployNow')}
             </button>
-            <button
-              onClick={() => setShowCreate(!showCreate)}
-              className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-bg"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {t('patchPolicies.newPolicy')}
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setShowCreate(!showCreate)}
+                className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-bg"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t('patchPolicies.newPolicy')}
+              </button>
+            )}
           </div>
         </div>
 
@@ -205,6 +235,41 @@ export function PatchPolicies() {
                 </select>
               </div>
               <div>
+                <label className="block text-xs text-text-secondary" htmlFor="policy-window-start">Window starts</label>
+                <input
+                  id="policy-window-start"
+                  type="time"
+                  value={newPolicy.window_start}
+                  onChange={(e) => setNewPolicy({ ...newPolicy, window_start: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-text-secondary" htmlFor="policy-window-hours">Window length (hours)</label>
+                <input
+                  id="policy-window-hours"
+                  type="number"
+                  min={1}
+                  max={24}
+                  value={newPolicy.window_hours}
+                  onChange={(e) => setNewPolicy({ ...newPolicy, window_hours: parseInt(e.target.value) || 4 })}
+                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-text-secondary" htmlFor="policy-timezone">Time zone</label>
+                <input
+                  id="policy-timezone"
+                  list="policy-timezones"
+                  value={newPolicy.timezone}
+                  onChange={(e) => setNewPolicy({ ...newPolicy, timezone: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                />
+                <datalist id="policy-timezones">
+                  {timeZoneOptions().map((z) => <option key={z} value={z} />)}
+                </datalist>
+              </div>
+              <div>
                 <label className="block text-xs text-text-secondary">{t('patchPolicies.scope')}</label>
                 <select
                   value={newPolicy.scope}
@@ -218,6 +283,30 @@ export function PatchPolicies() {
                   <option value="devices">{t('patchPolicies.specificDevices')}</option>
                 </select>
               </div>
+              {newPolicy.scope !== 'all' && (
+                <div>
+                  <label className="block text-xs text-text-secondary" htmlFor="policy-scope-value">
+                    {newPolicy.scope === 'tags'
+                      ? t('patchPolicies.scopeTagsHelp')
+                      : t('patchPolicies.scopeDevicesHelp')}
+                  </label>
+                  <input
+                    id="policy-scope-value"
+                    list="policy-tag-suggestions"
+                    value={newPolicy.scope_value}
+                    onChange={(e) => setNewPolicy({ ...newPolicy, scope_value: e.target.value })}
+                    placeholder={newPolicy.scope === 'tags' ? 'prod, web' : 'server-01, laptop-7'}
+                    className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                  />
+                  {newPolicy.scope === 'tags' && (
+                    <datalist id="policy-tag-suggestions">
+                      {knownTags.map((tg) => (
+                        <option key={tg.tag} value={tg.tag} />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-text-secondary">
                   {t('patchPolicies.maxBatch')}
@@ -336,6 +425,21 @@ export function PatchPolicies() {
                     </span>
                   )}
                   <span>{t('patchPolicies.batch', { count: policy.max_devices_per_batch })}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between text-xs text-text-muted">
+                  <span>
+                    Window: {formatWindow(policy)}
+                    {policy.last_run_at && ` · last ran ${new Date(policy.last_run_at).toLocaleString()}`}
+                  </span>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDelete(policy)}
+                      className="rounded-md px-2 py-1 text-status-error hover:bg-status-error/10"
+                      aria-label={`Delete policy ${policy.name}`}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

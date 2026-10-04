@@ -6,8 +6,9 @@ import (
 
 // PatchDeployment tracks a patch deployment operation.
 type PatchDeployment struct {
-	ID             string     `gorm:"type:uuid;primaryKey" json:"id"`
-	PolicyID       string     `gorm:"type:uuid;not null;index" json:"policy_id"`
+	ID string `gorm:"type:uuid;primaryKey" json:"id"`
+	// PolicyID is nil for manual deployments (a uuid column cannot hold "").
+	PolicyID       *string    `gorm:"type:uuid;index" json:"policy_id"`
 	Status         string     `gorm:"not null;default:pending" json:"status"` // pending, running, completed, failed
 	DeviceIDs      []string   `gorm:"type:text;serializer:json" json:"device_ids"`
 	DevicesTotal   int        `json:"devices_total"`
@@ -16,6 +17,9 @@ type PatchDeployment struct {
 	StartedAt      *time.Time `json:"started_at"`
 	CompletedAt    *time.Time `json:"completed_at"`
 	TimeoutAt      *time.Time `json:"timeout_at"`
-	Message        string     `json:"message"`
-	CreatedAt      time.Time  `json:"created_at"`
+	// AutoReboot reboots each device that reports a required reboot once
+	// its install succeeds.
+	AutoReboot bool      `gorm:"not null;default:false" json:"auto_reboot"`
+	Message    string    `json:"message"`
+	CreatedAt  time.Time `json:"created_at"`
 }

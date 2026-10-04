@@ -216,11 +216,11 @@ func TestInstallerDownloadTraversal(t *testing.T) {
 
 func TestInstallerListDedupesAndSorts(t *testing.T) {
 	withInstallersDir(t, map[string]string{
-		"ourway-agent-linux-amd64":            "agent-linux",
-		"ourway-installer-linux-amd64":        "installer-linux",
-		"ourway-installer-windows-amd64.exe":  "installer-windows",
-		"ourway-agent-darwin-arm64":           "agent-darwin",
-		"ourway-installer-darwin-arm64":       "installer-darwin",
+		"ourway-agent-linux-amd64":           "agent-linux",
+		"ourway-installer-linux-amd64":       "installer-linux",
+		"ourway-installer-windows-amd64.exe": "installer-windows",
+		"ourway-agent-darwin-arm64":          "agent-darwin",
+		"ourway-installer-darwin-arm64":      "installer-darwin",
 	})
 	ts, _, _ := newTestServer(t)
 	resp, err := http.Get(ts.URL + "/api/v2/installers")
