@@ -11,7 +11,7 @@ const DeviceDetail = lazy(() => import('./pages/DeviceDetail').then((m) => ({ de
 const Alerts = lazy(() => import('./pages/Alerts').then((m) => ({ default: m.Alerts })));
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
 const Users = lazy(() => import('./pages/Users').then((m) => ({ default: m.Users })));
-const Patches = lazy(() => import('./pages/Patches').then((m) => ({ default: m.Patches })));
+const Patches = lazy(() => import('./pages/PatchHub').then((m) => ({ default: m.PatchHub })));
 const PatchPolicies = lazy(() => import('./pages/PatchPolicies').then((m) => ({ default: m.PatchPolicies })));
 const FileTransfer = lazy(() => import('./pages/FileTransfer').then((m) => ({ default: m.FileTransfer })));
 const Sessions = lazy(() => import('./pages/Sessions').then((m) => ({ default: m.Sessions })));

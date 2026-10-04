@@ -1,9 +1,15 @@
+export type Severity = 'critical' | 'important' | 'moderate' | 'low' | 'unspecified';
+
 export interface SoftwareUpdate {
   id: string;
   device_id: string;
   source: string;
   title: string;
   version: string;
+  external_id?: string;
+  kb?: string;
+  severity?: Severity;
+  category?: string;
   size_bytes: number;
   status: 'detected' | 'approved' | 'downloading' | 'installing' | 'installed' | 'failed' | 'skipped';
   installed_at?: string;
@@ -46,4 +52,42 @@ export interface DeploymentResult {
   message?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface FleetUpdate {
+  key: string;
+  title: string;
+  kb: string;
+  severity: Severity;
+  source: string;
+  category: string;
+  devices: number;
+  statuses: Record<string, number>;
+  update_ids: string[];
+  detected_ids: string[];
+}
+
+export interface DeviceCompliance {
+  device_id: string;
+  name: string;
+  os: string;
+  status: string;
+  detected: number;
+  approved: number;
+  installing: number;
+  failed: number;
+  critical: number;
+  reboot_pending: boolean;
+  compliant: boolean;
+}
+
+export interface PatchOverview {
+  totals: {
+    devices: number;
+    compliant: number;
+    pending: number;
+    critical: number;
+    reboot_pending: number;
+  };
+  devices: DeviceCompliance[];
 }

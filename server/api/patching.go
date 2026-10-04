@@ -59,8 +59,8 @@ func (h *PatchHandler) ScanDevice(c *gin.Context) {
 		return
 	}
 
-	// Trigger scan (async)
-	go h.scanner.ScanDevices(c.Request.Context())
+	// Scan just this device.
+	h.scanner.ScanDeviceIDs([]string{deviceID})
 
 	c.JSON(200, gin.H{"status": "scan_started"})
 }

@@ -1,5 +1,12 @@
 import client from './client';
-import type { SoftwareUpdate, PatchPolicy, PatchDeployment, DeploymentResult } from '../types/patch';
+import type {
+  SoftwareUpdate,
+  PatchPolicy,
+  PatchDeployment,
+  DeploymentResult,
+  FleetUpdate,
+  PatchOverview,
+} from '../types/patch';
 
 export const getDeviceUpdates = (deviceId: string) =>
   client
@@ -49,3 +56,24 @@ export const listDeploymentResults = (deploymentId: string) =>
   client
     .get<{ results: DeploymentResult[] }>(`/patch/deployments/${deploymentId}/results`)
     .then((r) => r.data.results);
+
+export const getPatchOverview = () =>
+  client.get<PatchOverview>('/patch/overview').then((r) => r.data);
+
+export const listFleetUpdates = () =>
+  client.get<{ updates: FleetUpdate[] }>('/patch/updates').then((r) => r.data.updates);
+
+export const bulkApproveUpdates = (updateIds: string[]) =>
+  client
+    .post<{ changed: number }>('/patch/updates/approve', { update_ids: updateIds })
+    .then((r) => r.data);
+
+export const bulkSkipUpdates = (updateIds: string[]) =>
+  client
+    .post<{ changed: number }>('/patch/updates/skip', { update_ids: updateIds })
+    .then((r) => r.data);
+
+export const scanDevices = (deviceIds: string[] = []) =>
+  client
+    .post<{ scans_sent: number }>('/patch/scan', { device_ids: deviceIds })
+    .then((r) => r.data);

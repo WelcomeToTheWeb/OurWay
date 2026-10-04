@@ -163,3 +163,24 @@ func (s *SoftwareUpdateStore) RevertToApproved(deploymentID, deviceID string) er
 		Where("deployment_id = ? AND device_id = ? AND status = ?", deploymentID, deviceID, "installing").
 		Updates(map[string]interface{}{"status": "approved", "deployment_id": ""}).Error
 }
+
+// ListByStatuses returns updates (all devices) in any of the statuses.
+func (s *SoftwareUpdateStore) ListByStatuses(statuses []string) ([]models.SoftwareUpdate, error) {
+	var updates []models.SoftwareUpdate
+	if err := s.db.Where("status IN ?", statuses).Find(&updates).Error; err != nil {
+		return nil, err
+	}
+	return updates, nil
+}
+
+// SetStatusIfDetected moves the given updates from "detected" to status
+// (approved or skipped) and returns how many changed.
+func (s *SoftwareUpdateStore) SetStatusIfDetected(ids []string, status string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	res := s.db.Model(&models.SoftwareUpdate{}).
+		Where("id IN ? AND status = ?", ids, "detected").
+		Updates(map[string]interface{}{"status": status, "updated_at": time.Now()})
+	return res.RowsAffected, res.Error
+}
