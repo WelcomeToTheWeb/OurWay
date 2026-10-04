@@ -17,6 +17,7 @@ import (
 
 	"ourway/server/alerts"
 	"ourway/server/auth"
+	"ourway/server/config"
 	"ourway/server/events"
 	"ourway/server/models"
 	"ourway/server/store"
@@ -809,7 +810,7 @@ func (h *Hub) startReaper(store *store.Store) {
 	})
 }
 
-func (h *Hub) handleDeviceMessage(_ *Client, msg Message, store *store.Store, deviceKey string) {
+func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Store, deviceKey string) {
 	switch msg.Type {
 	case "heartbeat":
 		dev, err := store.Devices.GetByKey(deviceKey)
@@ -840,6 +841,19 @@ func (h *Hub) handleDeviceMessage(_ *Client, msg Message, store *store.Store, de
 		}
 		if err := store.Devices.UpdateLastSeen(dev.ID); err != nil {
 			log.Printf("ws: heartbeat update failed: %v", err)
+		}
+		// Fully automatic agent updates: piggyback the server version on
+		// the heartbeat path so a connected agent learns within one
+		// heartbeat (15 s) that a newer build is available, without a
+		// separate poll. The agent compares and self-updates.
+		if ack, err := json.Marshal(Message{Type: "server_version", Payload: gin.H{
+			"version":    config.Version,
+			"git_commit": config.GitCommit,
+		}}); err == nil {
+			select {
+			case client.SendCh <- ack:
+			default:
+			}
 		}
 		if wasOffline {
 			events.Publish("device_online", map[string]interface{}{
