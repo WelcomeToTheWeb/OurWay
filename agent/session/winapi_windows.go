@@ -103,13 +103,15 @@ type processEntry32W struct {
 	SzExeFile           [260]uint16
 }
 
-// input mirrors the Win32 INPUT structure (input.h). The mouse,
-// keyboard and hardware union members share the 28-byte union storage;
-// mi()/ki() alias it with the appropriate type.
+// input mirrors the Win32 INPUT structure (input.h). On x64 the
+// union's largest member is MOUSEINPUT at 32 bytes (DwExtraInfo is a
+// pointer, so the struct aligns to 8), making sizeof(INPUT) 40; a
+// short union makes SendInput reject the cbSize and silently drop
+// every injected event.
 type input struct {
 	Type  uint32
 	_     [4]byte
-	union [28]byte
+	union [32]byte
 }
 
 // mouseInput mirrors Win32 MOUSEINPUT.
