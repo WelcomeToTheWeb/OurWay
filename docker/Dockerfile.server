@@ -36,7 +36,7 @@ RUN go mod tidy -C ../agent
 
 # Build the server binary with version info embedded
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags "-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT}" \
+    -ldflags "-s -w -X ourway/server/config.Version=${VERSION} -X ourway/server/config.GitCommit=${GIT_COMMIT}" \
     -o /app/server_bin .
 
 # Build agent binaries for all platforms (for agent download endpoint)

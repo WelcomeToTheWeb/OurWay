@@ -12,6 +12,7 @@ import (
 
 	"ourway/server/alerts"
 	"ourway/server/auth"
+	"ourway/server/config"
 	"ourway/server/events"
 	"ourway/server/files"
 	"ourway/server/patching"
@@ -272,6 +273,11 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 	// Liveness (no auth): the process is up. Always 200.
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
+	})
+	// Server version (no auth): agents poll it to detect that a newer
+	// build is available and self-update (fully automatic updates).
+	r.GET("/api/agent/version", func(c *gin.Context) {
+		c.JSON(200, gin.H{"version": config.Version, "git_commit": config.GitCommit})
 	})
 
 	// Readiness (no auth): dependencies are reachable. Intended for

@@ -31,6 +31,10 @@ type Client struct {
 	sessionMgr   *session.SessionManager
 	fileHandler  *files.Handler
 	patchHandler *patch.Handler
+	// onServerVersion is invoked when the server pushes its version on
+	// the heartbeat path; the self-update checker uses it to trigger an
+	// immediate check (fully automatic agent updates).
+	onServerVersion func()
 
 	// publicIP is resolved once at startup (best-effort); the private IP
 	// is re-evaluated per heartbeat so the server's record tracks network
@@ -77,6 +81,15 @@ func WithMetricsFunc(f func() (interface{}, error)) Option {
 func WithDeviceID(id string) Option {
 	return func(c *Client) {
 		c.deviceID = id
+	}
+}
+
+// OnServerVersion registers a callback invoked when the server pushes
+// its version (heartbeat piggyback); the self-update checker uses it
+// to trigger an immediate check.
+func OnServerVersion(fn func()) Option {
+	return func(c *Client) {
+		c.onServerVersion = fn
 	}
 }
 
@@ -389,7 +402,11 @@ func (c *Client) connect(ctx context.Context) error {
 						go c.patchHandler.DeployUpdates(ctx, msgData["payload"])
 					case "rollback_updates":
 						go c.patchHandler.RollbackUpdates(ctx, msgData["payload"])
-					case "reboot":
+					case "server_version":
+					if c.onServerVersion != nil {
+						go c.onServerVersion()
+					}
+				case "reboot":
 						go c.patchHandler.Reboot(msgData["payload"])
 					}
 				}

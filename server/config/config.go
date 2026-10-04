@@ -8,6 +8,15 @@ import (
 	"strconv"
 )
 
+// Version and GitCommit are stamped at build time via
+// -ldflags "-X ourway/server/config.Version=x.y.z"; "dev" means an
+// unstamped local build. Agents compare against it to decide whether a
+// self-update is needed (fully automatic updates).
+var (
+	Version   = "dev"
+	GitCommit = "unknown"
+)
+
 // Config holds all server configuration loaded from environment variables.
 type Config struct {
 	ServerPort          string

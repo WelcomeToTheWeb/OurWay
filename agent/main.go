@@ -13,6 +13,7 @@ import (
 	"ourway/agent/config"
 	"ourway/agent/install"
 	"ourway/agent/session"
+	"ourway/agent/selfupdate"
 )
 
 func main() {
@@ -148,16 +149,25 @@ func runAgent(ctx context.Context, cfg *config.Config) {
 		log.Printf("Warning: initial metrics collection failed: %v", err)
 	}
 
+	// Fully automatic self-update: check now and hourly; the client
+	// also triggers an immediate check when the server pushes its
+	// version on the heartbeat path.
+	updater := selfupdate.NewChecker(config.HTTPBaseURL(cfg.ServerURL))
+	defer updater.Stop()
+	go updater.Run()
+
 	// Create WebSocket client
 	c := client.New(cfg.ServerURL, cfg.DeviceKey,
 		client.WithHeartbeatInterval(cfg.Heartbeat),
 		client.WithMetricsInterval(cfg.MetricsInterval),
 		client.WithStreamInterval(cfg.StreamInterval),
 		client.WithDeviceID(deviceID),
+		client.OnServerVersion(func() { updater.CheckNow() }),
 		client.WithMetricsFunc(func() (interface{}, error) {
 			return collectorMgr.CollectAll()
 		}),
 	)
+
 
 	// Start the client (blocks until cancelled)
 	if err := c.Run(ctx); err != nil {
