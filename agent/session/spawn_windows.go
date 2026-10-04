@@ -112,7 +112,11 @@ func activeUserSessionIDs() []uint32 {
 					ids = append(ids, slice[i].SessionID)
 				}
 			case wtsDisconnected:
-				disconnected = append(disconnected, slice[i].SessionID)
+				// Session 0 ("Services") is listed as disconnected on
+				// modern Windows; it never holds a desktop or a user.
+				if slice[i].SessionID != 0 {
+					disconnected = append(disconnected, slice[i].SessionID)
+				}
 			}
 		}
 		ids = append(ids, disconnected...)
@@ -190,6 +194,9 @@ func systemSessionToken() (windows.Token, error) {
 		return 0, fmt.Errorf("duplicate own token: %w", err)
 	}
 	sid := ids[0]
+	if sid == 0 {
+		return 0, fmt.Errorf("refusing to target Session 0")
+	}
 	if err := windows.SetTokenInformation(dup, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sid)), uint32(unsafe.Sizeof(sid))); err != nil {
 		windows.CloseHandle(windows.Handle(dup))
 		return 0, fmt.Errorf("set token session %d: %w", sid, err)
