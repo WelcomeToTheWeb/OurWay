@@ -345,7 +345,6 @@ func (h *Hub) SendToDevice(deviceKey string, msgType string, payload interface{}
 		return fmt.Errorf("device %s send buffer full", deviceKey)
 	}
 	clientID := "device:" + deviceKey
-	}
 
 	// Device not on this instance. In distributed mode, verify it is
 	// connected to *some* instance via the presence key before claiming
