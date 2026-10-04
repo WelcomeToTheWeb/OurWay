@@ -27,6 +27,16 @@ func (s *SessionStore) GetByID(id string) (*models.Session, error) {
 	return &session, nil
 }
 
+// GetLiveByTokenHash fetches the pending or active session whose remote
+// token hashes to tokenHash.
+func (s *SessionStore) GetLiveByTokenHash(tokenHash string) (*models.Session, error) {
+	var session models.Session
+	if err := s.db.First(&session, "remote_token_hash = ? AND status IN (?)", tokenHash, []string{"pending", "active"}).Error; err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
 // Update persists changes to a session record.
 func (s *SessionStore) Update(session *models.Session) error {
 	return s.db.Save(session).Error

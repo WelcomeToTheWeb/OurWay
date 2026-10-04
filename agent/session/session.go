@@ -41,8 +41,11 @@ type SessionManager struct {
 	mu        sync.Mutex
 	active    bool
 	sessionID string
-	serverURL string
-	startedAt time.Time
+	// remoteToken is the per-session credential for the remote-control
+	// exe (sent in session_start); the device key stays in the agent.
+	remoteToken string
+	serverURL   string
+	startedAt   time.Time
 
 	httpClient     *http.Client
 	onSessionStart func()
@@ -57,6 +60,13 @@ func NewSessionManager(deviceKey string) *SessionManager {
 		active:     false,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
+}
+
+// sessionRemoteToken returns the current session's remote-exe token.
+func (sm *SessionManager) sessionRemoteToken() string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.remoteToken
 }
 
 // SetServerURL configures the server base URL used to upload frames.
@@ -126,6 +136,7 @@ func (sm *SessionManager) StartSession(ctx context.Context, payload interface{})
 		if id, ok := m["session_id"].(string); ok && id != "" {
 			sm.sessionID = id
 		}
+		sm.remoteToken, _ = m["remote_token"].(string)
 		sm.mu.Unlock()
 	}
 

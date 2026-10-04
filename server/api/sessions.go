@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -62,12 +63,22 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 	userIDVal, _ := c.Get("user_id")
 	userID, _ := userIDVal.(string)
 
+	// Per-session token for the remote-control exe: it authenticates
+	// that exe for this session only, so the device key stays with the
+	// agent service. Only the hash is stored.
+	remoteToken, remoteHash, err := models.NewRemoteToken()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to create session"})
+		return
+	}
+
 	// Create session
 	session := &models.Session{
-		ID:       uuid.NewString(),
-		DeviceID: deviceID,
-		UserID:   userID,
-		Status:   "pending",
+		ID:              uuid.NewString(),
+		DeviceID:        deviceID,
+		UserID:          userID,
+		Status:          "pending",
+		RemoteTokenHash: remoteHash,
 	}
 	if err := h.store.Sessions.Create(session); err != nil {
 		c.JSON(500, gin.H{"error": "failed to create session"})
@@ -82,8 +93,9 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 		serverURL = "https://" + c.Request.Host
 	}
 	if err := h.hub.SendToDevice(device.DeviceKey, "session_start", gin.H{
-		"session_id": session.ID,
-		"server_url": serverURL,
+		"session_id":   session.ID,
+		"server_url":   serverURL,
+		"remote_token": remoteToken,
 	}); err != nil {
 		log.Printf("sessions: failed to notify device of session start: %v", err)
 	}
@@ -193,27 +205,36 @@ func (h *SessionHandler) SendInput(c *gin.Context) {
 // path for remote sessions.
 // POST /api/sessions/:id/frame (device key auth via X-Device-Key, like /api/agent/*)
 func (h *SessionHandler) ReportFrame(c *gin.Context) {
-	deviceKey := c.GetHeader("X-Device-Key")
-	if deviceKey == "" {
-		c.JSON(401, gin.H{"error": "missing X-Device-Key header"})
-		return
-	}
-
-	device, err := h.store.Devices.GetByKey(deviceKey)
-	if err != nil {
-		c.JSON(401, gin.H{"error": "unknown device key"})
-		return
-	}
-
 	sessionID := c.Param("id")
 	session, err := h.store.Sessions.GetByID(sessionID)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "session not found"})
 		return
 	}
-	if session.DeviceID != device.ID {
-		c.JSON(403, gin.H{"error": "session does not belong to this device"})
-		return
+
+	// The remote-control exe authenticates with its per-session token;
+	// the agent (legacy in-process path) with the device key.
+	if tok := c.GetHeader("X-Session-Token"); tok != "" {
+		want := models.HashRemoteToken(tok)
+		if session.RemoteTokenHash == "" || subtle.ConstantTimeCompare([]byte(want), []byte(session.RemoteTokenHash)) != 1 {
+			c.JSON(401, gin.H{"error": "invalid session token"})
+			return
+		}
+	} else {
+		deviceKey := c.GetHeader("X-Device-Key")
+		if deviceKey == "" {
+			c.JSON(401, gin.H{"error": "missing X-Session-Token or X-Device-Key header"})
+			return
+		}
+		device, err := h.store.Devices.GetByKey(deviceKey)
+		if err != nil {
+			c.JSON(401, gin.H{"error": "unknown device key"})
+			return
+		}
+		if session.DeviceID != device.ID {
+			c.JSON(403, gin.H{"error": "session does not belong to this device"})
+			return
+		}
 	}
 
 	// M2: reject frames for sessions that are no longer live so a

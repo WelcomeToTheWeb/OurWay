@@ -482,11 +482,23 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		// ID (not the rotating JWT) so messages can be targeted by user ID.
 		clientType = "user"
 		clientID = "user:" + claims.UserID
+	} else if sess, err := store.Sessions.GetLiveByTokenHash(models.HashRemoteToken(credential)); isRemote && err == nil {
+		// The remote-control exe authenticates with a per-session token
+		// (not the device key) and registers under the device's remote
+		// ID so it coexists with the agent's own connection.
+		dev, derr := store.Devices.GetByID(sess.DeviceID)
+		if derr != nil {
+			c.JSON(401, gin.H{"error": "invalid session token"})
+			return
+		}
+		deviceKey = dev.DeviceKey
+		clientType = "remote"
+		clientID = "remote:" + dev.DeviceKey
 	} else if _, err := store.Devices.GetByKey(credential); err == nil {
 		// Reject unknown device keys before accepting the connection.
-		// The remote-control executable authenticates with the same
-		// device key but registers under its own ID so it coexists
-		// with (rather than supersedes) the agent's connection.
+		// A device key with the remote marker is still accepted for
+		// exes older than the per-session token; the agent's own
+		// connection is never superseded by it.
 		deviceKey = credential
 		if isRemote {
 			clientType = "remote"
