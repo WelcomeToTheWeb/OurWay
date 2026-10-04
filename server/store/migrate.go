@@ -63,6 +63,20 @@ var migrations = []migration{
 		}
 		return db.Migrator().AddColumn(&models.Session{}, "RemoteTokenHash")
 	}},
+	{version: 3, name: "patch_update_metadata_and_reboot_pending", fn: func(db *gorm.DB) error {
+		m := db.Migrator()
+		for _, col := range []string{"ExternalID", "KB", "Severity", "Category", "DeploymentID"} {
+			if !m.HasColumn(&models.SoftwareUpdate{}, col) {
+				if err := m.AddColumn(&models.SoftwareUpdate{}, col); err != nil {
+					return err
+				}
+			}
+		}
+		if !m.HasColumn(&models.Device{}, "RebootPending") {
+			return m.AddColumn(&models.Device{}, "RebootPending")
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

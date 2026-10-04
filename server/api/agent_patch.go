@@ -1,7 +1,11 @@
 package api
 
 import (
+	"log"
+	"strings"
+
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"ourway/server/events"
 	"ourway/server/models"
@@ -51,11 +55,15 @@ func (h *AgentPatchHandler) verifyDeviceKey(c *gin.Context, deviceID string) boo
 // POST /api/agent/updates
 func (h *AgentPatchHandler) ReportUpdate(c *gin.Context) {
 	var req struct {
-		DeviceID  string `json:"device_id" binding:"required"`
-		Source    string `json:"source" binding:"required"`
-		Title     string `json:"title" binding:"required"`
-		Version   string `json:"version"`
-		SizeBytes int64  `json:"size_bytes"`
+		DeviceID   string `json:"device_id" binding:"required"`
+		Source     string `json:"source" binding:"required"`
+		Title      string `json:"title" binding:"required"`
+		Version    string `json:"version"`
+		SizeBytes  int64  `json:"size_bytes"`
+		ExternalID string `json:"external_id"`
+		KB         string `json:"kb"`
+		Severity   string `json:"severity"`
+		Category   string `json:"category"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -68,15 +76,20 @@ func (h *AgentPatchHandler) ReportUpdate(c *gin.Context) {
 	}
 
 	update := &models.SoftwareUpdate{
-		DeviceID:  req.DeviceID,
-		Source:    req.Source,
-		Title:     req.Title,
-		Version:   req.Version,
-		SizeBytes: req.SizeBytes,
-		Status:    "detected",
+		ID:         uuid.NewString(),
+		ExternalID: req.ExternalID,
+		KB:         req.KB,
+		Severity:   normalizeSeverity(req.Severity),
+		Category:   req.Category,
+		DeviceID:   req.DeviceID,
+		Source:     req.Source,
+		Title:      req.Title,
+		Version:    req.Version,
+		SizeBytes:  req.SizeBytes,
+		Status:     "detected",
 	}
 
-	if err := h.store.SoftwareUpdates.Create(update); err != nil {
+	if err := h.store.SoftwareUpdates.UpsertDetected(update); err != nil {
 		c.JSON(500, gin.H{"error": "failed to create update record"})
 		return
 	}
@@ -93,6 +106,9 @@ func (h *AgentPatchHandler) ReportDeploymentResult(c *gin.Context) {
 		Result       string `json:"result" binding:"required"`
 		Kind         string `json:"kind"`
 		Message      string `json:"message"`
+		// RebootRequired is set by the agent when the install needs a
+		// reboot to complete.
+		RebootRequired bool `json:"reboot_required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -107,6 +123,15 @@ func (h *AgentPatchHandler) ReportDeploymentResult(c *gin.Context) {
 	if err := h.deployer.ReportResult(req.DeploymentID, req.DeviceID, req.Kind, req.Result, req.Message); err != nil {
 		c.JSON(500, gin.H{"error": "failed to record deployment result"})
 		return
+	}
+
+	if req.RebootRequired && kindOrDefault(req.Kind) == "deploy" && req.Result == "success" {
+		if dev, err := h.store.Devices.GetByID(req.DeviceID); err == nil && !dev.RebootPending {
+			dev.RebootPending = true
+			if err := h.store.Devices.Update(dev); err != nil {
+				log.Printf("patching: failed to flag reboot pending for %s: %v", req.DeviceID, err)
+			}
+		}
 	}
 
 	events.Publish("patch_deployed", map[string]interface{}{
@@ -126,4 +151,14 @@ func kindOrDefault(kind string) string {
 		return "deploy"
 	}
 	return kind
+}
+
+// normalizeSeverity maps an agent-supplied severity onto the known set.
+func normalizeSeverity(s string) string {
+	switch v := strings.ToLower(strings.TrimSpace(s)); v {
+	case "critical", "important", "moderate", "low":
+		return v
+	default:
+		return "unspecified"
+	}
 }

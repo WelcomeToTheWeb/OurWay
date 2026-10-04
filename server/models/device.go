@@ -16,6 +16,9 @@ type Device struct {
 	LastSeen     time.Time `json:"last_seen"`
 	PublicIP     string    `json:"public_ip"`
 	PrivateIP    string    `json:"private_ip"`
+	// RebootPending is set when a deployment reported that the device
+	// needs a reboot to finish patching; cleared when a reboot is sent.
+	RebootPending bool `gorm:"not null;default:false" json:"reboot_pending"`
 	// DeviceKey is the agent's wire credential. It is never serialized
 	// in JSON (C3): any API that exposes it lets the holder connect as
 	// the device. It is returned explicitly, exactly once, by

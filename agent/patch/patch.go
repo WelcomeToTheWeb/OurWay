@@ -20,6 +20,11 @@ type Update struct {
 	Title     string `json:"title"`
 	Version   string `json:"version"`
 	SizeBytes int64  `json:"size_bytes"`
+	// ExternalID is the source's own identifier (Windows Update ID).
+	ExternalID string `json:"external_id,omitempty"`
+	KB         string `json:"kb,omitempty"`
+	Severity   string `json:"severity,omitempty"`
+	Category   string `json:"category,omitempty"`
 }
 
 // Handler manages patch operations for the agent.
@@ -140,13 +145,18 @@ func (h *Handler) DeployUpdates(ctx context.Context, data interface{}) {
 	log.Printf("deploy_updates: deploying %d approved updates", len(updates))
 
 	var err error
+	var reboot bool
 	switch runtime.GOOS {
 	case "linux":
 		err = deployLinuxUpdates(deploymentID, updates)
+		if err == nil {
+			_, serr := os.Stat("/var/run/reboot-required")
+			reboot = serr == nil
+		}
 	case "darwin":
 		err = deployMacOSUpdates(updates)
 	case "windows":
-		err = deployWindowsUpdates(updates)
+		reboot, err = deployWindowsUpdates(updates)
 	}
 
 	if err != nil {
@@ -156,7 +166,7 @@ func (h *Handler) DeployUpdates(ctx context.Context, data interface{}) {
 	}
 
 	// Report result to server
-	h.reportResult(deviceID, deploymentID, true)
+	h.reportDeploy(deviceID, deploymentID, reboot)
 }
 
 // Linux package management
@@ -424,57 +434,38 @@ func deployMacOSUpdates(updates []Update) error {
 	return firstErr
 }
 
-// Windows package management
+// Windows package management (see winupdate.go).
+
 func scanWindowsUpdates() ([]Update, error) {
-	updates := []Update{}
-	// Enumerate *available* updates via the PSWindowsUpdate module when
-	// present. (Get-HotFix lists already-installed hotfixes, which is not
-	// what an update scan should report.)
-	script := "Get-Command Get-WindowsUpdate -ErrorAction SilentlyContinue | Out-Null; if ($?) { Get-WindowsUpdate | Select-Object Title, Version | ConvertTo-Json }"
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
-	if output, err := cmd.CombinedOutput(); err == nil {
-		s := strings.TrimSpace(string(output))
-		if s != "" {
-			var items []map[string]interface{}
-			if json.Unmarshal([]byte(s), &items) == nil {
-				for _, it := range items {
-					title, _ := it["Title"].(string)
-					if title == "" {
-						continue
-					}
-					version, _ := it["Version"].(string)
-					updates = append(updates, Update{
-						Source:  "windows-update",
-						Title:   title,
-						Version: version,
-					})
-				}
-			} else {
-				// Single object, not an array
-				var one map[string]interface{}
-				if json.Unmarshal([]byte(s), &one) == nil {
-					if title, _ := one["Title"].(string); title != "" {
-						version, _ := one["Version"].(string)
-						updates = append(updates, Update{Source: "windows-update", Title: title, Version: version})
-					}
-				}
-			}
-		}
-	} else {
-		log.Printf("scan_windows: update enumeration unavailable (install PSWindowsUpdate module): %v", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", wuScanScript).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("windows update scan: %w: %s", err, truncate(strings.TrimSpace(string(out)), 300))
 	}
-	return updates, nil
+	return parseWindowsScan(string(out))
 }
 
-func deployWindowsUpdates(updates []Update) error {
-	// wuauclt cannot install individual updates, and an empty list is
-	// never a request for a full upgrade (see deployLinuxUpdates). Refuse
-	// in both cases instead of silently triggering a full install.
-	if len(updates) > 0 {
-		log.Printf("windows: per-update install not supported (%d updates); refusing full install", len(updates))
-		return fmt.Errorf("windows: per-update install not supported")
+// deployWindowsUpdates installs exactly the approved updates (by Windows
+// Update ID) and reports whether a reboot is required. An empty list is
+// never a request for a full upgrade.
+func deployWindowsUpdates(updates []Update) (reboot bool, err error) {
+	if len(updates) == 0 {
+		return false, fmt.Errorf("no updates provided; refusing to run a full OS upgrade")
 	}
-	return fmt.Errorf("no updates provided; refusing to run a full OS upgrade")
+	ids, err := windowsUpdateIDs(updates)
+	if err != nil {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", wuInstallScript)
+	cmd.Env = append(os.Environ(), "OURWAY_UPDATE_IDS="+strings.Join(ids, ","))
+	out, runErr := cmd.CombinedOutput()
+	if runErr != nil {
+		return false, fmt.Errorf("windows update install: %w: %s", runErr, truncate(strings.TrimSpace(string(out)), 300))
+	}
+	return parseWindowsInstall(string(out))
 }
 
 // RollbackUpdates rolls back the most recent deployment on the device.
@@ -611,11 +602,15 @@ func (h *Handler) Reboot(data interface{}) {
 // Report an update to the server
 func (h *Handler) reportUpdate(deviceID string, update Update) {
 	payload := map[string]interface{}{
-		"device_id":  deviceID,
-		"source":     update.Source,
-		"title":      update.Title,
-		"version":    update.Version,
-		"size_bytes": update.SizeBytes,
+		"device_id":   deviceID,
+		"source":      update.Source,
+		"title":       update.Title,
+		"version":     update.Version,
+		"size_bytes":  update.SizeBytes,
+		"external_id": update.ExternalID,
+		"kb":          update.KB,
+		"severity":    update.Severity,
+		"category":    update.Category,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -647,6 +642,15 @@ func (h *Handler) reportResult(deviceID, deploymentID string, success bool) {
 // is "deploy" or "rollback"; the server records it on the per-device
 // result row.
 func (h *Handler) reportResultWithMessage(deviceID, deploymentID string, kind string, success bool, message string) {
+	h.postResult(deviceID, deploymentID, kind, success, message, false)
+}
+
+// reportDeploy reports a successful deploy, flagging a required reboot.
+func (h *Handler) reportDeploy(deviceID, deploymentID string, rebootRequired bool) {
+	h.postResult(deviceID, deploymentID, "deploy", true, "", rebootRequired)
+}
+
+func (h *Handler) postResult(deviceID, deploymentID, kind string, success bool, message string, rebootRequired bool) {
 	payload := map[string]interface{}{
 		"device_id":     deviceID,
 		"deployment_id": deploymentID,
@@ -658,6 +662,9 @@ func (h *Handler) reportResultWithMessage(deviceID, deploymentID string, kind st
 	}
 	if message != "" {
 		payload["message"] = message
+	}
+	if rebootRequired {
+		payload["reboot_required"] = true
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {

@@ -91,6 +91,18 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 		return "", fmt.Errorf("failed to mark deployment started: %w", err)
 	}
 
+	// Flag the updates as installing under this deployment so the result
+	// can mark them installed/failed.
+	for deviceID, updates := range updatesByDevice {
+		ids := make([]string, 0, len(updates))
+		for _, u := range updates {
+			ids = append(ids, u.ID)
+		}
+		if err := d.store.SoftwareUpdates.MarkInstalling(ids, deployment.ID); err != nil {
+			log.Printf("patching: failed to mark updates installing for %s: %v", deviceID, err)
+		}
+	}
+
 	// Send deploy command to each device
 	for _, deviceID := range deviceIDs {
 		device, err := d.store.Devices.GetByID(deviceID)
@@ -115,6 +127,9 @@ func (d *Deployer) DeployToDevices(ctx context.Context, deviceIDs []string) (str
 			// failure now so the deployment is not left "running" waiting
 			// for a report that will never come.
 			log.Printf("patching: failed to send deploy to device %s: %v", device.Name, err)
+			if rerr := d.store.SoftwareUpdates.RevertToApproved(deployment.ID, deviceID); rerr != nil {
+				log.Printf("patching: failed to revert updates for %s: %v", deviceID, rerr)
+			}
 			d.recordResult(deployment.ID, deviceID, "deploy", "failed", "deploy command not delivered (device unreachable)")
 		}
 	}
@@ -145,6 +160,9 @@ func (d *Deployer) recordResult(deploymentID, deviceID, kind, result, message st
 		return
 	}
 	if changed {
+		if err := d.store.SoftwareUpdates.FinishDeployment(deploymentID, deviceID, result == "success", message); err != nil {
+			log.Printf("patching: failed to resolve updates for %s/%s: %v", deploymentID, deviceID, err)
+		}
 		success, failed, err := d.store.DeploymentResults.Counts(deploymentID)
 		if err != nil {
 			log.Printf("patching: failed to count results for %s: %v", deploymentID, err)

@@ -49,7 +49,7 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 	deployer := patching.NewDeployer(store, hub)
 	rollbacker := patching.NewRollbackManager(store, hub)
 	patchHandler := NewPatchHandler(store, scanner, deployer, rollbacker)
-	rebooter := patching.NewRebooter(hub)
+	rebooter := patching.NewRebooter(hub).WithStore(store)
 	rebootHandler := NewRebootHandler(store, rebooter)
 	fileService := files.NewService(store, hub, "")
 	fileHandler := NewFileHandler(store, fileService)
