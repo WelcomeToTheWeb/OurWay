@@ -140,7 +140,7 @@ func fileSHA256(path string) (string, error) {
 // remote-control executable for the given session. When it returns
 // nil the exe is running and the caller must not run its own capture
 // loop — the exe owns capture, input and frame upload for the session.
-func StartRemoteSession(serverURL, deviceKey, sessionID string) error {
+func StartRemoteSession(serverURL, credential, sessionID string) error {
 	remote.mu.Lock()
 	defer remote.mu.Unlock()
 	if remote.alive {
@@ -150,7 +150,7 @@ func StartRemoteSession(serverURL, deviceKey, sessionID string) error {
 	if err != nil {
 		return err
 	}
-	cmdLine := fmt.Sprintf(`"%s" --server %s --key %s --session-id %s`, bin, serverURL, deviceKey, sessionID)
+	cmdLine := fmt.Sprintf(`"%s" --server %s --token %s --session-id %s`, bin, serverURL, credential, sessionID)
 	pid, err := SpawnRemote(bin, cmdLine)
 	if err != nil {
 		return err
@@ -205,7 +205,13 @@ func startRemoteSession(sm *SessionManager) bool {
 		// path needs no split.
 		return false
 	}
-	if err := StartRemoteSession(serverURL, sm.deviceKey, sessionID); err != nil {
+	// Prefer the per-session token; fall back to the device key only for
+	// servers that predate it.
+	credential := sm.sessionRemoteToken()
+	if credential == "" {
+		credential = sm.deviceKey
+	}
+	if err := StartRemoteSession(serverURL, credential, sessionID); err != nil {
 		log.Printf("session: remote exe unavailable (%v); using in-process capture", err)
 		return false
 	}

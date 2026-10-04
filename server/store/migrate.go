@@ -57,6 +57,12 @@ var migrations = []migration{
 	{version: 1, name: "baseline_auto_migrate", fn: func(db *gorm.DB) error {
 		return db.AutoMigrate(baseModels...)
 	}},
+	{version: 2, name: "sessions_remote_token_hash", fn: func(db *gorm.DB) error {
+		if db.Migrator().HasColumn(&models.Session{}, "remote_token_hash") {
+			return nil
+		}
+		return db.Migrator().AddColumn(&models.Session{}, "RemoteTokenHash")
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

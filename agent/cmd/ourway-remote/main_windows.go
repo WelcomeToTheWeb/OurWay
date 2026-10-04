@@ -32,6 +32,9 @@ import (
 // agent's connection.
 func main() {
 	var serverURL, deviceKey, sessionID string
+	// useToken is true when deviceKey holds a per-session token (--token)
+	// rather than the legacy device key (--key).
+	var useToken bool
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -39,9 +42,10 @@ func main() {
 			if i+1 < len(args) {
 				serverURL = args[i+1]
 			}
-		case "--key", "-key":
+		case "--token", "-token", "--key", "-key":
 			if i+1 < len(args) {
 				deviceKey = args[i+1]
+				useToken = strings.Contains(args[i], "token")
 			}
 		case "--session-id", "-session-id":
 			if i+1 < len(args) {
@@ -50,7 +54,7 @@ func main() {
 		}
 	}
 	if serverURL == "" || deviceKey == "" || sessionID == "" {
-		fmt.Fprintf(os.Stderr, "usage: ourway-remote --server URL --key KEY --session-id ID\n")
+		fmt.Fprintf(os.Stderr, "usage: ourway-remote --server URL --token TOKEN --session-id ID\n")
 		os.Exit(2)
 	}
 
@@ -147,7 +151,7 @@ func main() {
 			}
 			var msg struct {
 				Type    string          `json:"type"`
-				Payload json.RawMessage  `json:"payload"`
+				Payload json.RawMessage `json:"payload"`
 			}
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
@@ -213,7 +217,11 @@ func main() {
 			continue
 		}
 		req.Header.Set("Content-Type", "image/jpeg")
-		req.Header.Set("X-Device-Key", deviceKey)
+		if useToken {
+			req.Header.Set("X-Session-Token", deviceKey)
+		} else {
+			req.Header.Set("X-Device-Key", deviceKey)
+		}
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			log.Printf("ourway-remote: frame upload failed: %v", err)
