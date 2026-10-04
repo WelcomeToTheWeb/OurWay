@@ -172,6 +172,10 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		protected.DELETE("/monitoring/data", RequireRole("admin"), deviceHandler.ClearMonitoringData)
 
 		// Device routes
+		tagHandler := NewTagHandler(store)
+		protected.GET("/tags", tagHandler.ListTags)
+		protected.PUT("/devices/:id/tags", RequireAnyRole("admin", "manager", "technician"), tagHandler.SetDeviceTags)
+		protected.POST("/devices/tags/bulk", RequireAnyRole("admin", "manager", "technician"), tagHandler.BulkTags)
 		protected.GET("/devices", deviceHandler.ListDevices)
 		protected.GET("/devices/:id", deviceHandler.GetDevice)
 		protected.DELETE("/devices/:id", RequireRole("admin"), deviceHandler.DeleteDevice)

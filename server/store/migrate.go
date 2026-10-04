@@ -77,6 +77,12 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 4, name: "devices_tags", fn: func(db *gorm.DB) error {
+		if db.Migrator().HasColumn(&models.Device{}, "Tags") {
+			return nil
+		}
+		return db.Migrator().AddColumn(&models.Device{}, "Tags")
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

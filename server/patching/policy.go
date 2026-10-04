@@ -195,19 +195,23 @@ func (e *PolicyEngine) resolveScope(policy *models.PatchPolicy) ([]string, error
 		}
 		return ids, nil
 	case "tags", "devices":
-		// No tag/group field exists on Device yet; ScopeValue holds a
-		// comma-separated list of device IDs (or, later, tags). Unknown
-		// entries are dropped.
+		// ScopeValue is comma-separated. For scope "tags" the entries are
+		// device tags; for "devices" they are device IDs, names or
+		// hostnames. (Scope "tags" also still honours IDs/names so
+		// policies saved before tags existed keep matching.)
 		wanted := make(map[string]bool)
+		var wantedTags []string
 		for _, part := range strings.Split(policy.ScopeValue, ",") {
 			part = strings.TrimSpace(part)
 			if part != "" {
 				wanted[part] = true
+				wantedTags = append(wantedTags, strings.ToLower(part))
 			}
 		}
 		var ids []string
 		for _, d := range devices {
-			if wanted[d.ID] || wanted[d.Name] || wanted[d.Hostname] {
+			if wanted[d.ID] || wanted[d.Name] || wanted[d.Hostname] ||
+				(policy.Scope == "tags" && d.HasAnyTag(wantedTags)) {
 				ids = append(ids, d.ID)
 			}
 		}
