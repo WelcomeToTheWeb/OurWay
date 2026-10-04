@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -335,6 +336,7 @@ func createProcessAsUser(exe, cmdLine string) (int, error) {
 	// The helper has no console: capture its stdout/stderr (Go log
 	// output and panic traces) in a file so failures are diagnosable.
 	var logHandle windows.Handle
+	os.MkdirAll(filepath.Dir(helperLogPath), 0o755)
 	if f, ferr := os.OpenFile(helperLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); ferr == nil {
 		fmt.Fprintf(f, "\n=== user-helper spawned %s ===\n", time.Now().Format(time.RFC3339))
 		logHandle = windows.Handle(f.Fd())
