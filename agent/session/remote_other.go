@@ -1,10 +1,14 @@
-//go:build !windows
+//go:build !windows && !linux && !darwin
 
 package session
 
-// startRemoteSession is Windows-only: elsewhere the in-process capture
-// path runs directly.
-func startRemoteSession(sm *SessionManager) bool { return false }
+import (
+	"fmt"
+	"os"
+)
 
-// stopRemoteSession is a no-op off Windows.
-func stopRemoteSession() {}
+func remoteSplitNeeded() bool { return false }
+
+func spawnRemoteProc(bin string, args []string) (*os.Process, error) {
+	return nil, fmt.Errorf("remote-control exe is not supported on this platform")
+}
