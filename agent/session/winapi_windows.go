@@ -141,8 +141,13 @@ func (in *input) ki() *keyboardInput {
 	return (*keyboardInput)(unsafe.Pointer(&in.union))
 }
 
-// sendInputOne injects a single input event.
+// sendInputOne injects a single input event on the thread that follows
+// the input desktop (so it reaches UAC / logon screens too).
 func sendInputOne(in *input) error {
+	return injector.run(func() error { return sendInputRaw(in) })
+}
+
+func sendInputRaw(in *input) error {
 	n, _, errno := sendInputProc.Call(
 		1,
 		uintptr(unsafe.Pointer(in)),

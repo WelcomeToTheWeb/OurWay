@@ -23,12 +23,18 @@ func NewScreenCapture() ScreenCapture {
 
 // Capture captures the screen and returns JPEG bytes.
 func (c *LinuxScreenCapture) Capture() ([]byte, error) {
+	// scrot will not overwrite an existing file (it appends _000), and
+	// the path must be private to this uid so the agent (root) and the
+	// remote exe (user) do not trip over each other's file.
+	shot := fmt.Sprintf("/tmp/ourway_screenshot_%d.png", os.Getuid())
+	os.Remove(shot)
+
 	// Try scrot first, fall back to import
 	var cmd *exec.Cmd
 	if _, err := exec.LookPath("scrot"); err == nil {
-		cmd = exec.Command("scrot", "-q", fmt.Sprintf("%d", c.quality), "/tmp/ourway_screenshot.png")
+		cmd = exec.Command("scrot", "-q", fmt.Sprintf("%d", c.quality), shot)
 	} else if _, err := exec.LookPath("import"); err == nil {
-		cmd = exec.Command("import", "-window", "root", "/tmp/ourway_screenshot.png")
+		cmd = exec.Command("import", "-window", "root", shot)
 	} else {
 		return nil, fmt.Errorf("no screen capture tool found (need scrot or import)")
 	}
@@ -38,7 +44,7 @@ func (c *LinuxScreenCapture) Capture() ([]byte, error) {
 	}
 
 	// Read PNG and convert to JPEG
-	data, err := os.ReadFile("/tmp/ourway_screenshot.png")
+	data, err := os.ReadFile(shot)
 	if err != nil {
 		// If it's already a JPEG from scrot, use it directly
 		return nil, fmt.Errorf("failed to read screenshot: %w", err)

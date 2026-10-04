@@ -1,5 +1,3 @@
-//go:build windows
-
 package session
 
 import (
@@ -8,6 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,13 +30,22 @@ type remoteRunner struct {
 
 var remote remoteRunner
 
+// remoteExeSuffix is ".exe" on Windows and empty elsewhere.
+func remoteExeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
+
 // remoteBinPath is where the downloaded executable lives.
 func remoteBinPath() string {
+	name := "ourway-remote" + remoteExeSuffix()
 	exe, err := os.Executable()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "ourway-remote.exe")
+		return filepath.Join(os.TempDir(), name)
 	}
-	return filepath.Join(filepath.Dir(exe), "ourway-remote.exe")
+	return filepath.Join(filepath.Dir(exe), name)
 }
 
 // ensureRemoteBin makes sure the on-disk remote-control executable
@@ -47,7 +57,7 @@ func remoteBinPath() string {
 // replace a running image).
 func ensureRemoteBin(serverURL string) (string, error) {
 	path := remoteBinPath()
-	name := fmt.Sprintf("ourway-remote-windows-%s.exe", runtime.GOARCH)
+	name := fmt.Sprintf("ourway-remote-%s-%s%s", runtime.GOOS, runtime.GOARCH, remoteExeSuffix())
 
 	want, listErr := serverInstallerHash(serverURL, name)
 	have, haveErr := fileSHA256(path)
@@ -143,20 +153,74 @@ func StartRemoteSession(serverURL, credential, sessionID string) error {
 	if remote.alive {
 		return nil
 	}
-	pid, err := SpawnRemote(bin, cmdLine)
+	bin, err := ensureRemoteBin(serverURL)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	proc, err := os.FindProcess(pid)
+	proc, err := spawnRemoteProc(bin, []string{"--server", serverURL, "--token", credential, "--session-id", sessionID})
 	if err != nil {
-		return nil, fmt.Errorf("find remote exe pid %d: %w", pid, err)
+		return err
 	}
-	return proc, nil
+	_, stop := context.WithCancel(context.Background())
+	remote.proc = proc
+	remote.stop = stop
+	remote.alive = true
+	log.Printf("session: remote exe spawned (pid %d) for session %s", proc.Pid, sessionID)
+	go func() {
+		_, err := proc.Wait()
+		remote.mu.Lock()
+		remote.alive = false
+		remote.proc = nil
+		remote.stop = nil
+		remote.mu.Unlock()
+		if err != nil {
+			log.Printf("session: remote exe exited: %v", err)
+		}
+	}()
+	return nil
 }
 
-func quoteWinArg(a string) string {
-	if a != "" && !strings.ContainsAny(a, " \t\"") {
-		return a
+// StopRemoteSession terminates the remote-control executable.
+func StopRemoteSession() {
+	remote.mu.Lock()
+	proc := remote.proc
+	remote.alive = false
+	remote.proc = nil
+	remote.stop = nil
+	remote.mu.Unlock()
+	if proc != nil {
+		_ = proc.Kill()
 	}
-	return `"` + strings.ReplaceAll(a, `"`, `\"`) + `"`
+}
+
+// startRemoteSession spawns the remote-control exe for the manager's
+// current session. It returns true when the exe took over the session
+// (the caller must not run its own capture loop), false when the split
+// is unavailable and the legacy path should proceed.
+func startRemoteSession(sm *SessionManager) bool {
+	active, sessionID, serverURL, _ := sm.stateSnapshot()
+	if !active || serverURL == "" || sessionID == "" {
+		return false
+	}
+	if !remoteSplitNeeded() {
+		// Already in the user session (interactive run): the in-process
+		// path needs no split.
+		return false
+	}
+	// Prefer the per-session token; fall back to the device key only for
+	// servers that predate it.
+	credential := sm.sessionRemoteToken()
+	if credential == "" {
+		credential = sm.deviceKey
+	}
+	if err := StartRemoteSession(serverURL, credential, sessionID); err != nil {
+		log.Printf("session: remote exe unavailable (%v); using in-process capture", err)
+		return false
+	}
+	return true
+}
+
+// stopRemoteSession stops the exe if it is running (no-op otherwise).
+func stopRemoteSession() {
+	StopRemoteSession()
 }

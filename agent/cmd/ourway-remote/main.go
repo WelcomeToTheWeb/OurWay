@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -58,16 +56,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	// Log to a per-session file next to the agent's own log location so
-	// field debugging does not depend on a console that never opens
-	// (this exe is built with the GUI subsystem).
-	logDir := os.Getenv("PROGRAMDATA") + "\\OurWay"
-	if err := os.MkdirAll(logDir, 0o755); err == nil {
-		if f, err := os.OpenFile(logDir+"\\ourway-remote.log",
-			os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
-			log.SetOutput(f)
-		}
-	}
+	setupLogging()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
 	defer cancel()
@@ -210,6 +199,19 @@ func main() {
 		if err != nil {
 			log.Printf("ourway-remote: capture error: %v", err)
 			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if useToken {
+			// Frames ride the already-open WebSocket as binary messages:
+			// no per-frame HTTP request or TLS/connection churn.
+			wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
+			werr := conn.Write(wctx, websocket.MessageBinary, frame)
+			wcancel()
+			if werr != nil {
+				log.Printf("ourway-remote: frame write failed: %v; ending", werr)
+				return
+			}
+			time.Sleep(interval)
 			continue
 		}
 		req, err := http.NewRequestWithContext(ctx, "POST", frameURL, bytes.NewReader(frame))
