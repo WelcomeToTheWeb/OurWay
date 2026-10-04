@@ -17,24 +17,18 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// helperFrameInterval is the capture cadence used both by the per-user
-// helper and by local (non-service) capture: ~15fps.
+// helperFrameInterval is the capture cadence: ~15fps.
 const helperFrameInterval = 70 * time.Millisecond
 
-// windowsCapture captures the primary display with a native GDI BitBlt
-// and encodes frames as JPEG (no per-frame process spawn).
-//
-// When the agent runs as a Windows service (Session 0) the desktop is
-// not accessible to this process; a per-user helper (this same binary
-// re-launched with --user-helper in the active console session) then
-// does the capturing and input synthesis and streams frames back over
-// loopback TCP. In both modes Capture() serves the most recent frame
-// from the internal 15fps producer, so the code path is identical.
+// windowsCapture captures the display (Desktop Duplication, falling
+// back to GDI BitBlt) and encodes frames as JPEG. It must run in the
+// interactive session: the agent service (Session 0) cannot see the
+// desktop, so remote sessions run it inside ourway-remote.exe. Capture()
+// serves the most recent frame from the internal 15fps producer.
 type windowsCapture struct {
 	quality atomic.Int32
 
 	mu              sync.Mutex
-	helper          *userHelper
 	localLoopActive bool
 	localStop       chan struct{}
 
@@ -58,11 +52,6 @@ func (c *windowsCapture) SetQuality(quality int) {
 		quality = 100
 	}
 	c.quality.Store(int32(quality))
-	// In helper mode the frames are encoded by the helper process, so
-	// the quality must be forwarded to it.
-	if h := c.helperRef(); h != nil {
-		_ = h.send(map[string]interface{}{"type": "quality", "quality": quality})
-	}
 }
 
 // Capture returns the most recent JPEG frame, waiting briefly for a
@@ -82,81 +71,30 @@ func (c *windowsCapture) Capture() ([]byte, error) {
 	}
 }
 
-// startSession starts the frame producer: the per-user helper when
-// running in Session 0, a local capture loop otherwise.
+// startSession starts the frame producer. It refuses to run in
+// Session 0, where there is no desktop to capture.
 func (c *windowsCapture) startSession(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.helper != nil || c.localLoopActive {
+	if c.localLoopActive {
 		return nil
 	}
-
-	if !runningInSession0() {
-		c.startLocalLoopLocked()
-		return nil
+	if runningInSession0() {
+		return fmt.Errorf("cannot capture in Session 0: the remote-control exe is unavailable")
 	}
-
-	h, err := c.spawnHelperLocked()
-	if err != nil {
-		log.Printf("session: per-user helper failed (%v); using local capture (screen will be blank in Session 0)", err)
-		c.startLocalLoopLocked()
-		return nil
-	}
-	c.helper = h
-	// The helper idles until it receives "start": only then does its
-	// capture loop produce frames.
-	if err := h.send(map[string]interface{}{"type": "start"}); err != nil {
-		log.Printf("session: failed to start helper capture: %v", err)
-	}
+	c.startLocalLoopLocked()
 	return nil
 }
 
-// stopSession stops the frame producer and terminates the helper.
+// stopSession stops the frame producer.
 func (c *windowsCapture) stopSession() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if h := c.helper; h != nil {
-		c.helper = nil
-		_ = h.send(map[string]interface{}{"type": "stop"})
-		h.close()
-	}
 	if c.localLoopActive {
 		c.localLoopActive = false
 		close(c.localStop)
 		c.localStop = make(chan struct{})
 	}
-}
-
-// inputKey routes a key event to the helper when active, else injects
-// it locally via SendInput.
-func (c *windowsCapture) inputKey(key, event string) {
-	if h := c.helperRef(); h != nil {
-		_ = h.send(map[string]interface{}{
-			"type":  "input",
-			"input": map[string]interface{}{"type": "key", "key": key, "event": event},
-		})
-		return
-	}
-	synthesizeKey(key, event)
-}
-
-// inputMouse routes a mouse event to the helper when active, else
-// injects it locally via SendInput.
-func (c *windowsCapture) inputMouse(event string, x, y float64, button string, delta float64) {
-	if h := c.helperRef(); h != nil {
-		_ = h.send(map[string]interface{}{
-			"type":  "input",
-			"input": map[string]interface{}{"type": "mouse", "event": event, "x": x, "y": y, "button": button, "delta": delta},
-		})
-		return
-	}
-	synthesizeMouse(event, x, y, button, delta)
-}
-
-func (c *windowsCapture) helperRef() *userHelper {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.helper
 }
 
 func (c *windowsCapture) startLocalLoopLocked() {
@@ -289,7 +227,7 @@ func gdiCaptureJPEG(quality int) ([]byte, error) {
 // InjectKey synthesizes a key event in this process's session. Exported
 // for the per-session remote-control executable, which receives input
 // over its own WebSocket and injects it directly (it runs in the
-// interactive user session, so no helper hop is needed).
+// interactive user session).
 func InjectKey(key, event string) {
 	synthesizeKey(key, event)
 }
