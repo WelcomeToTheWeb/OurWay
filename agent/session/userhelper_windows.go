@@ -249,10 +249,11 @@ func findProcessInSession(sessionID uint32) (int, error) {
 	return 0, fmt.Errorf("no process found in session %d (scanned %d processes)", sessionID, scanned)
 }
 
-// createProcessAsUserProc calls advapi32!CreateProcessAsUser directly:
+// createProcessAsUserProc calls kernel32!CreateProcessAsUser directly:
 // x/sys/windows.StartupInfo omits hStdError, which we need to capture
-// the helper's stderr.
-var createProcessAsUserProc = syscall.NewLazyDLL("advapi32.dll").NewProc("CreateProcessAsUser")
+// the helper's stderr. (It is a kernel32 export — binding it to
+// advapi32 fails at lookup time and panics the process.)
+var createProcessAsUserProc = syscall.NewLazyDLL("kernel32.dll").NewProc("CreateProcessAsUser")
 
 // fullStartupInfo mirrors kernel32's STARTUPINFOW, including hStdError.
 type fullStartupInfo struct {
