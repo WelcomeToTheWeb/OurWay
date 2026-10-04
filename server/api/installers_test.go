@@ -264,3 +264,13 @@ func TestInstallerListDedupesAndSorts(t *testing.T) {
 		}
 	}
 }
+
+func TestViewerArtifactIsListedAsViewer(t *testing.T) {
+	name := "ourway-viewer-windows-amd64.exe"
+	if !installerFileRe.MatchString(name) {
+		t.Fatalf("%s must match installerFileRe", name)
+	}
+	if got := installerKind(name); got != "viewer" {
+		t.Errorf("installerKind(%s) = %q, want viewer", name, got)
+	}
+}

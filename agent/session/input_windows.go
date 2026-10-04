@@ -53,6 +53,12 @@ var vkMap = map[string]uint16{
 	"subtract": windows.VK_SUBTRACT,
 	"decimal":  windows.VK_DECIMAL,
 	"divide":   windows.VK_DIVIDE,
+
+	// Windows key and OEM punctuation (KeyboardEvent.key values on a US
+	// layout); sent by the native viewer.
+	"meta": windows.VK_LWIN, "os": windows.VK_LWIN,
+	";": 0xBA, "=": 0xBB, ",": 0xBC, "-": 0xBD, ".": 0xBE, "/": 0xBF,
+	"`": 0xC0, "[": 0xDB, "\\": 0xDC, "]": 0xDD, "'": 0xDE,
 }
 
 // synthesizeKey injects a key event via SendInput. x and y are unused
@@ -95,6 +101,28 @@ func synthesizeMouse(event string, x, y float64, button string, delta float64) {
 	switch event {
 	case "move":
 		flags = mouseeventfMove | mouseeventfAbsolute
+	case "down", "up":
+		// Separate press/release so the viewer can drag and select.
+		down := event == "down"
+		var f uint32
+		switch button {
+		case "right":
+			f = mouseeventfRightup
+			if down {
+				f = mouseeventfRightdown
+			}
+		case "middle":
+			f = mouseeventfMiddleup
+			if down {
+				f = mouseeventfMiddledown
+			}
+		default:
+			f = mouseeventfLeftup
+			if down {
+				f = mouseeventfLeftdown
+			}
+		}
+		flags = mouseeventfMove | mouseeventfAbsolute | f
 	case "click":
 		switch button {
 		case "right":
@@ -107,10 +135,11 @@ func synthesizeMouse(event string, x, y float64, button string, delta float64) {
 			flags = mouseeventfMove | mouseeventfAbsolute |
 				mouseeventfLeftdown | mouseeventfLeftup
 		}
-	case "wheel":
-		// The browser sends deltaY in pixels (~100 per notch);
-		// SendInput expects 120 per notch.
-		steps := int32(delta * 120 / 100)
+	case "wheel", "scroll":
+		// Viewers send deltaY in pixels (~100 per notch, positive =
+		// scroll down); SendInput expects 120 per notch with positive
+		// = scroll up (away from the user), so the sign flips.
+		steps := -int32(delta * 120 / 100)
 		const limit = 120 * 5
 		if steps > limit {
 			steps = limit

@@ -29,6 +29,7 @@ RUN go mod download
 COPY server/ ./
 COPY agent/ ../agent/
 COPY cmd/ourway-installer/ ../cmd/ourway-installer/
+COPY cmd/ourway-viewer/ ../cmd/ourway-viewer/
 
 # Resolve the agent module's dependencies (its go.sum may lag go.mod by
 # a commit; tidy fills the sums before the multi-platform agent builds).
@@ -58,7 +59,10 @@ RUN mkdir -p /app/dist/agents \
         -o /app/dist/agents/ourway-agent-windows-amd64.exe . \
     && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C ../agent \
         -ldflags "-s -w -H windowsgui -X ourway/agent/config.Version=${VERSION}" \
-        -o /app/dist/agents/ourway-remote-windows-amd64.exe ./cmd/ourway-remote
+        -o /app/dist/agents/ourway-remote-windows-amd64.exe ./cmd/ourway-remote \
+    && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C ../cmd/ourway-viewer \
+        -ldflags "-s -w -H windowsgui" \
+        -o /app/dist/agents/ourway-viewer-windows-amd64.exe .
 
 # Build self-contained installers for all platforms (agent binary embedded)
 RUN for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64"; do \

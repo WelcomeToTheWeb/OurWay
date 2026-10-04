@@ -64,6 +64,11 @@ jobs:
               -o "../dist/agents/ourway-remote-${os}-${arch}${suffix}" ./cmd/ourway-remote
           done
 
+          echo "Building native viewer (Windows only)..."
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -C cmd/ourway-viewer \
+            -ldflags "-s -w -H windowsgui" \
+            -o "../../dist/agents/ourway-viewer-windows-amd64.exe" .
+
           echo "Building installers..."
           for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64"; do
             os="${platform%%/*}"
@@ -89,6 +94,7 @@ jobs:
           path: |
             dist/agents/ourway-agent-*
             dist/agents/ourway-installer-*
+            dist/agents/ourway-viewer-*
 
   # Test gate: build, vet and test every Go module, plus the web
   # build (tsc + vite). Images are only pushed when this is green.
@@ -123,6 +129,13 @@ jobs:
         run: |
           go -C cmd/ourway-cli build ./...
           go -C cmd/ourway-installer build ./...
+
+      - name: Viewer (vet, test, Windows build)
+        run: |
+          go -C cmd/ourway-viewer vet ./...
+          go -C cmd/ourway-viewer test -race ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go -C cmd/ourway-viewer vet ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go -C cmd/ourway-viewer build -o /dev/null .
 
       - name: Set up Node
         uses: actions/setup-node@v4

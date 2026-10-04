@@ -17,9 +17,17 @@ export type InputPayload =
   | { event: 'scroll'; delta: number }
   | { event: 'down' | 'up'; key: string; code: string };
 
+// viewer_url is the ourway:// link that opens the native viewer for this
+// session (carries a session-scoped token; returned only at creation).
+export interface StartedSession {
+  session: Session;
+  viewer_token: string;
+  viewer_url: string;
+}
+
 export const startSession = (deviceId: string) =>
   client
-    .post<{ session: Session }>(`/devices/${deviceId}/sessions`)
+    .post<StartedSession>(`/devices/${deviceId}/sessions`)
     .then((r) => r.data);
 
 export const sendInput = (sessionId: string, type: 'mouse' | 'key', payload: InputPayload) =>

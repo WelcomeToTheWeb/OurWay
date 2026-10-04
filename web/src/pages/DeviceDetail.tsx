@@ -17,12 +17,14 @@ import {
   Apple,
   Calendar,
   Network,
+  ExternalLink,
   MousePointer2,
   RefreshCw,
   Key,
 } from 'lucide-react';
 import { getDevice, deleteDevice, rebootDevice, startDeviceStream, stopDeviceStream } from '../api/devices';
 import { startSession } from '../api/sessions';
+import { downloadInstaller, fetchInstallers } from '../api/installers';
 import type { Session } from '../api/sessions';
 import { Gauge } from '../components/Gauge';
 import { LineChart } from '../components/LineChart';
@@ -68,6 +70,7 @@ export function DeviceDetail() {
   const [connected, setConnected] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [startingSession, setStartingSession] = useState(false);
+  const [viewerLaunched, setViewerLaunched] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -248,6 +251,35 @@ export function DeviceDetail() {
     }
   }
 
+  // Starts a session and hands it to the native viewer through the
+  // ourway:// protocol; the viewer owns the session from then on.
+  async function handleOpenInViewer() {
+    if (!device) return;
+    setStartingSession(true);
+    try {
+      const { viewer_url } = await startSession(device.id);
+      setViewerLaunched(true);
+      window.location.assign(viewer_url);
+    } catch (err) {
+      setError(`Failed to start session: ${(err as Error).message}`);
+    } finally {
+      setStartingSession(false);
+    }
+  }
+
+  async function handleDownloadViewer() {
+    try {
+      const viewer = (await fetchInstallers()).find((i) => i.kind === 'viewer');
+      if (!viewer) {
+        setError('No viewer build is available on this server.');
+        return;
+      }
+      await downloadInstaller(viewer);
+    } catch (err) {
+      setError(`Failed to download viewer: ${(err as Error).message}`);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -343,6 +375,15 @@ export function DeviceDetail() {
             {startingSession ? 'Connecting...' : 'Remote Session'}
           </button>
           <button
+            onClick={handleOpenInViewer}
+            disabled={startingSession}
+            title="Open in the OurWay Viewer app (Ctrl+Alt+Del, multiple monitors, clipboard)"
+            className="flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-text-primary transition-colors hover:bg-bg disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in Viewer
+          </button>
+          <button
             onClick={handleReboot}
             disabled={rebooting}
             className="flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-text-primary transition-colors hover:bg-bg hover:text-text-primary disabled:opacity-50"
@@ -359,6 +400,26 @@ export function DeviceDetail() {
           </button>
         </div>
       </div>
+
+      {viewerLaunched && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-bg-border bg-bg-card px-4 py-3 text-sm text-text-secondary">
+          <span>
+            Launching the OurWay Viewer… If nothing opened, the viewer is not installed on this computer.
+          </span>
+          <button
+            onClick={() => void handleDownloadViewer()}
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white transition-colors hover:bg-accent-dark"
+          >
+            Download viewer (Windows)
+          </button>
+          <button
+            onClick={() => setViewerLaunched(false)}
+            className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-bg"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Remote Session View */}
       {session && (

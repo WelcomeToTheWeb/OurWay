@@ -635,10 +635,18 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		}
 	}
 	defer func() {
+		h.mu.RLock()
+		current := h.clients[clientID] == client
+		h.mu.RUnlock()
 		h.unregister <- client
 		if viewerSession != nil {
 			if out, err := json.Marshal(Message{Type: "viewer_detach", Payload: map[string]string{"session_id": viewerSession.ID}}); err == nil {
 				h.sendRemoteExe(deviceKey, out)
+			}
+			// The viewer holds the session: closing it ends the session
+			// (unless a newer viewer connection replaced this one).
+			if current {
+				h.endSessionForViewer(store, viewerSession, deviceKey)
 			}
 			conn.Close(websocket.StatusNormalClosure, "closing")
 			return

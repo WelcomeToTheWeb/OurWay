@@ -39,6 +39,7 @@ function archLabel(arch: string): string {
 // platformLabel derives a concise label like "Windows x64" or "macOS ARM64"
 // from the API's os/arch fields.
 function platformLabel(installer: Installer): string {
+  if (installer.kind === 'viewer') return `${osName(installer.os, installer.name) ?? ''} Viewer`.trim();
   const os = osName(installer.os, installer.name);
   if (os && installer.arch) return `${os} ${archLabel(installer.arch)}`;
   if (os) return os;

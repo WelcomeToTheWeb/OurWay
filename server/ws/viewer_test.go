@@ -126,12 +126,16 @@ func TestViewerSessionRelay(t *testing.T) {
 		t.Fatal("viewer did not receive monitor_list")
 	}
 
-	// Ending the session closes the viewer.
-	if err := st.Sessions.EndSession(sess.ID); err != nil {
-		t.Fatal(err)
-	}
+	// The API's session_end reaches the viewer.
 	hub.SendToViewer(sess.ID, "session_end", nil)
 	readUntil(t, viewer, 5*time.Second, func(m Message) bool { return m.Type == "session_end" })
+
+	// Closing the viewer ends the session and stops the device.
+	viewer.Close(websocket.StatusNormalClosure, "bye")
+	readUntil(t, agent, 5*time.Second, func(m Message) bool { return m.Type == "session_end" })
+	if got, err := st.Sessions.GetByID(sess.ID); err != nil || got.Status != "ended" {
+		t.Errorf("session status after viewer left = %v (err %v), want ended", got, err)
+	}
 }
 
 // A slow viewer loses the oldest frames; since later frames may be

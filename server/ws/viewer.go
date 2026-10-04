@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ourway/server/models"
+	"ourway/server/store"
 )
 
 // Native viewer support.
@@ -158,6 +159,23 @@ func (h *Hub) sendAgent(deviceKey string, data []byte) bool {
 	default:
 		h.dropped.Add(1)
 		return false
+	}
+}
+
+// endSessionForViewer ends the session when its viewer goes away and
+// tells the device to stop capturing (what DELETE /api/sessions/:id
+// does for the browser viewer).
+func (h *Hub) endSessionForViewer(st *store.Store, sess *models.Session, deviceKey string) {
+	cur, err := st.Sessions.GetByID(sess.ID)
+	if err != nil || (cur.Status != "pending" && cur.Status != "active") {
+		return
+	}
+	if err := st.Sessions.EndSession(sess.ID); err != nil {
+		log.Printf("ws: failed to end session %s after viewer left: %v", sess.ID, err)
+		return
+	}
+	if err := h.SendToDevice(deviceKey, "session_end", map[string]string{"session_id": sess.ID}); err != nil {
+		log.Printf("ws: failed to notify device of session end: %v", err)
 	}
 }
 
