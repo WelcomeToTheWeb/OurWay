@@ -206,31 +206,47 @@ elif [ -f "./${BIN_NAME}" ]; then
     BINARY="./${BIN_NAME}"
     info "Using binary in current directory: ${BINARY}"
 else
-    # Download from GitHub releases
+    # Prefer the server's own installer endpoint (it always serves a
+    # binary matching the running server), and only fall back to GitHub
+    # releases. Old release binaries predate the WebSocket subprotocol
+    # auth and their connection is rejected with HTTP 400.
     BINARY="${INSTALL_DIR}/${BIN_NAME}"
     SUFFIX=""
+    HTTP_SERVER="${SERVER%/}"
+    HTTP_SERVER="${HTTP_SERVER%/ws}"
+    case "$HTTP_SERVER" in
+        wss://*) HTTP_SERVER="https://${HTTP_SERVER#wss://}" ;;
+        ws://*)  HTTP_SERVER="http://${HTTP_SERVER#ws://}" ;;
+    esac
+    SERVER_BINARY_URL="${HTTP_SERVER}/api/v2/installers/ourway-agent-${OS}-${ARCH}${SUFFIX}"
     DOWNLOAD_URL="https://github.com/WelcomeToTheWeb/OurWay/releases/download/v${VERSION}/ourway-agent-${OS}-${ARCH}${SUFFIX}"
 
     if [ ! -d "${INSTALL_DIR}" ]; then
         mkdir -p "${INSTALL_DIR}"
         CREATED_INSTALL_DIR=true
     fi
-    
-    info "Downloading agent binary from GitHub releases..."
-    info "URL: ${DOWNLOAD_URL}"
-    
-    if command -v curl >/dev/null 2>&1; then
-        if ! curl -fsSL -o "${BINARY}" "${DOWNLOAD_URL}"; then
+
+    # fetch URL DEST: curl or wget, failing on HTTP errors.
+    fetch() {
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL -o "$2" "$1"
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "$2" "$1"
+        else
+            error "Neither curl nor wget found. Install one of them."
+        fi
+    }
+
+    info "Downloading agent binary from server..."
+    info "URL: ${SERVER_BINARY_URL}"
+    if ! fetch "${SERVER_BINARY_URL}" "${BINARY}"; then
+        warn "Server installer endpoint unavailable; falling back to GitHub releases"
+        info "URL: ${DOWNLOAD_URL}"
+        if ! fetch "${DOWNLOAD_URL}" "${BINARY}"; then
             error "Failed to download binary. Check version: ${VERSION}"
         fi
-    elif command -v wget >/dev/null 2>&1; then
-        if ! wget -q -O "${BINARY}" "${DOWNLOAD_URL}"; then
-            error "Failed to download binary. Check version: ${VERSION}"
-        fi
-    else
-        error "Neither curl nor wget found. Install one of them."
     fi
-    
+
     success "Binary downloaded to ${BINARY}"
 fi
 
@@ -360,15 +376,16 @@ if [ "$SKIP_SERVICE" != true ]; then
 fi
 
 echo ""
+# Uninstall entry point next to the agent (removes service, files, logs).
+cat > "${INSTALL_DIR}/uninstall.sh" <<UNINSTALL
+#!/bin/sh
+# Removes the OurWay agent (service, files, logs).
+if [ "\$(id -u)" -ne 0 ]; then echo "Run with sudo" >&2; exit 1; fi
+exec "${INSTALL_DIR}/ourway-agent" --uninstall "\$@"
+UNINSTALL
+chmod 755 "${INSTALL_DIR}/uninstall.sh" 2>/dev/null || true
+ln -sf "${INSTALL_DIR}/uninstall.sh" /usr/local/bin/ourway-uninstall 2>/dev/null || true
+
+echo ""
 echo "To uninstall, run:"
-if [ "$OS" = "linux" ]; then
-    echo "  sudo systemctl stop ourway-agent"
-    echo "  sudo systemctl disable ourway-agent"
-    echo "  sudo rm /etc/systemd/system/ourway-agent.service"
-    echo "  sudo systemctl daemon-reload"
-    echo "  sudo rm -rf ${INSTALL_DIR}"
-else
-    echo "  sudo launchctl unload -w /Library/LaunchDaemons/com.ourway.agent.plist"
-    echo "  sudo rm /Library/LaunchDaemons/com.ourway.agent.plist"
-    echo "  sudo rm -rf ${INSTALL_DIR}"
-fi
+echo "  sudo ${INSTALL_DIR}/uninstall.sh"

@@ -40,9 +40,11 @@ export function serverOrigin(): string {
 
 // shellInstallCommand builds the one-command install for a script-based
 // installer: curl the script from this server and pipe it to bash with the
-// server flag pointing back at this deployment.
+// server flag pointing back at this deployment. It runs under sudo (it
+// writes a systemd unit) and passes --register, without which install.sh
+// aborts for lack of a device key.
 export function shellInstallCommand(origin: string): string {
-  return `curl -sL ${origin}/api/v2/installers/install.sh | bash -s -- --server ${origin}`;
+  return `curl -sL ${origin}/api/v2/installers/install.sh | sudo bash -s -- --server ${origin} --register`;
 }
 
 // powershellInstallCommand builds the one-command install for Windows,
