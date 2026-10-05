@@ -83,3 +83,33 @@ func TestWindowsUpdateIDs(t *testing.T) {
 		t.Fatal("non-guid must error")
 	}
 }
+
+func TestParseAptSimulate(t *testing.T) {
+	out := `Reading package lists...
+Inst libssl3 [3.0.11-1] (3.0.13-1 Debian-Security:12/stable-security [amd64])
+Inst newdep (1.2-1 Debian:12/stable [amd64])
+Conf libssl3 (3.0.13-1 Debian-Security:12/stable-security [amd64])
+`
+	got := parseAptSimulate(out)
+	if len(got) != 2 {
+		t.Fatalf("want 2 updates, got %d: %+v", len(got), got)
+	}
+	if got[0].Title != "libssl3" || got[0].Version != "3.0.13-1" {
+		t.Errorf("must report the candidate version, got %+v", got[0])
+	}
+	if got[1].Title != "newdep" || got[1].Version != "1.2-1" {
+		t.Errorf("new dependency: got %+v", got[1])
+	}
+}
+
+func TestRpmInstallSpec(t *testing.T) {
+	for _, c := range []struct{ name, ver, want string }{
+		{"curl", "", "curl"},
+		{"curl.x86_64", "7.76.1-26.el9", "curl-0:7.76.1-26.el9.x86_64"},
+		{"openssl.x86_64", "1:3.0.7-1.el9", "openssl-1:3.0.7-1.el9.x86_64"},
+	} {
+		if got := rpmInstallSpec(c.name, c.ver); got != c.want {
+			t.Errorf("rpmInstallSpec(%q,%q)=%q want %q", c.name, c.ver, got, c.want)
+		}
+	}
+}
