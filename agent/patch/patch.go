@@ -173,21 +173,13 @@ func (h *Handler) DeployUpdates(ctx context.Context, data interface{}) {
 func scanLinuxUpdates() ([]Update, error) {
 	updates := []Update{}
 
-	// Try apt (Debian/Ubuntu)
-	if output, err := exec.Command("apt-get", "-s", "upgrade").CombinedOutput(); err == nil {
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			// Simulate lines look like: Inst pkg [2.4-1] (2.3-1 pool) []
-			if strings.HasPrefix(line, "Inst ") {
-				parts := strings.Fields(line)
-				if len(parts) >= 3 {
-					updates = append(updates, Update{
-						Source:  "apt",
-						Title:   parts[1],
-						Version: strings.Trim(parts[2], "[]"),
-					})
-				}
-			}
+	// Try apt (Debian/Ubuntu). Refresh the package lists first (best
+	// effort) so the simulation sees what is actually available; a stale
+	// cache reports nothing, forever.
+	if _, err := exec.LookPath("apt-get"); err == nil {
+		_ = aptCmd("update", "-qq").Run()
+		if output, err := aptCmd("-s", "upgrade").CombinedOutput(); err == nil {
+			updates = append(updates, parseAptSimulate(string(output))...)
 		}
 	}
 
@@ -223,6 +215,75 @@ func scanLinuxUpdates() ([]Update, error) {
 	return updates, nil
 }
 
+// aptCmd builds a non-interactive apt-get command: without
+// DEBIAN_FRONTEND a package's debconf or conffile prompt blocks the
+// deploy forever on a service with no terminal.
+func aptCmd(args ...string) *exec.Cmd {
+	full := append([]string{"-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef"}, args...)
+	cmd := exec.Command("apt-get", full...)
+	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	return cmd
+}
+
+// parseAptSimulate extracts upgrades from `apt-get -s upgrade` output.
+// Lines look like:
+//
+//	Inst pkg [1.0-1] (1.1-1 Debian:12/stable [amd64])
+//
+// where the bracketed value is the INSTALLED version and the
+// parenthesised one the candidate — the candidate is what must be
+// deployed. A new dependency has no bracketed part.
+func parseAptSimulate(output string) []Update {
+	var updates []Update
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, "Inst ") {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 3 {
+			continue
+		}
+		cand := parts[2]
+		if strings.HasPrefix(cand, "[") && len(parts) >= 4 {
+			cand = parts[3]
+		}
+		if !strings.HasPrefix(cand, "(") {
+			continue
+		}
+		updates = append(updates, Update{
+			Source:  "apt",
+			Title:   parts[1],
+			Version: strings.TrimPrefix(cand, "("),
+		})
+	}
+	return updates
+}
+
+// rpmInstallSpec builds a NEVRA ("name-epoch:version-release.arch") for
+// yum/dnf from a check-update row ("name.arch", "version-release"). dnf
+// already includes the epoch ("1:2.3-1"); without one, epoch 0 is assumed.
+func rpmInstallSpec(nameArch, version string) string {
+	if version == "" {
+		return nameArch
+	}
+	name, arch := nameArch, ""
+	if i := strings.LastIndex(nameArch, "."); i > 0 {
+		name, arch = nameArch[:i], nameArch[i:]
+	}
+	if !strings.Contains(version, ":") {
+		version = "0:" + version
+	}
+	return name + "-" + version + arch
+}
+
+// rpmTool returns dnf when present, else yum.
+func rpmTool() string {
+	if _, err := exec.LookPath("dnf"); err == nil {
+		return "dnf"
+	}
+	return "yum"
+}
+
 func deployLinuxUpdates(deploymentID string, updates []Update) error {
 	// An empty list is never a request for a full upgrade: it means the
 	// server sent nothing to install, and running `apt-get upgrade` /
@@ -246,17 +307,13 @@ func deployLinuxUpdates(deploymentID string, updates []Update) error {
 		var cmd *exec.Cmd
 		switch u.Source {
 		case "yum":
-			if u.Version != "" {
-				cmd = exec.Command("yum", "-y", "install", u.Title+"-0:"+u.Version)
-			} else {
-				cmd = exec.Command("yum", "-y", "install", u.Title)
-			}
+			cmd = exec.Command(rpmTool(), "-y", "install", rpmInstallSpec(u.Title, u.Version))
 		default: // apt
+			target := u.Title
 			if u.Version != "" {
-				cmd = exec.Command("apt-get", "-y", "install", u.Title+"="+u.Version)
-			} else {
-				cmd = exec.Command("apt-get", "-y", "install", u.Title)
+				target += "=" + u.Version
 			}
+			cmd = aptCmd("-y", "install", target)
 		}
 		if output, err := cmd.CombinedOutput(); err != nil {
 			log.Printf("deploy %s@%s: %s", u.Title, u.Version, string(output))
@@ -282,20 +339,37 @@ type preDeployEntry struct {
 	OldVersion string `json:"old_version"`
 }
 
+// patchStateDir returns (creating it) the directory holding pre-deploy
+// state. HOME can be unset for a service, so fall back to a system path.
 func patchStateDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	dir := "/var/lib/ourway/patch-state"
+	if home, err := os.UserHomeDir(); err == nil {
+		dir = filepath.Join(home, ".ourway", "patch-state")
 	}
-	dir := filepath.Join(home, ".ourway", "patch-state")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
 	return dir, nil
 }
 
-func savePreDeployState(deploymentID string, state []preDeployEntry) error {
+// stateFile maps a deployment ID to its state file. The ID comes from
+// the server, so it is sanitised to a safe file name.
+func stateFile(deploymentID string) (string, error) {
 	dir, err := patchStateDir()
+	if err != nil {
+		return "", err
+	}
+	safe := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '_'
+	}, deploymentID)
+	return filepath.Join(dir, safe+".json"), nil
+}
+
+func savePreDeployState(deploymentID string, state []preDeployEntry) error {
+	path, err := stateFile(deploymentID)
 	if err != nil {
 		return err
 	}
@@ -303,28 +377,15 @@ func savePreDeployState(deploymentID string, state []preDeployEntry) error {
 	if err != nil {
 		return err
 	}
-	// deployment_id comes from the server; sanitize to a safe file name.
-	safe := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			return r
-		}
-		return '_'
-	}, deploymentID)
-	return os.WriteFile(filepath.Join(dir, safe+".json"), b, 0600)
+	return os.WriteFile(path, b, 0600)
 }
 
 func loadPreDeployState(deploymentID string) ([]preDeployEntry, error) {
-	home, err := os.UserHomeDir()
+	path, err := stateFile(deploymentID)
 	if err != nil {
 		return nil, err
 	}
-	safe := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			return r
-		}
-		return '_'
-	}, deploymentID)
-	b, err := os.ReadFile(filepath.Join(home, ".ourway", "patch-state", safe+".json"))
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -336,17 +397,9 @@ func loadPreDeployState(deploymentID string) ([]preDeployEntry, error) {
 }
 
 func clearPreDeployState(deploymentID string) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
+	if path, err := stateFile(deploymentID); err == nil {
+		os.Remove(path)
 	}
-	safe := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			return r
-		}
-		return '_'
-	}, deploymentID)
-	os.Remove(filepath.Join(home, ".ourway", "patch-state", safe+".json"))
 }
 
 // currentPackageVersion queries the version of a package as installed now.
@@ -534,9 +587,9 @@ func rollbackLinuxUpdates(deploymentID string) error {
 			// Package was newly installed (no prior version): remove it.
 			var cmd *exec.Cmd
 			if e.Source == "yum" {
-				cmd = exec.Command("yum", "-y", "remove", e.Package)
+				cmd = exec.Command(rpmTool(), "-y", "remove", e.Package)
 			} else {
-				cmd = exec.Command("apt-get", "-y", "remove", e.Package)
+				cmd = aptCmd("-y", "remove", e.Package)
 			}
 			if output, rerr := cmd.CombinedOutput(); rerr != nil {
 				log.Printf("rollback %s (remove): %s", e.Package, string(output))
@@ -548,9 +601,9 @@ func rollbackLinuxUpdates(deploymentID string) error {
 		}
 		var cmd *exec.Cmd
 		if e.Source == "yum" {
-			cmd = exec.Command("yum", "-y", "downgrade", e.Package+"-0:"+e.OldVersion)
+			cmd = exec.Command(rpmTool(), "-y", "downgrade", e.Package+"-"+e.OldVersion)
 		} else {
-			cmd = exec.Command("apt-get", "-y", "install", e.Package+"="+e.OldVersion)
+			cmd = aptCmd("-y", "--allow-downgrades", "install", e.Package+"="+e.OldVersion)
 		}
 		if output, rerr := cmd.CombinedOutput(); rerr != nil {
 			log.Printf("rollback %s -> %s: %s", e.Package, e.OldVersion, string(output))
