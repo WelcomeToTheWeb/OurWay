@@ -1,4 +1,6 @@
-# OurWay RMM — Bug List & Unimplemented Features
+# OurWay RMM — Bug List & Unimplemented Features (historical)
+
+**Note:** this is a historical review record (October 2026). All Critical, High and Medium findings were fixed; SAML SSO remains the only open feature gap.
 
 **Repository:** WelcomeToTheWeb/OurWay
 **Review period:** October 2–3, 2026

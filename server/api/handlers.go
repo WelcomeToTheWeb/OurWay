@@ -12,6 +12,7 @@ import (
 
 	"ourway/server/alerts"
 	"ourway/server/auth"
+	"ourway/server/automation"
 	"ourway/server/config"
 	"ourway/server/events"
 	"ourway/server/files"
@@ -82,6 +83,10 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 	// policy on its schedule (daily/weekly/monthly, hourly check).
 	policyEngine := patching.NewPolicyEngine(store, hub, deployer, rebooter, scanner)
 	go policyEngine.Run(ctx)
+	// Automation engine: runs scheduled runbooks on their scoped devices.
+	runbookEngine := automation.NewEngine(store, hub)
+	go runbookEngine.Run(ctx)
+	runbookHandler := NewRunbookHandler(store, hub, runbookEngine)
 
 	// Auth routes (no auth required)
 	authGroup := r.Group("/api/auth")
@@ -107,6 +112,7 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		agentGroup.POST("/metrics", deviceHandler.ReportMetrics)
 		agentGroup.POST("/updates", agentPatchHandler.ReportUpdate)
 		agentGroup.POST("/deployments/result", agentPatchHandler.ReportDeploymentResult)
+		agentGroup.POST("/runbooks/result", runbookHandler.ReportRunResult)
 		agentGroup.POST("/files/status", agentFileHandler.ReportStatus)
 		agentGroup.GET("/files/:transfer_id/download", agentFileHandler.DownloadForAgent)
 		agentGroup.POST("/files/:transfer_id/upload", agentFileHandler.UploadFromAgent)
@@ -255,6 +261,13 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		protected.POST("/sso/providers", RequireRole("admin"), ssoHandler.CreateProvider)
 		protected.DELETE("/sso/providers/:id", RequireRole("admin"), ssoHandler.DeleteProvider)
 
+		// Automation runbooks (API v2)
+		protected.GET("/v2/automation/runbooks", runbookHandler.ListRunbooks)
+		protected.POST("/v2/automation/runbooks", RequireRole("admin"), runbookHandler.CreateRunbook)
+		protected.PUT("/v2/automation/runbooks/:id", RequireRole("admin"), runbookHandler.UpdateRunbook)
+		protected.DELETE("/v2/automation/runbooks/:id", RequireRole("admin"), runbookHandler.DeleteRunbook)
+		protected.POST("/v2/automation/runbooks/:id/run", RequireAnyRole("admin", "manager"), runbookHandler.RunNow)
+		protected.GET("/v2/automation/runbooks/:id/runs", runbookHandler.ListRuns)
 		// Webhook routes (API v2)
 		webhookGroup := protected.Group("/v2/webhooks")
 		{

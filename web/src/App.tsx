@@ -17,6 +17,7 @@ const FileTransfer = lazy(() => import('./pages/FileTransfer').then((m) => ({ de
 const Sessions = lazy(() => import('./pages/Sessions').then((m) => ({ default: m.Sessions })));
 const SSO = lazy(() => import('./pages/SSO').then((m) => ({ default: m.SSO })));
 const Webhooks = lazy(() => import('./pages/Webhooks').then((m) => ({ default: m.Webhooks })));
+const Runbooks = lazy(() => import('./pages/Runbooks').then((m) => ({ default: m.Runbooks })));
 
 function RouteFallback() {
   return (
@@ -148,6 +149,16 @@ export function App() {
               <RoleRoute roles={['admin', 'manager']}>
                 <Suspense fallback={<RouteFallback />}>
                   <Webhooks />
+                </Suspense>
+              </RoleRoute>
+            }
+          />
+          <Route
+            path="automation"
+            element={
+              <RoleRoute roles={['admin', 'manager']}>
+                <Suspense fallback={<RouteFallback />}>
+                  <Runbooks />
                 </Suspense>
               </RoleRoute>
             }

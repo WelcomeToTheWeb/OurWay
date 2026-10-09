@@ -11,7 +11,7 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 | Frontend | React + TypeScript + Tailwind CSS |
 | Database | PostgreSQL |
 | Real-time | WebSocket (nhooyr.io/websocket) |
-| Remote Sessions | Custom VNC-like protocol in Go |
+| Remote Sessions | Custom VNC-like protocol over WebSocket/HTTP in Go |
 | Deployment | Docker Compose |
 | Monitoring UI | Recharts for charts |
 
@@ -41,7 +41,7 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - Alert engine (threshold-based) with auto-resolution
 - Event stream for UI updates
 - Authentication (JWT + refresh tokens, RBAC roles)
-- Remote sessions (WebRTC gateway, agent frame relay)
+- Remote sessions (agent frame relay over WebSocket/HTTP)
 - Patching (scan, deploy, policies) for Windows, macOS, and Linux
 - File transfer (push/pull with transfer tracking)
 - SSO (OpenID Connect, OAuth 2.0)
@@ -54,7 +54,7 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - Dashboard with overview of all devices
 - Device list with realtime status updates
 - Device detail page with real-time charts
-- Remote session viewer (WebRTC)
+- Remote session viewer (frame relay over WebSocket/HTTP)
 - Alert center with acknowledge/assign/resolve
 - Patch manager (updates, deployments, policies)
 - File transfer with drag-and-drop and download links
@@ -224,7 +224,7 @@ Files you added to the install directory are left alone.
 #### Phase 3: Monitoring UI (Week 3-4)
 - [x] Dashboard with device grid and status
 - [x] Device detail page with charts
-- [ ] Real-time streaming mode (deferred — not shipped in 2.0)
+- [x] Real-time streaming mode (detail page switches the agent to 2 s metrics streaming)
 - [x] Alert configuration and display
 
 #### Phase 4: Polish & Release (Week 4-5)
@@ -237,7 +237,7 @@ Files you added to the install directory are left alone.
 
 See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Implemented:
 
-- ✅ **Remote Sessions**: WebRTC streaming with agent frame relay
+- ✅ **Remote Sessions**: screen streaming with agent frame relay (WebSocket/HTTP)
 - ✅ **Patching**: OS update management for Windows, macOS, and Linux (scan, deploy, policies)
 - ✅ **User Management**: RBAC with roles and permissions
 - ✅ **SSO Integration**: OpenID Connect and OAuth 2.0

@@ -113,7 +113,8 @@ patch_deployments: id, policy_id, status, devices_total, devices_success,
 
 #### 3.1 SSO Integration
 - ✅ OAuth 2.0 provider support (Google, Microsoft, Apple)
-- [ ] SAML 2.0 IdP integration (for enterprise SSO)
+- [ ] SAML 2.0 IdP integration (deferred: not implemented; the API only
+      accepts oauth2/oidc provider types and rejects saml)
 - ✅ OpenID Connect (OIDC) support
 - ✅ Just-in-time user provisioning (auto-create users on first SSO login)
 - ✅ SSO session timeout and refresh policies
