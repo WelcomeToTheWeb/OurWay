@@ -32,6 +32,7 @@ type Store struct {
 	MetricHistory     *MetricHistoryStore
 	DeploymentResults *DeploymentResultStore
 	QueuedDeploys     *QueuedDeployStore
+	Runbooks          *RunbookStore
 }
 
 // NewWithDB creates a Store from an existing *gorm.DB instance,
@@ -60,6 +61,7 @@ func NewWithDB(db *gorm.DB) (*Store, error) {
 		MetricHistory:     NewMetricHistoryStore(db),
 		DeploymentResults: NewDeploymentResultStore(db),
 		QueuedDeploys:     &QueuedDeployStore{db: db},
+		Runbooks:          NewRunbookStore(db),
 	}
 
 	// Seed built-in roles
@@ -111,6 +113,7 @@ func New(dsn string) (*Store, error) {
 		MetricHistory:     NewMetricHistoryStore(db),
 		DeploymentResults: NewDeploymentResultStore(db),
 		QueuedDeploys:     &QueuedDeployStore{db: db},
+		Runbooks:          NewRunbookStore(db),
 	}
 
 	// Seed built-in roles

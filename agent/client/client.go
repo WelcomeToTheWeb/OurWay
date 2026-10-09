@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"ourway/agent/automation"
 	"ourway/agent/config"
 	"ourway/agent/files"
 	"ourway/agent/patch"
@@ -21,16 +22,17 @@ import (
 
 // Client connects to the OurWay server via WebSocket and sends metrics.
 type Client struct {
-	serverURL    string
-	deviceKey    string
-	deviceID     string
-	heartbeatSec time.Duration
-	metricsSec   time.Duration
-	streamSec    time.Duration
-	metricsFunc  func() (interface{}, error)
-	sessionMgr   *session.SessionManager
-	fileHandler  *files.Handler
-	patchHandler *patch.Handler
+	serverURL         string
+	deviceKey         string
+	deviceID          string
+	heartbeatSec      time.Duration
+	metricsSec        time.Duration
+	streamSec         time.Duration
+	metricsFunc       func() (interface{}, error)
+	sessionMgr        *session.SessionManager
+	fileHandler       *files.Handler
+	patchHandler      *patch.Handler
+	automationHandler *automation.Handler
 	// onServerVersion is invoked when the server pushes its version on
 	// the heartbeat path; the self-update checker uses it to trigger an
 	// immediate check (fully automatic agent updates).
@@ -110,6 +112,7 @@ func New(serverURL, deviceKey string, opts ...Option) *Client {
 		opt(c)
 	}
 	c.patchHandler = patch.NewHandler(deviceKey, config.HTTPBaseURL(serverURL), c.deviceID)
+	c.automationHandler = automation.NewHandler(deviceKey, config.HTTPBaseURL(serverURL), c.deviceID)
 	if serverURL != "" {
 		// The agent's own server URL is authoritative for frame uploads:
 		// it is the endpoint the WebSocket already reaches, so it always
@@ -403,10 +406,10 @@ func (c *Client) connect(ctx context.Context) error {
 					case "rollback_updates":
 						go c.patchHandler.RollbackUpdates(ctx, msgData["payload"])
 					case "server_version":
-					if c.onServerVersion != nil {
-						go c.onServerVersion()
-					}
-				case "reboot":
+						if c.onServerVersion != nil {
+							go c.onServerVersion()
+						}
+					case "reboot":
 						go c.patchHandler.Reboot(msgData["payload"])
 					}
 				}

@@ -286,8 +286,6 @@ func (sm *SessionManager) captureLoop(ctx context.Context) {
 
 			// Reliable path: upload the JPEG to the server, which relays it
 			// to the browser over the user WebSocket.
-			// TODO: also send frames over the WebRTC data channel once that
-			// path is complete, to reduce latency.
 			sm.postFrame(frame)
 		}
 	}

@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
+  Terminal,
   LayoutDashboard,
   Server,
   Bell,
@@ -40,6 +41,7 @@ export function Sidebar() {
         ...(staff ? [{ to: '/files', label: 'Files', icon: FolderUp }] : []),
         ...(staff ? [{ to: '/patches', label: 'Patches', icon: Package }] : []),
         ...(managers ? [{ to: '/patch-policies', label: 'Policies', icon: Shield }] : []),
+        ...(managers ? [{ to: '/automation', label: 'Automation', icon: Terminal }] : []),
       ],
     },
     {

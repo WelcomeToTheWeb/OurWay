@@ -116,6 +116,20 @@ var migrations = []migration{
 		}
 		return db.Migrator().AddColumn(&models.Session{}, "ViewerTokenHash")
 	}},
+	{version: 7, name: "automation_runbooks", fn: func(db *gorm.DB) error {
+		m := db.Migrator()
+		if !m.HasTable(&models.Runbook{}) {
+			if err := m.CreateTable(&models.Runbook{}); err != nil {
+				return err
+			}
+		}
+		if !m.HasTable(&models.RunbookRun{}) {
+			if err := m.CreateTable(&models.RunbookRun{}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per
