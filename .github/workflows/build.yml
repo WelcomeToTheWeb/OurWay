@@ -11,6 +11,13 @@ env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: welcometotheweb/ourway
 
+# One workflow run publishes at a time. A tag and its main push race each
+# other on the same package (both push server:latest / server:edge from the
+# same commit), and GHCR answers that race with "unknown blob" mid-push.
+concurrency:
+  group: ghcr-publish
+  cancel-in-progress: false
+
 jobs:
   # Build agent binaries for all platforms
   build-agents:
