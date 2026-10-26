@@ -1,5 +1,9 @@
 name: ourway
 
+# Images are published from tags only: :latest is always a stable release
+# (docs/versioning.md). Pin X.Y.Z for a fleet that must not move on its own,
+# or use :edge to follow main.
+
 services:
   postgres:
     image: postgres:16-alpine

@@ -41,10 +41,10 @@ type Checker struct {
 // base URL (no trailing /ws).
 func NewChecker(serverURL string) *Checker {
 	return &Checker{
-		serverURL: strings.TrimSuffix(serverURL, "/"),
+		serverURL:  strings.TrimSuffix(serverURL, "/"),
 		httpClient: &http.Client{Timeout: 60 * time.Second},
-		stop:      make(chan struct{}),
-		done:      make(chan struct{}),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
 	}
 }
 
@@ -77,9 +77,10 @@ func (c *Checker) Stop() {
 	<-c.done
 }
 
-// check fetches the server version and self-updates when it differs
-// from the running build. "dev" servers (unstamped local builds) never
-// trigger an update: they carry no meaningful ordering.
+// check fetches the server version and self-updates when the server's
+// version orders above the running build on this agent's channel
+// (see version.go and docs/versioning.md). Unstamped builds — "dev", a raw
+// commit sha — never trigger an update: they carry no ordering.
 func (c *Checker) check() {
 	resp, err := c.httpClient.Get(c.serverURL + "/api/agent/version")
 	if err != nil {
@@ -99,10 +100,11 @@ func (c *Checker) check() {
 		log.Printf("selfupdate: bad version response: %v", err)
 		return
 	}
-	if v.Version == "" || v.Version == "dev" || v.Version == config.Version {
+	channel := updateChannel()
+	if !shouldUpdate(v.Version, config.Version, channel) {
 		return
 	}
-	log.Printf("selfupdate: server has %s, running %s; updating", v.Version, config.Version)
+	log.Printf("selfupdate: server has %s, running %s on %s; updating", v.Version, config.Version, channel)
 	if err := c.apply(v.Version); err != nil {
 		log.Printf("selfupdate: update to %s failed: %v", v.Version, err)
 	}

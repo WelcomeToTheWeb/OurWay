@@ -32,15 +32,14 @@ jobs:
 
       - name: Build agents
         run: |
-          # On tag pushes use the exact tag (git describe can race the
-          # tag push and emit a vX.Y.Z-N-gSHA pseudo-version).
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
-          else
-            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")
-          fi
-          GIT_COMMIT=$(git rev-parse --short HEAD)
+          # One place derives the version: scripts/version.sh. On a tag push it
+          # is the exact tag (git describe can race the tag push and emit a
+          # vX.Y.Z-N-gSHA pseudo-version); on main it is a prerelease stamp.
+          chmod +x scripts/version.sh scripts/release.sh
+          VERSION=$(scripts/version.sh)
+          GIT_COMMIT=$(scripts/version.sh --commit)
           BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          echo "Building at version $VERSION (commit $GIT_COMMIT)"
           mkdir -p dist/agents
 
           for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64"; do
@@ -177,19 +176,40 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve version and image tags
+        id: meta
+        run: |
+          chmod +x scripts/version.sh
+          VERSION=$(scripts/version.sh)
+          CHANNEL=$(scripts/version.sh --channel)
+          COMMIT=$(scripts/version.sh --commit)
+          MINOR=$(printf '%s' "$VERSION" | cut -d- -f1 | cut -d. -f1,2)
+          base=${REGISTRY}/${IMAGE_PREFIX}/server
+          if [ "$CHANNEL" = stable ]; then
+            tags="$base:$VERSION"$'\n'"$base:$MINOR"$'\n'"$base:latest"
+          else
+            tags="$base:edge"$'\n'"$base:main-$COMMIT"
+          fi
+          {
+            echo "version=$VERSION"
+            echo "commit=$COMMIT"
+            echo "tags<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "publishing server for channel $CHANNEL:"
+          echo "$tags"
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/Dockerfile.server
           push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/server:${{ github.sha }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/{1}/server:{2}', env.REGISTRY, env.IMAGE_PREFIX, github.ref_name) || '' }}
+          tags: ${{ steps.meta.outputs.tags }}
           build-args: |
-            VERSION=${{ github.sha }}
-            GIT_COMMIT=${{ github.sha }}
+            VERSION=${{ steps.meta.outputs.version }}
+            GIT_COMMIT=${{ steps.meta.outputs.commit }}
 
   # Build and push web Docker image
   build-web-image:
@@ -212,16 +232,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve version and image tags
+        id: meta
+        run: |
+          chmod +x scripts/version.sh
+          VERSION=$(scripts/version.sh)
+          CHANNEL=$(scripts/version.sh --channel)
+          COMMIT=$(scripts/version.sh --commit)
+          MINOR=$(printf '%s' "$VERSION" | cut -d- -f1 | cut -d. -f1,2)
+          base=${REGISTRY}/${IMAGE_PREFIX}/web
+          if [ "$CHANNEL" = stable ]; then
+            tags="$base:$VERSION"$'\n'"$base:$MINOR"$'\n'"$base:latest"
+          else
+            tags="$base:edge"$'\n'"$base:main-$COMMIT"
+          fi
+          {
+            echo "version=$VERSION"
+            echo "tags<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "publishing web for channel $CHANNEL:"
+          echo "$tags"
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/Dockerfile.web
           push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/web:${{ github.sha }}
-            ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}/{1}/web:{2}', env.REGISTRY, env.IMAGE_PREFIX, github.ref_name) || '' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
 
   # Create GitHub release on tags
   release:

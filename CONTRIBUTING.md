@@ -82,7 +82,21 @@ Docker images are only pushed when it passes.
 
 ## Releasing
 
-Releases are cut from `v*` git tags. The pipeline builds in order:
-agents → installers → Docker images (GHCR) → GitHub Release with all
-binaries attached. Verify the release run is green before announcing a
-version.
+**The git tag is the version** — read `docs/versioning.md` first: what
+MAJOR/MINOR/PATCH mean for an operator, the stable/edge/dev channels, and how
+the stamp reaches every binary, image and the console.
+
+Cut a release with the script, not by hand:
+
+```sh
+scripts/release.sh --check 2.1.0   # every check + the full gate, publishes nothing
+scripts/release.sh 2.1.0           # commit, tag v2.1.0, push main and the tag
+```
+
+It refuses a dirty tree, a non-`main` branch, a HEAD that is not the pushed
+tip, a number that is not greater than the latest tag, and a red gate.
+
+The pipeline then runs in order: agents → installers → Docker images (GHCR) →
+GitHub Release with all binaries attached. A tag publishes `X.Y.Z`, the
+floating `X.Y`, and `latest`; a `main` push publishes `edge` only. Verify the
+release run is green before announcing a version.

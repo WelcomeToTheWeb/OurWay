@@ -330,14 +330,23 @@ agent always reports metrics at the normal interval (default 60 seconds).
 
 ## Self-Updating
 
-*Planned for v1.1*
+*Shipped.* The agent polls `GET /api/agent/version` hourly (and on the server's
+heartbeat push), then downloads the server's own per-platform artifacts from
+`/api/v2/installers/`, verifies the published sha256, swaps the agent and
+remote-control binaries, and restarts through the service manager.
 
-The agent will support self-updating via the server:
+It updates by **ordering**, not by difference, following `docs/versioning.md`:
 
-1. Server maintains a registry of agent versions
-2. Agent checks for updates on startup and periodically
-3. If a new version is available, the agent downloads and installs it
-4. Agent restarts itself to apply the update
+1. Both versions must parse as `X.Y.Z[-pre][+meta]`. A `dev` build, a raw
+   commit sha, or an empty string never triggers an update, in either direction.
+2. The server's version must order strictly **above** the running one. Equal is
+   done; lower is never automatic.
+3. A stable agent ignores a prerelease server. `OURWAY_UPDATE_CHANNEL=edge` on
+   the agent opts it into `main` builds.
+
+This is why the fleet does not re-update on every commit: a per-commit stamp is
+"different" from everything, forever, and says nothing about which side is
+newer.
 
 ---
 
