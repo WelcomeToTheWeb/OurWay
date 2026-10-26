@@ -26,6 +26,12 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          # Multi-module repo: without this the Go cache silently restores
+          # nothing ("Dependencies file is not found ... go.sum").
+          cache-dependency-path: |
+            go.work.sum
+            server/go.sum
+            agent/go.sum
 
       - name: Resolve agent dependencies
         run: go mod tidy -C agent
@@ -108,6 +114,12 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          # Multi-module repo: without this the Go cache silently restores
+          # nothing ("Dependencies file is not found ... go.sum").
+          cache-dependency-path: |
+            go.work.sum
+            server/go.sum
+            agent/go.sum
 
       - name: Resolve agent dependencies
         run: go mod tidy -C agent
