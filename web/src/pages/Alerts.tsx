@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   Search,
@@ -10,14 +10,16 @@ import {
   UserCheck,
   UserPlus,
 } from 'lucide-react';
-import { getAlerts, resolveAlert, acknowledgeAlert, assignAlert } from '../api/devices';
+import { resolveAlert, acknowledgeAlert, assignAlert } from '../api/devices';
 import { getUsers } from '../api/users';
 import type { UserWithRoles } from '../auth/types';
-import type { Alert, AlertSeverity } from '../types/alert';
+import type { AlertSeverity } from '../types/alert';
 import { useTranslation } from 'react-i18next';
 import { Stamp, type StampTone } from '../components/Stamp';
 import { agoLabel } from '../utils/policyScope';
-import { isRateLimited } from '../api/client';
+import { filterAlerts, isAlertOpen } from '../utils/alerts';
+import { useFleet } from '../hooks/useFleet';
+import { invalidateFleet } from '../stores/fleet';
 
 const severityTone: Record<AlertSeverity, StampTone> = {
   critical: 'alert',
@@ -43,8 +45,6 @@ const metricIcons: Record<string, typeof Activity> = {
  */
 export function Alerts() {
   const { t } = useTranslation();
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [loading, setLoading] = useState(true);
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -52,7 +52,23 @@ export function Alerts() {
   const [users, setUsers] = useState<UserWithRoles[]>([]);
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [assignUser, setAssignUser] = useState('');
-  const previousCount = useRef(0);
+
+  // The ledger is the owner of the alert collection: it reads on arrival and
+  // polls. The dashboard's alert tile rides along on the same data, and an
+  // alert frame over the WebSocket invalidates it, so the numbers on the two
+  // surfaces move together (2.2-4).
+  const { data: alerts, loading } = useFleet('alerts', { owner: true });
+  const openNow = useMemo(() => alerts.filter(isAlertOpen).length, [alerts]);
+
+  // "N new since the last look" compares two samples of the same count, and
+  // only counts upward — an alert resolved elsewhere is not a new alert.
+  const previousOpen = useRef<number | null>(null);
+  useEffect(() => {
+    if (loading || alerts.length === 0) return;
+    const prev = previousOpen.current;
+    if (prev !== null && openNow > prev) setNewAlerts(openNow - prev);
+    previousOpen.current = openNow;
+  }, [alerts, loading, openNow]);
 
   // Load the user list for the Assign picker.
   useEffect(() => {
@@ -69,89 +85,84 @@ export function Alerts() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  async function mutate<T>(fn: () => Promise<T>, onDone: (result: T) => void) {
+    try {
+      const result = await fn();
+      onDone(result);
+      // The counts every surface prints come from this collection, so the
+      // mutation has to re-read it, not just patch the row on screen.
+      invalidateFleet('alerts');
+    } catch {
+      // The poll re-reads; a failed sign-off is not swallowed silently.
+    }
+  }
 
-    async function load() {
-      try {
-        setLoading(true);
-        const params: Record<string, string> = {};
-        if (severityFilter !== 'all') params.severity = severityFilter;
-        if (statusFilter === 'unresolved') params.resolved = 'false';
-        if (statusFilter === 'resolved') params.resolved = 'true';
-
-        const data = await getAlerts(params as never);
-        if (!cancelled) {
-          const count = data.filter((a) => !a.resolved).length;
-          if (previousCount.current > 0 && count > previousCount.current) {
-            setNewAlerts(count - previousCount.current);
-          }
-          previousCount.current = count;
-          setAlerts(data);
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setLoading(false);
+  const handleResolve = (id: string) =>
+    mutate(
+      () => resolveAlert(id),
+      () => {
+        /* the re-read carries the truth */
       }
-    }
+    );
 
-    load();
-    // Polls are what spend the server's 100 requests per minute per user,
-    // so during a rate-limit back-off the tick rests instead of firing.
-    const interval = setInterval(() => {
-      if (!isRateLimited()) void load();
-    }, 30000);
+  const handleAcknowledge = (id: string) =>
+    mutate(
+      () => acknowledgeAlert(id),
+      () => {
+        /* the re-read carries the truth */
+      }
+    );
 
-    // Refresh immediately when a new alert arrives over the WebSocket.
-    const onAlert = () => load();
-    window.addEventListener('ourway:alert', onAlert);
+  const handleAssign = (id: string, username: string) =>
+    mutate(
+      () => assignAlert(id, username),
+      () => {
+        setAssignFor(null);
+        setAssignUser('');
+      }
+    );
 
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      window.removeEventListener('ourway:alert', onAlert);
-    };
-  }, [severityFilter, statusFilter]);
+  // Filters are applied here, over the whole collection. The server can filter
+  // too, and when it did the chips counted the filtered page while the tile
+  // counted the fleet. One array, one set of predicates: a chip and the rows
+  // it summarises can no longer disagree.
+  const filtered = useMemo(
+    () => filterAlerts(alerts, { severity: severityFilter, status: statusFilter, search }),
+    [alerts, severityFilter, statusFilter, search]
+  );
+  const openCount = useMemo(() => filtered.filter(isAlertOpen).length, [filtered]);
 
-  async function handleResolve(id: string) {
-    try {
-      await resolveAlert(id);
-      setAlerts((a) => a.map((x) => (x.id === id ? { ...x, resolved: true } : x)));
-    } catch {
-      // ignore
-    }
-  }
-
-  async function handleAcknowledge(id: string) {
-    try {
-      await acknowledgeAlert(id);
-      setAlerts((a) => a.map((x) => (x.id === id ? { ...x, acknowledged: true } : x)));
-    } catch {
-      // ignore
-    }
-  }
-
-  async function handleAssign(id: string, username: string) {
-    try {
-      await assignAlert(id, username);
-      setAlerts((a) => a.map((x) => (x.id === id ? { ...x, assigned_to: username } : x)));
-      setAssignFor(null);
-      setAssignUser('');
-    } catch {
-      // ignore
-    }
-  }
-
-  const filtered = alerts.filter((a) => {
-    if (search) {
-      const q = search.toLowerCase();
-      if (!a.device_name.toLowerCase().includes(q) && !a.message.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
-
-  const unresolvedCount = alerts.filter((a) => !a.resolved).length;
+  // The chips summarise the searched population, before the status chip's own
+  // filter, so switching a chip changes the rows without changing what the
+  // chips are measuring.
+  const searchFiltered = useMemo(() => filterAlerts(alerts, { search }), [alerts, search]);
+  const countChips = [
+    { key: 'all', label: 'All', status: 'all', count: searchFiltered.length, title: 'Every alert the search matches' },
+    {
+      key: 'open',
+      label: 'Open',
+      status: 'unresolved',
+      count: searchFiltered.filter(isAlertOpen).length,
+      title: 'Unresolved — acknowledged ones are included, they are not closed',
+    },
+    {
+      key: 'ack',
+      // "Signed off", not "Acknowledged": the chip sits on the same screen as
+      // the row badges that say Acknowledged, and a count chip must not
+      // impersonate a sign-off.
+      label: 'Signed off',
+      status: 'all',
+      count: searchFiltered.filter((a) => a.acknowledged && !a.resolved).length,
+      title: 'Open and signed off by somebody — a display count, not a filter',
+    },
+    {
+      key: 'resolved',
+      label: 'Resolved',
+      status: 'resolved',
+      count: searchFiltered.filter((a) => a.resolved).length,
+      title: 'Closed',
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -159,7 +170,7 @@ export function Alerts() {
         <div>
           <h1 className="text-[26px]">{t('alerts.title')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
-            {unresolvedCount} open · {alerts.length} on the sheet
+            {openCount} open · {filtered.length} on the sheet · {alerts.length} in the ledger
           </p>
         </div>
         <span className="flex items-center gap-2">
@@ -183,6 +194,27 @@ export function Alerts() {
           </button>
         </div>
       )}
+
+      {/* Count chips: counts of the population on screen, and the filter they
+          stand for. They count the searched set, so a chip and the rows under
+          it can never disagree (2.2-4). */}
+      <div className="flex flex-wrap items-center gap-2">
+        {countChips.map((chip) => (
+          <button
+            key={chip.key}
+            type="button"
+            onClick={() => setStatusFilter(chip.status)}
+            aria-pressed={statusFilter === chip.status && chip.status !== 'all'}
+            className={`btn ${statusFilter === chip.status && chip.status !== 'all' ? 'btn-primary' : 'btn-quiet'} px-2 py-1 text-[12px]`}
+            title={chip.title}
+          >
+            <span className="ow-num">{chip.count}</span> {chip.label}
+          </button>
+        ))}
+        <span className="cap cap-sm text-text-muted">
+          of {searchFiltered.length} matching · {alerts.length} in the ledger
+        </span>
+      </div>
 
       <div className="panel flex flex-col gap-2 px-3 py-2.5 md:flex-row md:items-center">
         <div className="relative flex-1">

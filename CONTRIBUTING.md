@@ -58,6 +58,7 @@ A darwin binary built any other way reports `input_capability: unavailable` and
 drops remote input by design, so never ship one.
 
 `scripts/coverage.sh` measures total statement coverage for `server/` and `agent/`
+(inside a `GO_IMAGE` container when the machine has no Go toolchain)
 against `coverage.baseline.json` and fails on a decrease — see `scripts/coverage.sh`
 for the flags. Raise the baseline with `--record` in the same commit that earns it.
 
@@ -103,6 +104,18 @@ npm run preview --prefix web            # :3000, proxies /api and /ws
 # 3. the suite
 npm run test:e2e:install --prefix web   # once, installs Chromium
 npm run test:e2e --prefix web
+```
+
+`scripts/e2e-stack.sh restart` is the shortcut for the stack above when the
+machine has no Go toolchain (this repo's dev container): it recreates the
+`ourway_e2e` database, builds the server in a Go container, runs it on the host
+at `:9099`, and serves the built bundle at `:3100` with the proxy pointed at it.
+Then:
+
+```sh
+OURWAY_E2E_ENROLLMENT_SECRET=dev-enrollment-secret \
+OURWAY_E2E_BASE_URL=http://localhost:3100 OURWAY_E2E_API_URL=http://localhost:9099 \
+  npx playwright test -c e2e/playwright.config.ts --reporter=list   # from web/
 ```
 
 `OURWAY_E2E_BASE_URL` / `OURWAY_E2E_API_URL` name the console and API origins
@@ -163,6 +176,27 @@ Four constraints that are easy to get wrong in this suite:
 - **Destructive actions are gated by `window.confirm` today** (`buglist.md` M19,
   task 2.2-9): Playwright dismisses dialogs by default, so a test that ends a
   session must accept one. That is the smell, not the design.
+
+## Alert counts (2.2-4)
+
+**Open is unresolved, acknowledged included.** One definition, in
+`web/src/utils/alerts.ts` (`isAlertOpen`, `openAlertCount`, `filterAlerts`), and
+the server's unresolved query is pinned by `server/store/alerts_open_test.go`.
+Acknowledging a signal is a sign-off; only resolving closes it.
+
+Rules that follow from that:
+
+- Counts are derived from the collection in `stores/fleet.ts`, never from a
+  second query. The dashboard tile is a beneficiary of the ledger's collection;
+  do not add a device-row-based alert count.
+- The ledger filters client-side over the whole collection. Server-side filters
+  are what made the count chips and the rows disagree — a chip counts the
+  population the rows are drawn from, so they must share a predicate.
+- A mutation re-reads (`invalidateFleet('alerts')`) rather than patching the row
+  in place, and an alert frame over the WebSocket invalidates the collection.
+  Optimistic row-patching leaves every *other* surface showing the old number.
+- Count chips say what they count and count what is on screen. A chip is a
+  control: clicking it sets the filter it names.
 
 ## The fleet read model (2.2-2)
 

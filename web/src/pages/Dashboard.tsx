@@ -11,6 +11,7 @@ import { Stamp } from '../components/Stamp';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import { useRateLimit } from '../hooks/useRateLimit';
 import { useFleet } from '../hooks/useFleet';
+import { isAlertOpen } from '../utils/alerts';
 import type { DeviceCompliance } from '../types/patch';
 import { buildAttentionList, osBreakdown } from '../utils/attention';
 import { useFleetHistory } from '../stores/fleetHistory';
@@ -35,6 +36,7 @@ export function Dashboard() {
   });
   const { data: policies, refresh: refreshPolicies } = useFleet('patchPolicies');
   const { data: sessions, refresh: refreshSessions } = useFleet('sessions');
+  const { data: openAlerts, refresh: refreshAlerts } = useFleet('alerts');
   const { limited, secondsLeft } = useRateLimit();
   const samples = useFleetHistory((s) => s.samples);
   const push = useFleetHistory((s) => s.push);
@@ -46,10 +48,15 @@ export function Dashboard() {
     refreshOverview();
     refreshPolicies();
     refreshSessions();
-  }, [refresh, refreshOverview, refreshPolicies, refreshSessions]);
+    refreshAlerts();
+  }, [refresh, refreshOverview, refreshPolicies, refreshSessions, refreshAlerts]);
 
   const online = devices.filter((d) => d.status === 'online').length;
-  const alerts = devices.filter((d) => d.status === 'alert').length;
+  // The same population the alert ledger counts: unresolved alerts, counted by
+  // the shared predicate in utils/alerts. Counting units whose status is
+  // `alert` was a third definition of "open alerts" and never matched the
+  // ledger the operator acknowledges from (2.2-4).
+  const alerts = openAlerts.filter(isAlertOpen).length;
   const complianceById = useMemo(
     () => new Map((overview?.devices ?? []).map((d) => [d.device_id, d])),
     [overview],
@@ -167,7 +174,7 @@ export function Dashboard() {
           label={t('dashboard.activeAlerts')}
           value={<span className="ow-num">{alerts}</span>}
           tone={alerts > 0 ? 'alert' : 'ok'}
-          hint={alerts > 0 ? 'thresholds breached' : 'no thresholds breached'}
+          hint={alerts > 0 ? t('dashboard.activeAlertsHint') : t('dashboard.activeAlertsHintNone')}
           history={series.alerts}
         />
         {canSeePatches && (

@@ -64,3 +64,78 @@ test('acknowledging an alert is durable across a reload', async ({ page, request
     page.getByRole('listitem').filter({ hasText: target.message.slice(0, 24) }).first(),
   ).toContainText(/acknowledged/i);
 });
+
+test("the dashboard alert figure is the ledger figure, and both move on the same events", async ({
+  page,
+  request,
+}) => {
+  // 2.2-4. The old failure was three populations answering "how many alerts are
+  // open": the tile counted units whose status is `alert`, the ledger counted
+  // the server-filtered page it had just fetched, and a third count ignored
+  // acknowledged alerts. Now one collection, one definition: open is
+  // unresolved, acknowledged included.
+  const openFromServer = async () => {
+    const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
+    const res = await request.get(`${apiBase()}/api/alerts?limit=200`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status()).toBe(200);
+    const { alerts } = await res.json();
+    return (alerts as { resolved: boolean }[]).filter((a) => !a.resolved).length;
+  };
+
+  const serverOpen = await openFromServer();
+  expect(serverOpen, 'the seeded fleet should leave open alerts').toBeGreaterThan(0);
+
+  // The dashboard tile.
+  await page.goto('/');
+  const tile = page.locator('div.field').filter({ hasText: /Active Alerts/ }).first();
+  await expect(tile).toBeVisible();
+  await expect(tile, "the tile counts the ledger population").toContainText(
+    new RegExp('Active Alerts' + serverOpen)
+  );
+
+  // The ledger, same numbers, stated.
+  await page.goto('/alerts');
+  const header = page.locator('p').filter({ hasText: /open ·/ }).first();
+  await expect(header).toContainText(new RegExp(`^${serverOpen} open ·`));
+  await expect(page.getByRole('button', { name: new RegExp(`^${serverOpen} Open$`) })).toBeVisible();
+
+  // Acknowledging is a sign-off, not a close: the open count must not move.
+  const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
+  const list = await request.get(`${apiBase()}/api/alerts?limit=200`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const { alerts } = await list.json();
+  const target = (alerts as { id: string; message: string; resolved: boolean; acknowledged: boolean }[]).find(
+    (a) => !a.resolved && !a.acknowledged
+  );
+  expect(target, 'the seeded fleet should leave an unacknowledged alert').toBeTruthy();
+  const open1 = target!;
+
+  const row = page.getByRole('listitem').filter({ hasText: open1.message.slice(0, 24) }).first();
+  await expect(row).toBeVisible();
+  await row.getByRole('button', { name: /acknowledge|ack$/i }).click();
+  await expect(row).toContainText(/acknowledged/i, { timeout: 10_000 });
+
+  await expect(header, 'acknowledging does not close an alert').toContainText(new RegExp(`^${serverOpen} open ·`));
+  await expect(
+    page.getByRole('button', { name: new RegExp(`^${serverOpen} Open$`) }),
+    'the chip keeps counting the acknowledged alert as open',
+  ).toBeVisible();
+
+  // Resolving closes it: the tile and the chips move together, by one.
+  await row.getByRole('button', { name: /^resolve$/i }).click();
+  const closed = serverOpen - 1;
+  await page.goto('/');
+  await expect(
+    page.locator('div.field').filter({ hasText: /Active Alerts/ }).first(),
+    'the dashboard figure follows the ledger'
+  ).toContainText(new RegExp('Active Alerts' + closed), { timeout: 15_000 });
+
+  await page.goto('/alerts');
+  await expect(
+    page.locator('p').filter({ hasText: /open ·/ }).first(),
+    'the ledger figure is the same number'
+  ).toContainText(new RegExp(`^${closed} open ·`), { timeout: 15_000 });
+});

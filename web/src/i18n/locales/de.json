@@ -58,7 +58,9 @@
     "recentAlerts": "Neueste Alarme",
     "deviceHealth": "Gerätegesundheit",
     "noDevices": "Noch keine Geräte verbunden",
-    "noAlerts": "Keine aktiven Alarme"
+    "noAlerts": "Keine aktiven Alarme",
+    "activeAlertsHint": "offen · bestätigte eingeschlossen",
+    "activeAlertsHintNone": "keine Schwellen überschritten"
   },
   "devices": {
     "title": "Geräte",

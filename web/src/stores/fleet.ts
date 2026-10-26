@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { getDevices } from '../api/devices';
+import { getAlerts, getDevices } from '../api/devices';
 import { getPatchOverview, listPolicies } from '../api/patching';
 import { listSessions, type Session } from '../api/sessions';
 import { isRateLimited } from '../api/client';
+import type { Alert } from '../types/alert';
 import type { Device, Metrics } from '../types/device';
 import type { PatchOverview, PatchPolicy } from '../types/patch';
 
@@ -27,13 +28,23 @@ import type { PatchOverview, PatchPolicy } from '../types/patch';
  * were: the back-stop, not the mechanism. A tick that fires inside a back-off
  * window is skipped, exactly like `useRateLimitAwarePoll` did per page.
  */
-export type FleetKey = 'devices' | 'patchOverview' | 'patchPolicies' | 'sessions';
+export type FleetKey = 'devices' | 'patchOverview' | 'patchPolicies' | 'sessions' | 'alerts';
 
 export interface FleetData {
   devices: Device[];
   patchOverview: PatchOverview | null;
   patchPolicies: PatchPolicy[];
   sessions: Session[];
+  /**
+   * The alert ledger, read **unfiltered**.
+   *
+   * The server can filter by severity and resolved-state, and the ledger used
+   * to ask it to — which is exactly why its count chips and its rows disagreed:
+   * the chips counted the filtered page, the dashboard tile counted the fleet,
+   * and a third count lived in the sidebar badge. The ledger filters
+   * client-side now, so a chip, a row and the tile are counts of one array.
+   */
+  alerts: Alert[];
 }
 
 interface FleetState extends FleetData {
@@ -65,6 +76,7 @@ const POLL_MS: Record<FleetKey, number> = {
   patchOverview: 60_000,
   patchPolicies: 5 * 60_000,
   sessions: 30_000,
+  alerts: 30_000,
 };
 
 /** A collection fresher than this is not re-read when a page subscribes. */
@@ -73,6 +85,7 @@ const FRESH_MS: Record<FleetKey, number> = {
   patchOverview: 30_000,
   patchPolicies: 5 * 60_000,
   sessions: 15_000,
+  alerts: 15_000,
 };
 
 const collectors: Record<FleetKey, () => Promise<unknown>> = {
@@ -80,14 +93,22 @@ const collectors: Record<FleetKey, () => Promise<unknown>> = {
   patchOverview: () => getPatchOverview().catch(() => null),
   patchPolicies: () => listPolicies().catch(() => [] as PatchPolicy[]),
   sessions: () => listSessions().catch(() => [] as Session[]),
+  alerts: () => getAlerts().catch(() => [] as Alert[]),
 };
 
-const emptyFlags = { devices: false, patchOverview: false, patchPolicies: false, sessions: false };
+const emptyFlags = {
+  devices: false,
+  patchOverview: false,
+  patchPolicies: false,
+  sessions: false,
+  alerts: false,
+};
 const emptyStamps: Record<FleetKey, number> = {
   devices: 0,
   patchOverview: 0,
   patchPolicies: 0,
   sessions: 0,
+  alerts: 0,
 };
 
 export const useFleetStore = create<FleetState>()(
@@ -97,6 +118,7 @@ export const useFleetStore = create<FleetState>()(
       patchOverview: null,
       patchPolicies: [],
       sessions: [],
+      alerts: [],
       fetchedAt: { ...emptyStamps },
       loading: { ...emptyFlags },
       error: {},
@@ -131,6 +153,7 @@ export const useFleetStore = create<FleetState>()(
           patchOverview: null,
           patchPolicies: [],
           sessions: [],
+          alerts: [],
           fetchedAt: { ...emptyStamps },
           loading: { ...emptyFlags },
           error: {},
@@ -239,6 +262,13 @@ export function acquireFleet(
  * a unit was deleted, the operator pressed reload on a panel). Subscribers
  * re-read on their next tick; a page that subscribes after this point reads
  * immediately, because its stamp says the data is old.
+ */
+/**
+ * Something this session changed (or an event says the server changed): the
+ * collection is stale now. A collection with subscribers re-reads immediately;
+ * one nobody is watching just loses its stamp, so the next subscriber re-reads.
+ * Mutations and WebSocket events both go through here, which is what keeps the
+ * counts on two open surfaces identical.
  */
 export function invalidateFleet(key: FleetKey): void {
   useFleetStore.setState((state) => ({ fetchedAt: { ...state.fetchedAt, [key]: 0 } }) as Partial<FleetState>);

@@ -222,20 +222,39 @@ as the console's design budget, with nothing to tune.
 
 ---
 
-## 2.2-4 · One answer to "how many units need me"
+## 2.2-4 · One answer to "how many units need me" · ✅ delivered
+
+**Delivered:** the definition is **open = unresolved, acknowledged included**,
+stated in one client helper (`web/src/utils/alerts.ts`: `isAlertOpen`,
+`openAlertCount`, `filterAlerts`) and pinned on the server by
+`server/store/alerts_open_test.go` (acknowledging keeps an alert in the
+unresolved query; only resolving removes it). The ledger is now the *owner* of
+the `alerts` collection in the shared fleet store, filters run client-side over
+that collection, and the dashboard's tile rides on the same data with the same
+predicate — it no longer counts units whose `status === 'alert'`, which was the
+third population. The count chips measure the searched population, so a chip and
+the rows it summarises are one predicate; an alert frame over the WebSocket
+invalidates the collection, so the counts move on the event that changed them.
+Copy states the definition in all three locales (`dashboard.activeAlertsHint`:
+"unresolved · acknowledged included"). Proven by `e2e/alerts.spec.ts` (tile ==
+ledger == server, acknowledging does not move the number, resolving moves both
+by one) and by `web/src/pages/Alerts.test.tsx` (chip counts equal row counts;
+mutations re-read the collection rather than patching a row).
+
+**Finding:**
 
 **Finding:** `.impeccable/review/verdict.md`, debt #2 — `GET /devices` carries
 alert state, so the dashboard's flagged count disagrees with the alert ledger's
 open count whenever severities differ.
 
 **Do**
-- [ ] Pick the alert ledger as the single source of truth for counts, and derive
+- [x] Pick the alert ledger as the single source of truth for counts, and derive
       the dashboard's "needs attention" figures from it
       (`web/src/utils/attention.ts` and the server's alert rollup, not the device
       row's derived flags).
-- [ ] Make the server's device-list alert summary and the alert list agree by
+- [x] Make the server's device-list alert summary and the alert list agree by
       construction — same severity filter, same "open" definition, one query.
-- [ ] Show the definition on screen: the dashboard figure is labelled with what it
+- [x] Show the definition on screen: the dashboard figure is labelled with what it
       counts (open, unacknowledged, severity ≥ …), not a bare number.
 
 **Acceptance criteria**
