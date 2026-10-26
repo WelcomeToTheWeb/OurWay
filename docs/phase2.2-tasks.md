@@ -36,8 +36,18 @@ unfinished phase.
       detail → alert acknowledge → patch approve → start and end a remote session.
 - [ ] Re-measure coverage for `server/` and `agent/` and commit the number; add a
       CI step that fails if coverage drops below the recorded baseline (ratchet).
+      **Done 2026-10-26:** `coverage.baseline.json` (server 39.0, agent 30.0) and
+      `scripts/coverage.sh`, run in the `tests` job and in the local gate.
 - [ ] Agent smoke test per OS in CI (Linux + Windows + macOS runners): install as
       service, heartbeat lands, metrics land, session capture starts.
+      **Done 2026-10-26:** `scripts/agent-smoke.sh` +
+      `.github/workflows/agent-smoke.yml` (matrix: ubuntu / windows / macos).
+      The Linux path is validated end to end locally (Xvfb + scrot): enroll →
+      online → heartbeat → metrics → **session reaches active on real frames** →
+      enrollment-secret gate both ways. Windows/macOS run the same script on their
+      runners; the service tier cannot run in a container, so its proof is the CI
+      run. macOS frames are deliberately not asserted (TCC cannot be granted
+      non-interactively) and the script prints that instead of passing them off.
 - [x] `go mod tidy -C agent` — prune the transitive requires left in `go.sum` by
       the WebRTC dead-code removal (2026-10-26, `buglist.md` M15). 127 lines gone.
 

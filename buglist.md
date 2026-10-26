@@ -197,6 +197,22 @@ session at all.
 **Fix:** finish the `ConfirmSheet` migration in 2.2, with the confirmation copy in
 `en`/`de`/`fr` like every other string.
 
+### 🟡 M20. A unit that cannot capture spams 15 log lines a second and tells the console nothing
+**Status:** ⚠️ Open — the state reporting belongs with 2.2-1 (macOS TCC surfacing)
+**Files:** `agent/session/session.go` (capture loop), found by `scripts/agent-smoke.sh`
+
+`captureLoop` runs at 15 fps; on capture failure it logs `session: capture error: …`
+and `continue`s (`session.go:281-283`). On a unit with no usable display — a headless
+box, a Mac without the Screen Recording grant, an X session the agent cannot reach —
+that is 15 identical lines per second for the whole session (the smoke run produced
+about 1,900 in two minutes), with no backoff, no consolidation, and no signal to the
+server: the technician's session panel stays blank with no reason.
+
+**Fix:** back off after repeated failures, log the first and the recovery, and report
+the capture state (`ok` / `denied-permission` / `no-display` / `error`) through the
+agent status envelope so the console can name the reason. The macOS permission case is
+2.2-1's device-detail surface — same field, one design.
+
 ### 🟢 L13. `TestViewerSessionRelay` can fail under container load
 **Status:** ⚠️ Observed once (not reproduced in 4 later runs)
 **Files:** `server/ws/viewer_test.go`

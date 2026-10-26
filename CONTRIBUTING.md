@@ -54,6 +54,28 @@ for the flags. Raise the baseline with `--record` in the same commit that earns 
 The same gate runs in CI (`.github/workflows/build.yml`, `tests` job) and
 Docker images are only pushed when it passes.
 
+## Agent smoke (2.2-0)
+
+`scripts/agent-smoke.sh` runs the **real agent binary** against a running server and
+asserts the install path in order: enroll → device WebSocket (unit goes `online`) →
+heartbeat → metric samples → a remote session reaching `active` (which only happens
+when the agent ships frames) → the installed service reporting heartbeats of its own.
+CI runs it on Linux, Windows and macOS
+(`.github/workflows/agent-smoke.yml`, `--expect-frames --expect-service`).
+
+```sh
+# Linux needs an X display for capture (scrot/import), and scrot is not installed:
+Xvfb :99 -screen 0 1280x800x24 -ac & export DISPLAY=:99
+scripts/agent-smoke.sh --server http://localhost:9090 --agent ./ourway-agent \
+                       --secret "$ENROLLMENT_SECRET" --expect-frames
+```
+
+Notes that cost an hour to learn: `Xvfb` takes `-screen 0 <WxHxD>` (the screen
+*index* first) and `-ac` for access control, and `--expect-service` needs systemd /
+launchd / the Windows SCM, so it is a runner feature, not a container one. On macOS
+the script refuses to assert frames (Screen Recording is a TCC grant that cannot be
+granted non-interactively) and says so out loud.
+
 ## End-to-end suite (2.2-0)
 
 The e2e suite drives the **production bundle against a real server and
