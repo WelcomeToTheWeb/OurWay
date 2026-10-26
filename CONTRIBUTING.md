@@ -42,7 +42,14 @@ GOOS=darwin  GOARCH=arm64 go -C agent build ./...
 # Web (tsc + vite)
 npm ci --prefix web
 npm run build --prefix web
+
+# Coverage floor (2.2-0)
+scripts/coverage.sh
 ```
+
+`scripts/coverage.sh` measures total statement coverage for `server/` and `agent/`
+against `coverage.baseline.json` and fails on a decrease — see `scripts/coverage.sh`
+for the flags. Raise the baseline with `--record` in the same commit that earns it.
 
 The same gate runs in CI (`.github/workflows/build.yml`, `tests` job) and
 Docker images are only pushed when it passes.
