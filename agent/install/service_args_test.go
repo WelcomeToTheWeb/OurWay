@@ -23,7 +23,7 @@ func TestSCCreateArgsQuoting(t *testing.T) {
 	for _, want := range []string{
 		// The path is quoted because it contains a space; the agent's own arguments
 		// follow it, all of them inside the one `binPath=` option.
-		`binPath= "C:\Program Files\OurWay\ourway-agent.exe" --server ws://example.test:9090/ws --key key-123`,
+		`binPath= "C:\Program Files\OurWay\ourway-agent.exe --server ws://example.test:9090/ws --key key-123"`,
 		`start= auto`,
 		`display= "OurWay Agent"`,
 	} {

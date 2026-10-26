@@ -37,7 +37,12 @@ func validateServiceBinary(exe string) error {
 }
 
 func scCreateArgs(service, exe string, cfg *config.Config) []string {
-	binPath := fmt.Sprintf(`binPath= "%s" --server %s --key %s`, exe, cfg.ServerURL, cfg.DeviceKey)
+	// The whole value is quoted, not just the path. sc.exe takes everything
+	// after `binPath=` as the service's command line, and quotes the path alone
+	// (Microsoft's own example, for a path with spaces) leaves the agent's
+	// arguments outside the quoting — the service ends up registered with a
+	// broken image path and 1639 is the polite answer.
+	binPath := fmt.Sprintf(`binPath= "%s --server %s --key %s"`, exe, cfg.ServerURL, cfg.DeviceKey)
 	return []string{
 		"create", service,
 		binPath,
