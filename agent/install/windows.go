@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/windows"
@@ -27,8 +28,13 @@ func Install(cfg *config.Config) error {
 	}
 
 	// Create the service.
-	if err := runCommand("sc.exe", scCreateArgs(ServiceName, exe, cfg)...); err != nil {
-		return fmt.Errorf("create service: %w", err)
+	args := scCreateArgs(ServiceName, exe, cfg)
+	if err := runCommand("sc.exe", args...); err != nil {
+		// sc.exe reports 1639 for a dozen shapes of bad argument and prints
+		// nothing useful about which one. Name the command line that produced
+		// the failure — the operator has to fix it, and so does the next
+		// person to touch this file.
+		return fmt.Errorf("create service: %w (command was: sc.exe %s)", err, strings.Join(args, " "))
 	}
 	fmt.Println("Service created")
 
