@@ -5,6 +5,55 @@ All notable changes to the OurWay RMM project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-10-26
+
+### Changed
+- **The web console is rebuilt as an MSP operating interface** ("fleet service
+  decal sheet"): an ink nav rail grouped Monitor / Manage / Admin with printed
+  keyboard hints, a shift bar answering link state, operator, UTC clock, rate
+  limit and the next maintenance window, states as bordered stamps instead of
+  coloured dots, tabular monospaced numerals wherever a figure is scanned,
+  ruled field boxes, ledgers with guide words, and a per-device service record
+  (last seen, next due, interval). No incumbent visual identity was preserved;
+  `PRODUCT.md` and `DESIGN.md` carry the contract.
+- **Agent self-update follows version ordering** (docs/versioning.md): both
+  sides must parse as semver, the server must be strictly newer, stable agents
+  ignore prereleases, and `OURWAY_UPDATE_CHANNEL=edge` opts a device into
+  `main` builds. Previously any string difference triggered an update, so a
+  per-commit server stamp re-updated the whole fleet on every push.
+- **Images are published per channel**: tags publish `vX.Y.Z`, the floating
+  `X.Y` and `latest`; `main` publishes `edge` and `main-<sha>` only. `latest`
+  is now only ever a stable release. The server image is stamped with the
+  release version instead of the commit sha.
+
+### Added
+- **Version scheme** (`docs/versioning.md`) with the git tag as the single
+  source of version, `scripts/version.sh` as the one derivation, and
+  `scripts/release.sh` to cut a release (refuses a dirty tree, a non-`main`
+  branch, a HEAD that is not the pushed tip, a version not greater than the
+  latest tag, and a red gate).
+- Console build and server version are visible: the shift bar prints the
+  server's stamped version from `GET /api/agent/version`, the same endpoint
+  agents poll.
+- **Console read throttle**: GET requests queue 4-at-a-time, a 429 becomes a
+  named console state with a 60 s backoff printed in the shift bar, and
+  polling pauses while the server's minute budget refills.
+- Device detail charts seed from the server's recorded 24 h history, so a
+  unit is legible before the first live metric sample arrives.
+- Self-hosted Barlow, Archivo Narrow and JetBrains Mono subsets (SIL OFL 1.1,
+  license text at `web/src/assets/fonts/OFL.txt`): the console makes no
+  external font request.
+- Device list view lives in the URL (`?view=table|cards`), so a grid view is
+  linkable; card grid virtualizes past 20 devices.
+
+### Fixed
+- Dashboard mount fired 14 reads and burned the server's per-minute rate
+  budget (429 on load).
+- Ledger times rendered with `toLocaleString()` / `toLocaleDateString()`
+  (US locale) instead of ISO day plus 24-hour UTC.
+- Guide words reported a stale visible range in long lists.
+- Panel heads pushed titles to the right edge.
+
 ## [2.0.0] - 2026-09-25
 
 ### Added
