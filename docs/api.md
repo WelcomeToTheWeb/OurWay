@@ -15,6 +15,7 @@ Complete reference for the OurWay REST API and WebSocket endpoint.
 - [Authentication Endpoints](#authentication-endpoints)
 - [SSO Endpoints](#sso-endpoints)
 - [Device Endpoints](#device-endpoints)
+- [Metric Streaming Endpoints](#metric-streaming-endpoints)
 - [Agent Endpoints](#agent-endpoints)
 - [Alert Endpoints](#alert-endpoints)
 - [Remote Session Endpoints](#remote-session-endpoints)
@@ -591,11 +592,18 @@ Authorization: Bearer <access-token>
 
 ## Remote Session Endpoints
 
-All session endpoints require JWT authentication.
+All session endpoints require JWT authentication, except
+`POST /api/sessions/:id/frame`, which the agent and the native remote-control
+binary authenticate with a per-session token or the device key.
+
+There is **no WebRTC handshake**. Frames travel over HTTP, input travels over the
+device WebSocket, and a session becomes `active` when the server receives its
+first frame.
 
 ### POST /api/devices/:id/sessions
 
-Start a remote session for a device. Returns a WebRTC offer.
+Start a remote session for a device. Requires role `admin`, `manager`, or
+`technician`.
 
 **Path Parameters:**
 
@@ -616,56 +624,69 @@ Authorization: Bearer <access-token>
   "session": {
     "id": "session-uuid",
     "device_id": "device-uuid",
+    "user_id": "user-uuid",
     "status": "pending",
-    "created_at": "2026-09-25T10:00:00Z"
+    "created_at": "2026-10-26T10:00:00Z"
   },
-  "offer": "<SDP offer as a JSON string>"
+  "viewer_token": "opaque per-session viewer credential",
+  "viewer_url": "ourway://session/session-uuid?server=https%3A%2F%2Fhost&token=...&device=..."
 }
 ```
 
+`viewer_token` and the session's remote-control token are returned **once**, at
+session start — only their hashes are stored. `viewer_url` is the link the native
+Windows viewer opens.
+
+**Error Responses:**
+
+- `403` — caller's role may not start sessions
+- `404` — device not found
+- `409` — device is not connected
+
 ---
 
-### POST /api/sessions/:id/answer
+### GET /api/sessions
 
-Submit the browser's WebRTC answer.
+List sessions. `admin` sees every active session; every other role sees only
+their own (`ListActiveAll` for admin, `ListActiveByUser` otherwise).
+
+---
+
+### POST /api/sessions/:id/quality
+
+Set capture quality for a session the caller owns.
 
 **Request:**
 
 ```json
 {
-  "answer": "<SDP answer as a JSON string>"
+  "quality": 70
 }
 ```
 
-**Response (200 OK):**
-
-```json
-{
-  "status": "ok"
-}
-```
+`quality` must be between **1 and 100**; anything outside that range is rejected
+with `400`, not clamped. The device is notified so its capture loop honors it.
 
 ---
 
-### POST /api/sessions/:id/ice
+### POST /api/sessions/:id/frame
 
-Add an ICE candidate.
+Uploads one captured frame. This is the **agent / native remote-control binary**
+endpoint — it is not JWT-authenticated, and it is the only way a session ever
+becomes `active`.
 
-**Request:**
+**Headers (one of):**
 
-```json
-{
-  "candidate": "candidate:..."
-}
+```
+X-Session-Token: <per-session remote token>   # native remote-control binary
+X-Device-Key: <device key>                    # agent
 ```
 
-**Response (200 OK):**
+**Request body:** the captured frame as **raw JPEG** (bounded to 10 MB). The
+server base64-encodes it when relaying to the browser.
 
-```json
-{
-  "status": "ok"
-}
-```
+Frames for a `pending` session mark it `active`; frames for a session that is no
+longer active are rejected with `409`.
 
 ---
 
@@ -679,14 +700,20 @@ Send keyboard/mouse input to the remote session.
 {
   "type": "mouse",
   "payload": {
-    "x": 100,
-    "y": 200,
+    "event": "click",
+    "x": 42.5,
+    "y": 68.2,
     "button": "left"
   }
 }
 ```
 
-`type` is `"key"` or `"mouse"`; `payload` carries the event details.
+`type` is `"key"` or `"mouse"`; `payload` carries the event details. `x` and `y`
+are **percentages of the captured frame (0–100)**, not pixels — the agent maps
+them onto the display it captured, so a scaled viewer stays exact.
+
+Input is synthesized on Windows and Linux. On macOS the agent logs the event and
+the session stays view-only (`agent/session/input_darwin.go`).
 
 **Response (200 OK):**
 
@@ -707,6 +734,53 @@ End a remote session.
 ```json
 {
   "status": "ended"
+}
+```
+
+---
+
+## Metric Streaming Endpoints
+
+Streaming switches an agent from its 60 s metrics interval to a fast interval
+while a device detail page is open. Requires JWT authentication.
+
+### POST /api/devices/:id/stream
+
+Ask a connected device to start streaming metrics.
+
+**Request (body optional):**
+
+```json
+{
+  "interval": 2
+}
+```
+
+`interval` is in seconds, clamped to **1–60**; an empty body means 2.
+
+**Response (200 OK):**
+
+```json
+{
+  "status": "streaming",
+  "interval": 2
+}
+```
+
+**Error Responses:** `404` device not found · `503` device not connected
+
+---
+
+### POST /api/devices/:id/stream/stop
+
+Revert the device to its normal metrics interval. An offline device simply
+reverts on its next connect.
+
+**Response (200 OK):**
+
+```json
+{
+  "status": "streaming_stopped"
 }
 ```
 
@@ -1169,22 +1243,34 @@ This endpoint is used for:
 
 WebSocket endpoint for real-time communication. No HTTP request body.
 
-**Query Parameters (required — one of the following):**
+**Authentication — `Sec-WebSocket-Protocol`, never a query parameter:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `token` | string | User JWT access token (for web dashboard) |
-| `device_key` | string | Device API key (for agents) |
+Credentials travel in the WebSocket subprotocol list, as
+`Sec-WebSocket-Protocol: ourway-auth, <credential>`. They are deliberately **not**
+query parameters: a URL credential lands in access logs, proxy logs, and browser
+history. A connection with no credential is rejected with `400`.
+
+| Caller | Credential |
+|--------|-----------|
+| Web dashboard | user JWT access token |
+| Agent | device key |
 
 **Examples:**
 
+```js
+// User (web dashboard)
+new WebSocket('ws://localhost:8080/ws', ['ourway-auth', token]);
 ```
-# User (web dashboard)
-ws://localhost:8080/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
-# Device (agent)
-ws://localhost:8080/ws?device_key=a1b2c3d4-e5f6-7890-1234-567890abcdef
+```go
+// Agent
+dialer.Dial(ctx, wsURL, http.Header{"Sec-WebSocket-Protocol": []string{"ourway-auth", deviceKey}})
 ```
+
+Allowed `Origin`s are restricted to the web URL plus `WS_ORIGINS`. `WS_ORIGINS`
+is matched against the origin's **host[:port]**, so use `WS_ORIGINS=localhost:3000`:
+a full URL (`http://localhost:3000`) rejects every browser connection with 403
+while the REST API keeps working.
 
 ### WebSocket Message Types
 
@@ -1217,7 +1303,9 @@ server.
 
 | Type | Payload | Description |
 |------|---------|-------------|
-| `session_start` | `{ session_id: string, server_url: string }` | Start a remote session (begin screen capture) |
+| `session_start` | `{ session_id: string, server_url: string, remote_token: string }` | Start a remote session (begin screen capture) |
+| `stream` | `{ interval: number }` | Switch to streaming metrics (1–60 s) |
+| `stream_end` | `{}` | Revert to the normal metrics interval |
 | `session_end` | `{ session_id: string }` | End the remote session |
 | `session_quality` | `{ quality: number }` | Change session video quality (1–100) |
 | `input` | `{ type: string, payload: object }` | Keyboard/mouse input from the session viewer |

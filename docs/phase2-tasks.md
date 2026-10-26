@@ -1,5 +1,13 @@
 # Phase 2 Implementation Tasks: Remote Management
 
+> **Historical record.** Superseded by [`roadmap-2.x.md`](roadmap-2.x.md).
+> The WebRTC architecture below was **reversed** in the 2026-10 remediation
+> (`buglist.md` H4): the agent never negotiated a peer connection, frames
+> already travelled over HTTP, and the gateway's `PeerConnection` plus the
+> dashboard's offer/answer/ICE code were deleted. Remote sessions today are
+> frame relay over HTTP with input over the device WebSocket. The unchecked test
+> items below are carried into the 2.x continuous lanes.
+
 **Target:** Weeks 5-10  
 **Architecture Decisions:**
 - Remote Sessions: WebRTC via `pion/webrtc/v3`

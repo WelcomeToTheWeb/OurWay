@@ -15,6 +15,7 @@ composed of:
 | `agent/` | Go endpoint agent (collects metrics, applies patches, remote sessions) |
 | `cmd/ourway-cli/` | Go command-line client |
 | `cmd/ourway-installer/` | Self-contained per-platform installer (embeds the agent binary) |
+| `cmd/ourway-viewer/` | Native Windows remote-control viewer (Gio); talks to the server, not the agent |
 | `web/` | React + TypeScript + Vite dashboard |
 | `docker/` | Dockerfiles (`Dockerfile.server`, `Dockerfile.web`) |
 | `docs/` | API, configuration, user and release documentation |

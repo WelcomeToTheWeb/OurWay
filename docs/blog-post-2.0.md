@@ -2,6 +2,12 @@
 
 *Published: September 25, 2026*
 
+*Corrections since publication: remote sessions are not WebRTC-based — the WebRTC
+gateway was removed in the 2026-10 remediation (`buglist.md` H4) and frames travel
+over HTTP with input over the device WebSocket. Control is implemented on Windows
+and Linux; macOS sessions are view-only. See `docs/changelog.md` for what has
+shipped since.*
+
 We're thrilled to announce the release of **OurWay RMM 2.0** — a complete reimagining of what remote monitoring and management should be.
 
 OurWay started as a lightweight monitoring tool focused on real-time visibility into your infrastructure. With 2.0, we've transformed it into a full-featured RMM platform that MSPs, IT teams, and DevOps engineers can rely on for day-to-day operations.

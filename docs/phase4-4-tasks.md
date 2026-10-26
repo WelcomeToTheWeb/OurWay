@@ -1,5 +1,10 @@
 # Phase 4.4: Documentation & Release - Task Breakdown
 
+> **Historical record.** Superseded by [`roadmap-2.x.md`](roadmap-2.x.md).
+> Every item below shipped for 2.0; release notes are now generated from the
+> changelog section for the version being tagged, and releases are cut by
+> `scripts/release.sh` (`docs/versioning.md`).
+
 **Status:** Complete
 **Started:** 2026-09-25
 **Completed:** 2026-09-25

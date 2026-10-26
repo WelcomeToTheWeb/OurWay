@@ -2,6 +2,13 @@
 
 This guide walks you through migrating from OurWay RMM 1.x to 2.0.
 
+> **Corrections.** "Remote Sessions: WebRTC-based screen sharing and control" in
+> *What's New* describes the 2.0 plan, not the shipped transport: the WebRTC
+> gateway was removed in the 2026-10 remediation (`buglist.md` H4) and frames
+> travel over HTTP with input over the device WebSocket. Control is implemented on
+> Windows and Linux; macOS sessions are view-only. For upgrading **within** 2.x,
+> use `docs/upgrade-guide.md` and `docs/changelog.md`.
+
 ---
 
 ## Table of Contents

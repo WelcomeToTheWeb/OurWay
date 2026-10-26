@@ -284,10 +284,11 @@ func (sm *SessionManager) captureLoop(ctx context.Context) {
 				continue
 			}
 
-			// Reliable path: upload the JPEG to the server, which relays it
-			// to the browser over the user WebSocket.
-			// TODO: also send frames over the WebRTC data channel once that
-			// path is complete, to reduce latency.
+			// The only frame path: upload the JPEG to the server, which
+			// relays it to the browser over the user WebSocket. There is no
+			// WebRTC path to complete — the gateway's peer connection was
+			// removed in the 2026-10 remediation (buglist.md H4), because the
+			// agent never negotiated one and frames already flowed here.
 			sm.postFrame(frame)
 		}
 	}

@@ -1,8 +1,25 @@
 # OurWay RMM 2.0 Roadmap
 
-**Version:** 2.0  
-**Target Release:** Q2 2027  
-**Status:** Phases 1-3 & 4.1-4.2 Complete, Phase 4.3 In Progress, Phase 4.4 Complete  
+**Version:** 2.0
+**Status:** Superseded by [`roadmap-2.x.md`](roadmap-2.x.md) — kept as the 2.0 record
+
+> **This document is the historical plan for the 2.0 line, not the current roadmap.**
+> Its content is preserved as shipped: the phase breakdowns, the architecture
+> decisions, and the effort estimates describe what 2.0 set out to do.
+>
+> Four things in it are no longer true, and reading them as current would mislead:
+>
+> - **Remote sessions do not use WebRTC.** The `pion/webrtc/v3` gateway decision
+>   (§2.2, "Architecture Decisions") was reversed in the 2026-10 remediation
+>   (`buglist.md` H4): the agent never negotiated a peer connection, frames
+>   already travelled over HTTP, and the signalling machinery was deleted.
+> - **Phase 4.3 (Testing & Quality) is not complete.** It is carried into the
+>   2.x plan as a continuous lane, with coverage re-measured from scratch.
+> - **Open questions 3 and 4 are answered:** multi-tenancy is the scope of
+>   `v2.3.0`, and a native mobile app is deferred out of 2.x.
+> - **"Target Release: Q2 2027" is retired.** Releases are cut by
+>   `scripts/release.sh` when their scope passes the gate
+>   (`docs/versioning.md`), not to a date.
 
 ## Vision
 

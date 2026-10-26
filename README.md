@@ -41,7 +41,8 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - Alert engine (threshold-based) with auto-resolution
 - Event stream for UI updates
 - Authentication (JWT + refresh tokens, RBAC roles)
-- Remote sessions (WebRTC gateway, agent frame relay)
+- Remote sessions (agent frame relay over HTTP, input over the device WebSocket)
+- Native Windows remote-control viewer (`cmd/ourway-viewer`), launched via `ourway://`
 - Patching (scan, deploy, policies) for Windows, macOS, and Linux
 - File transfer (push/pull with transfer tracking)
 - SSO (OpenID Connect, OAuth 2.0)
@@ -54,7 +55,7 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - Dashboard with overview of all devices
 - Device list with realtime status updates
 - Device detail page with real-time charts
-- Remote session viewer (WebRTC)
+- Remote session viewer (browser) plus the native Windows viewer
 - Alert center with acknowledge/assign/resolve
 - Patch manager (updates, deployments, policies)
 - File transfer with drag-and-drop and download links
@@ -110,7 +111,9 @@ ourway/
 │   ├── Dockerfile.web
 │   └── docker-compose.yml
 ├── cmd/
-│   └── ourway-cli/       # CLI for agent install/manage
+│   ├── ourway-cli/       # CLI for agent install/manage
+│   ├── ourway-installer/ # single-binary installer (all platforms)
+│   └── ourway-viewer/    # native Windows remote-control viewer (Gio)
 ├── docs/
 └── README.md
 ```
@@ -205,6 +208,16 @@ Files you added to the install directory are left alone.
 
 ## Roadmap
 
+**Active plan: [`docs/roadmap-2.x.md`](docs/roadmap-2.x.md)** — the next four
+releases (2.2.0 make the claims true · 2.3.0 MSP tenancy + audit log · 2.4.0
+alert thresholds, notification channels, generic OIDC + SAML · 2.5.0
+self-host observability), what each must pass before it is tagged, and what is
+deliberately deferred. Task breakdowns with acceptance criteria:
+[`docs/phase2.2-tasks.md`](docs/phase2.2-tasks.md),
+[`docs/phase2.3-tasks.md`](docs/phase2.3-tasks.md) and
+[`docs/phase2.4-tasks.md`](docs/phase2.4-tasks.md).
+[`docs/roadmap-2.0.md`](docs/roadmap-2.0.md) is kept as the 2.0 record.
+
 ### MVP (v1.0)
 
 #### Phase 1: Foundation (Week 1-2)
@@ -224,7 +237,7 @@ Files you added to the install directory are left alone.
 #### Phase 3: Monitoring UI (Week 3-4)
 - [x] Dashboard with device grid and status
 - [x] Device detail page with charts
-- [ ] Real-time streaming mode (deferred — not shipped in 2.0)
+- [x] Real-time streaming mode (2 s metrics while a detail page is open)
 - [x] Alert configuration and display
 
 #### Phase 4: Polish & Release (Week 4-5)
@@ -237,7 +250,9 @@ Files you added to the install directory are left alone.
 
 See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Implemented:
 
-- ✅ **Remote Sessions**: WebRTC streaming with agent frame relay
+- ✅ **Remote Sessions**: agent frame relay with browser and native Windows viewers
+  (control is implemented on Windows and Linux; **macOS is view-only** — see Known gaps)
+- ✅ **Streaming mode**: detail page switches the agent to 2 s metric intervals
 - ✅ **Patching**: OS update management for Windows, macOS, and Linux (scan, deploy, policies)
 - ✅ **User Management**: RBAC with roles and permissions
 - ✅ **SSO Integration**: OpenID Connect and OAuth 2.0
@@ -248,13 +263,41 @@ See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Implemented:
 - ✅ **Scalability**: Redis-backed cache and distributed rate limiting
 - ⬜ **Automation**: Runbooks, scheduled scripts, workflows
 
+## Known gaps
+
+Honest list of what the product advertises and does not yet do, so nobody has to
+discover it in production. Each item is tracked in
+[`docs/roadmap-2.x.md`](docs/roadmap-2.x.md).
+
+- **macOS remote control is view-only.** `agent/session/input_darwin.go` logs input
+  events instead of synthesizing them: keyboard and mouse injection is implemented
+  on Windows and Linux, not on macOS. Screen capture works on all three.
+- **SAML is not implemented.** SSO is OAuth 2.0 / OIDC; the API rejects a
+  `saml`-typed provider at create, authorize, and callback.
+- **SSO presets are the big three.** The flow is generic OAuth2 and the create API
+  accepts `auth_url`/`token_url`/`user_info_url` overrides, but the console's
+  provider list is hardcoded to Google, Microsoft and Apple, there is no OIDC
+  discovery from an issuer, and `id_token` signature/`iss`/`aud` are not verified.
+  Self-hosted IdPs (Keycloak, Authentik, Zitadel, Okta, a fixed-tenant Entra ID) are
+  a manual paste-the-URLs exercise. Planned in 2.4.0 — see `docs/roadmap-2.x.md`.
+- **macOS patch rollback is unsupported.** `agent/patch` deploys on macOS but
+  refuses rollback; packages are restored manually (brew pin/reinstall).
+- **Linux patching covers apt and yum/dnf only** — no pacman or zypper.
+- **No client/tenant isolation.** Access scope is a global role, so a technician
+  sees every device in the installation. Device tags scope patch policies, not
+  visibility.
+- **Alert thresholds are global.** One threshold set per metric for the whole
+  installation; no per-device, per-group, or per-tag overrides.
+
 ## Key Design Decisions
 
 1. **Streaming vs Snapshots**: Agents send snapshots every 60s. When a user opens a device detail page, the server tells the agent to switch to streaming mode (2s intervals). When the user leaves, it reverts.
 
 2. **Alerting**: Threshold-based rules defined per metric type. Alerts trigger WebSocket notifications to the UI.
 
-3. **Authentication**: JWT tokens for API auth. Agent uses a device-specific API key.
+3. **Authentication**: short-lived JWT access tokens (revocable) for API auth. Agents
+   authenticate with their device key; remote-control binaries with a per-session token.
+   WebSocket credentials travel in `Sec-WebSocket-Protocol`, never in the URL.
 
 4. **Cross-platform Agent**: Uses Go's build tags for OS-specific code. gopsutil handles 80% of the work cross-platform.
 

@@ -1,5 +1,12 @@
 # Agent Installation Improvements
 
+> **Status: describes the 2.0-era install work; several details are now superseded.**
+> Since then the installer also drops an uninstaller next to the agent, agent
+> self-update follows semver **ordering** with an update channel
+> (`docs/versioning.md`), download checksums are verified, and the native Windows
+> viewer ships as a release artifact. Current install reality is
+> `docs/installation.md`; this file is kept as the record of the 2.0 change.
+
 This document describes the improved agent installation experience for OurWay RMM.
 
 ## Problem
@@ -84,7 +91,7 @@ A new `docker/Dockerfile.agent` allows running the agent in a container, which i
 | `--register` | Auto-register device with server | (off) |
 | `--install-dir DIR` | Installation directory | /opt/ourway (Linux/macOS), C:\Program Files\OurWay\Agent (Windows) |
 | `--skip-service` | Don't install as a service | (off) |
-| `--version VER` | Agent version to install | 1.0.0 |
+| `--version VER` | Agent version to install | (empty: the server's current release) |
 
 ## Files Changed
 

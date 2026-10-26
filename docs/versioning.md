@@ -19,7 +19,9 @@ Semantic versioning, with the meaning pinned to what an operator can rely on:
 | **MINOR** | New capability, backwards compatible: new routes, new message types, new web surfaces, new env vars. Agents keep working; older agents keep working. | Upgrade at your convenience. |
 | **PATCH** | A fix, backwards compatible with everything: a bug, a security fix, a docs/build fix. | Upgrade promptly, especially security patches. |
 
-`v2.0.3` is the last released version; the scheme applies from the next release.
+`v2.1.0` is the first release cut under this scheme; the tags before it
+(`v1.5.x`, `v2.0.x`) are already published and stay frozen. The rules above
+apply from `v2.1.0` onward.
 
 Rules that keep the numbers meaningful:
 
@@ -85,7 +87,8 @@ own under this scheme:
 2. Update when `server > local` by major → minor → patch → prerelease order.
    Equal, or lower, means **no update** (a downgrade is never automatic).
 3. A stable agent ignores a prerelease server version entirely. Set
-   `OURWAY_UPDATE_CHANNEL=edge` on both sides to follow `main`.
+   `OURWAY_UPDATE_CHANNEL=edge` on the agent to follow `main`; the server side
+   needs no setting — a `main` build is a prerelease by stamp alone.
 
 Why the ordering rule, not equality: a server stamped per-commit on `main`
 makes "different" true on every push, which would re-update every agent in the

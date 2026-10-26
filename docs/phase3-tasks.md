@@ -1,5 +1,9 @@
 # Phase 3 Implementation Tasks: Authentication & Integration
 
+> **Historical record.** Superseded by [`roadmap-2.x.md`](roadmap-2.x.md).
+> The unchecked SSO/webhook/rate-limit unit tests below are carried into the 2.x
+> continuous lanes; SAML is `v2.4.0` scope.
+
 **Target:** Weeks 11-14  
 **Goal:** Enterprise-grade authentication and third-party integrations.
 

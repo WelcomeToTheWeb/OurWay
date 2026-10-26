@@ -22,8 +22,10 @@ The server reads configuration from environment variables. All variables have se
 |----------|-------------|---------|----------|
 | `SERVER_PORT` | HTTP listen address (host:port) | `:8080` | No |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:ourway@localhost:5432/ourway?sslmode=disable` | No |
-| `JWT_SECRET` | Secret key for JWT token signing | `ourway-secret-key` | No (but required for production) |
+| `JWT_SECRET` | Secret key for JWT token signing. **There is no default:** when unset the server generates a fresh random key at every boot, so all tokens die on restart. Generate one (`openssl rand -hex 32`) and keep it out of version control. | (none — ephemeral per boot) | **Yes, in production** |
 | `WS_PATH` | WebSocket endpoint path | `/ws` | No |
+| `WS_ORIGINS` | Comma-separated allow-list of browser origins permitted to open WebSocket connections. Matched against the origin **host[:port]**, not a URL — write `localhost:3000`, never `http://localhost:3000` (a URL entry rejects every browser connection with 403 while REST keeps working). Empty falls back to `WEB_URL`. | (falls back to `WEB_URL`) | No |
+| `ENROLLMENT_SECRET` | When set, `POST /api/agent/register` requires it as `X-Enrollment-Secret`, so a hostname and private IP alone are not enough to enroll a device. Re-registration of a known device authenticates with its device key. Empty leaves enrollment open — set it on any network you do not fully control. | (none — enrollment open) | Recommended |
 | `REDIS_URL` | Redis connection URL | (none) | No |
 | `REDIS_ENABLED` | Enable Redis-backed rate limiting and distributed WebSocket pub/sub | `false` | No |
 | `WEB_URL` | Public URL of the web dashboard | `http://localhost:3000` | No |
@@ -79,6 +81,7 @@ The agent supports three configuration sources with this precedence (highest to 
 | `OURWAY_DEVICE_KEY` | Unique device key (UUID) | (required) | `550e8400-e29b-41d4-a716-446655440000` |
 | `OURWAY_HEARTBEAT` | Heartbeat interval | `15s` | `30s`, `1m` |
 | `OURWAY_METRICS_INTERVAL` | Metrics collection interval | `60s` | `30s`, `2m` |
+| `OURWAY_UPDATE_CHANNEL` | Update policy: `stable` (default) takes released `vX.Y.Z` only; `edge` opts the device into `main` prerelease builds (`docs/versioning.md`) | `stable` | `edge` |
 
 ### Command-Line Flags
 

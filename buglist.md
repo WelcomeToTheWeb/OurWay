@@ -14,6 +14,12 @@ patch-policy items (scheduling, scoping, auto-reboot) followed on
 2026-10-03, leaving SAML as the only open feature (see the table below).
 See the ✅ status line under each item.
 
+**Status (2026-10-26, at v2.1.0):** a re-audit found 1 High, 2 Medium and 1
+feature gap not covered by the October sweep — see
+[Re-audit at v2.1.0](#-re-audit-at-v210-2026-10-26). The dead-code and
+documentation items were fixed the same day; the macOS input gap and the
+scope/tenancy gaps are scoped in `docs/roadmap-2.x.md`.
+
 ---
 
 ## Legend
@@ -47,6 +53,100 @@ shutdown, careful reconnection/backoff in the agent.
 **Weakest areas:** device identity and credential handling (C1–C5), role
 enforcement on remote-control routes, and half-finished WebRTC/streaming
 features.
+
+---
+
+## 🔍 Re-audit at v2.1.0 (2026-10-26)
+
+Static review of the `v2.1.0` tree, focused on the gap between what the product
+advertises and what the code does. Findings are numbered continuously with the
+October set.
+
+### 🟠 H8. macOS remote control is view-only
+**Status:** ⚠️ Open — scoped as `v2.2.0` scope in `docs/roadmap-2.x.md`
+**Files:** `agent/session/input_darwin.go`
+
+`synthesizeKey` and `synthesizeMouse` on darwin log the event and return. Screen
+capture, geometry, framing, and the session control path are all implemented for
+macOS (`screen_capture_darwin.go`, `geometry_darwin.go`, `remote_darwin.go`), so a
+macOS session opens, streams, and looks fully live — while every keystroke and
+click the technician sends is silently discarded. `PRODUCT.md` and `README.md`
+advertise remote control on all three desktop OSes; only Windows
+(`input_windows.go`) and Linux (`input_linux.go`) synthesize input.
+
+**Fix:** CGEvent-backed synthesis (`CGEventCreateKeyboardEvent`,
+`CGEventCreateMouseEvent`) plus the macOS Accessibility-permission gate — the
+capture half is already there. `x`/`y` already arrive as 0–100 frame percentages
+and `toScreenCoords` maps them, so the coordinate contract is ready.
+
+### 🟡 M15. WebRTC removal was server-side only; the agent kept it
+**Status:** ✅ Fixed 2026-10-26 — `agent/session/webrtc.go` (178 lines,
+`NewWebRTCManager` had zero callers) deleted; `pion/webrtc/v3` and its 15 transitive
+requires dropped from `agent/go.mod`; the stale "send frames over the WebRTC data
+channel" TODO in `agent/session/session.go` removed.
+**Files:** `agent/session/webrtc.go` (deleted), `agent/go.mod`
+
+H4 removed the gateway's `PeerConnection` and the dashboard's offer/answer/ICE
+code, but left the agent's `WebRTCManager` in place — dead code that kept
+`pion/webrtc/v3` as a **direct** agent dependency, pulling stun/turn/ice/dtls/sctp
+into every agent binary built from source, in a product whose position is that the
+operator owns and audits the agent.
+
+**Fix:** delete the file and the dependency. (Run `go mod tidy -C agent` to prune
+the now-unreferenced transitive requires from `go.sum`.)
+
+### 🟡 M16. Documentation described endpoints and auth that do not exist
+**Status:** ✅ Fixed 2026-10-26 (docs corrected; the missing docs below are now
+the 2.2.0 documentation scope)
+**Files:** `docs/api.md`, `README.md`, `docs/configuration.md`, `.env.example`,
+`docs/versioning.md`, `docs/roadmap-2.0.md`, `docs/phase*-tasks.md`,
+`docs/release-notes-2.0.md`, `docs/migration-guide.md`, `SECURITY.md`
+
+Every one of these misled an operator reading it as current:
+
+1. `docs/api.md` documented `POST /api/sessions/:id/answer` and `/ice` — routes
+   never registered in `server/api/handlers.go` — and a StartSession response
+   containing `"offer"`, which the handler does not produce.
+2. `docs/api.md` documented WebSocket auth as `?token=` / `?device_key=` query
+   parameters — the exact behaviour C5 removed. Credentials now travel in
+   `Sec-WebSocket-Protocol`.
+3. `POST /api/devices/:id/stream` and `/stream/stop` (the H5 fix) were not in
+   `docs/api.md` at all.
+4. The mouse-input example documented `x`/`y` as pixels (100, 200); the agent
+   treats them as **0–100 percentages of the captured frame**
+   (`agent/session/geometry.go`).
+5. `ENROLLMENT_SECRET` (the C4 enrollment gate) and `WS_ORIGINS` (the C5 origin
+   allow-list) were documented **nowhere** — not in `configuration.md`, not in
+   `.env.example`, not in `SECURITY.md`. `WS_ORIGINS` is matched against the
+   origin host[:port], so the natural-looking `http://localhost:3000` breaks every
+   browser WebSocket with 403.
+6. `.env.example` shipped `JWT_SECRET="ourway-secret-key"` as a template value —
+   a publicly known signing key, in a repo whose own C7 finding is about shared
+   default secrets. `configuration.md` listed the same string as the default,
+   which no longer exists (unset yields an ephemeral random key).
+7. `README.md` claimed "Remote sessions (WebRTC gateway)" and a "Remote session
+   viewer (WebRTC)" after H4 removed WebRTC, and marked streaming mode "deferred
+   — not shipped" after H5 shipped it.
+8. `docs/versioning.md` stated "`v2.0.3` is the last released version" (v2.1.0
+   shipped under the scheme) and told operators to set `OURWAY_UPDATE_CHANNEL=edge`
+   "on both sides" — the server has no such variable; only the agent reads it
+   (`agent/selfupdate/version.go`).
+
+**Fix:** all eight corrected on 2026-10-26; `README.md` gained a **Known gaps**
+section so the claims in H8 / M17 are stated rather than discovered.
+
+### 🧩 M17. Declared capabilities with no implementation behind them
+**Status:** ⚠️ Open — scoped in `docs/roadmap-2.x.md`
+
+| Declared by | Feature | Reality |
+|---|---|---|
+| `docs/roadmap-2.0.md` Phase 1.2, `docs/phase1-tasks.md` | Audit log for user actions | No `audit_log` table, no writer, no UI — zero code |
+| `docs/roadmap-2.0.md` Phase 1.3 | Per-device and per-group custom thresholds | `server/alerts/engine.go` holds one global `thresholds` map; `SetThresholds` replaces it wholesale |
+| `PRODUCT.md` ("many client fleets", MSP-scale) | Client/tenant isolation | No client, organization, or tenant entity in `server/models`; a `technician` sees every device in the installation |
+| `docs/roadmap-2.0.md` §2.2 | Linux package managers: apt, yum/dnf, **pacman, zypper** | `agent/patch/patch.go` implements apt and yum/dnf only |
+| `docs/roadmap-2.0.md` §2.2 | Patch rollback | macOS rollback explicitly refuses (`agent/patch/patch.go:626`) |
+
+**Fix:** 2.3.0 (tenancy + audit log), 2.4.0 (thresholds), 2.5.0 (patch parity).
 
 ---
 

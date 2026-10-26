@@ -38,10 +38,20 @@ other dependencies — report those to their respective projects.
 
 - **Agent authentication** uses per-device API keys (`X-Device-Key`);
   user-facing API keys support scopes, rotation and revocation
-  (`/api/v2/api-keys`).
+  (`/api/v2/api-keys`). Device keys are never serialized in API responses —
+  a key is a full device credential and is returned only at registration.
+- **Device enrollment** is open by default. Set `ENROLLMENT_SECRET` so that
+  `POST /api/agent/register` requires `X-Enrollment-Secret`; without it, a
+  hostname and private IP are enough to enroll a unit on any network where the
+  API is reachable.
+- **WebSocket credentials** travel in the `Sec-WebSocket-Protocol` list
+  (`ourway-auth, <credential>`), never in the URL, and allowed browser origins
+  are restricted to `WEB_URL` plus `WS_ORIGINS`.
 - **User authentication** is JWT-based (15 min access / 7 d refresh, with
   JTI revocation and a logout endpoint) and RBAC roles; the SSO session
-  cookie is set with the `Secure` flag.
+  cookie is set with the `Secure` flag. There is no default `JWT_SECRET`: an
+  unset value yields an ephemeral per-boot key, so production deployments must
+  set one.
 - **Token storage** uses `localStorage` in the dashboard, which is readable
   by any script on the page (XSS). This is a deliberate trade-off for a
   self-hosted admin tool: tokens are short-lived and refreshable, and the

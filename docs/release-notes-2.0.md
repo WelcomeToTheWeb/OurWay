@@ -4,6 +4,20 @@
 **Release Date:** September 25, 2026  
 **Status:** Production Ready
 
+> **Corrections since 2.0 — read before acting on this document.** The 2.0 text
+> below is preserved as published. Two statements in it are no longer true:
+>
+> - **Remote sessions are not WebRTC-based.** The WebRTC gateway was removed in
+>   the 2026-10 remediation (`buglist.md` H4): the agent never negotiated a peer
+>   connection, and frames travel over `POST /api/sessions/:id/frame` with input
+>   over the device WebSocket. View/control modes and capture quality all still
+>   work; the transport sentence does not.
+> - **Web control is implemented on Windows and Linux only.** A macOS session is
+>   view-only (`agent/session/input_darwin.go`).
+>
+> Later releases are listed in `docs/changelog.md`; the current console is the
+> `v2.1.0` rebuild.
+
 ---
 
 ## Introduction

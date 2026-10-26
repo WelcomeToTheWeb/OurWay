@@ -93,7 +93,9 @@ Click a device to open its detail page.
 
 #### Remote Session
 
-Click **Remote Session** on the device detail page to start a WebRTC-based remote desktop session.
+Click **Remote Session** on the device detail page to start a remote desktop
+session. Frames stream to the browser over the server's frame relay; input travels
+back over the device's WebSocket connection.
 
 - **View mode**: Watch the screen without controlling
 - **Control mode**: Click, type, and interact with the remote machine
@@ -138,7 +140,15 @@ Alerts are automatically deduplicated within a 5-minute window. If the same aler
 
 ## Remote Sessions
 
-Remote sessions provide real-time screen sharing and control over any managed device.
+Remote sessions provide real-time screen sharing and control over any managed
+device.
+
+> **Platform reality check.** Screen capture works on Windows, Linux, and macOS.
+> **Input synthesis is implemented on Windows and Linux only** — a macOS session
+> is view-only: control mode opens, streams, and discards every keystroke and
+> click (`agent/session/input_darwin.go`). Windows machines can also be driven
+> from the native viewer (`ourway://` launch) for multi-monitor and
+> clipboard-aware control.
 
 ### Starting a Session
 

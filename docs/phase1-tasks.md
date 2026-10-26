@@ -1,5 +1,11 @@
 # Phase 1 Implementation Tasks
 
+> **Historical record.** Superseded by [`roadmap-2.x.md`](roadmap-2.x.md).
+> Two items below are the reason 2.x exists: the **audit log for user actions**
+> shipped with zero code (client tenancy and audit log are `v2.3.0`), and
+> **per-device/per-group custom thresholds** were never implemented —
+> `server/alerts/engine.go` still holds one global threshold map (`v2.4.0`).
+
 ## Workstream 1: User Management (RBAC)
 
 ### Server
