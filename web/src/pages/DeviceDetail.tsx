@@ -31,10 +31,9 @@ import {
 } from '../api/devices';
 import { startSession } from '../api/sessions';
 import { downloadInstaller, fetchInstallers } from '../api/installers';
-import { listPolicies, getPatchOverview } from '../api/patching';
-import type { PatchOverview } from '../types/patch';
+import { useFleet } from '../hooks/useFleet';
+import { invalidateFleet } from '../stores/fleet';
 import type { Session } from '../api/sessions';
-import type { PatchPolicy } from '../types/patch';
 import { Gauge } from '../components/Gauge';
 import { LineChart } from '../components/LineChart';
 import { InfoRow } from '../components/InfoRow';
@@ -119,8 +118,6 @@ export function DeviceDetail() {
   const [viewerLaunched, setViewerLaunched] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [policies, setPolicies] = useState<PatchPolicy[]>([]);
-  const [overview, setOverview] = useState<PatchOverview | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -130,6 +127,12 @@ export function DeviceDetail() {
 
   const deviceId = id!;
   const canSeePatches = hasAnyRole(['admin', 'manager', 'technician']);
+
+  // Policy and compliance come from the shared fleet model (2.2-2): the unit
+  // view's own reads are this unit's record and this unit's history. Opening
+  // it from the dashboard therefore adds no list read at all.
+  const { data: policies } = useFleet('patchPolicies');
+  const { data: overview } = useFleet('patchOverview', { enabled: canSeePatches });
 
   const load = useCallback(async () => {
     try {
@@ -146,8 +149,6 @@ export function DeviceDetail() {
   useEffect(() => {
     if (!id) return;
     void load();
-    listPolicies().then(setPolicies).catch(() => setPolicies([]));
-    if (canSeePatches) getPatchOverview().then(setOverview).catch(() => setOverview(null));
 
     // Recorded history first: a page opened on a unit shows its day, and
     // the live stream then extends it.
@@ -162,7 +163,7 @@ export function DeviceDetail() {
     }, 15000);
 
     return () => clearInterval(interval);
-  }, [id, load, seedHistory, deviceId, canSeePatches]);
+  }, [id, load, seedHistory, deviceId]);
 
   // WebSocket connection for real-time metrics
   useEffect(() => {
@@ -284,6 +285,9 @@ export function DeviceDetail() {
     try {
       const { session: started } = await startSession(device.id);
       setSession(started);
+      // The sessions ledger is a shared collection: a session started here is
+      // a row the sessions page must show now, not on its next poll.
+      invalidateFleet('sessions');
     } catch (err) {
       setError(`Failed to start session: ${(err as Error).message}`);
     } finally {

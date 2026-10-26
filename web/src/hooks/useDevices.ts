@@ -1,40 +1,35 @@
-import { useCallback, useEffect } from 'react';
-import { getDevices } from '../api/devices';
-import { useDevicesStore } from '../stores/devices';
+import { useCallback } from 'react';
+import { useFleet } from './useFleet';
+import { useFleetStore } from '../stores/fleet';
+import type { Device } from '../types/device';
 
+/**
+ * The unit list, as a view on the shared fleet read model (2.2-2).
+ *
+ * It used to own a poller: every component that called it fetched
+ * `GET /api/devices` on mount. Now the list arrives from the fleet store,
+ * where one ref-counted poller serves every subscriber, so a second page
+ * open on the fleet costs nothing.
+ */
+export function useDevices(): {
+  devices: Device[];
+  loading: boolean;
+  error: string | null;
+  refresh: () => void;
+  streamingDeviceId: string | null;
+  setStreaming: (deviceId: string | null) => void;
+} {
+  const { data, loading, error, refresh } = useFleet('devices', { owner: true });
+  const streamingDeviceId = useFleetStore((s) => s.streamingDeviceId);
+  const setStreaming = useFleetStore((s) => s.setStreaming);
 
-export function useDevices() {
-  const devices = useDevicesStore((s) => s.devices);
-  const loading = useDevicesStore((s) => s.loading);
-  const error = useDevicesStore((s) => s.error);
-  const streamingDeviceId = useDevicesStore((s) => s.streamingDeviceId);
-  const setDevices = useDevicesStore((s) => s.setDevices);
-  const setLoading = useDevicesStore((s) => s.setLoading);
-  const setError = useDevicesStore((s) => s.setError);
-  const setStreaming = useDevicesStore((s) => s.setStreaming);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getDevices();
-      setDevices(data);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [setDevices, setLoading, setError]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const refreshNow = useCallback(() => refresh(), [refresh]);
 
   return {
-    devices,
+    devices: data,
     loading,
-    error,
-    refresh,
+    error: error ?? null,
+    refresh: refreshNow,
     streamingDeviceId,
     setStreaming,
   };

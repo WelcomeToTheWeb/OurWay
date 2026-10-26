@@ -222,7 +222,7 @@ one place an operator can read.
 **Do**
 - [ ] Migration 11: `webhooks.kind`, `webhooks.config`, `webhooks.scope_clients`,
       `webhooks.min_severity`, `webhooks.tags`. Note `webhooks.url` is `not null`
-      today and is meaningless for an email channel — migration 11 drops the
+      today and is meaningless for an email channel — migration 12 drops the
       NOT-NULL on `url` and the API validates it **per kind** (required for
       webhook/slack/teams, absent for email). Event matching stays exact in Go
       (`store/webhooks.go:ListByEvent`, the M12 fix) — do not reintroduce a SQL

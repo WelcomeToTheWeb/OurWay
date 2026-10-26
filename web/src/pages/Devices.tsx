@@ -12,8 +12,9 @@ import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import { Grid } from 'react-window';
 import { applyDeviceFilters, collectTags, defaultFilters, type DeviceFilters, type SortKey } from '../utils/deviceList';
 import { bulkTags } from '../api/tags';
-import { deployNow, getPatchOverview, listPolicies, scanDevices } from '../api/patching';
-import type { DeviceCompliance, PatchOverview, PatchPolicy } from '../types/patch';
+import { deployNow, scanDevices } from '../api/patching';
+import { useFleet } from '../hooks/useFleet';
+import type { DeviceCompliance } from '../types/patch';
 
 /** Ledger time: 24-hour and unambiguous, with the ISO date beyond a day. */
 function seenLabel(iso: string): string {
@@ -80,25 +81,10 @@ export function Devices() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [overview, setOverview] = useState<PatchOverview | null>(null);
-  const [policies, setPolicies] = useState<PatchPolicy[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      getPatchOverview().catch(() => null),
-      listPolicies().catch(() => [] as PatchPolicy[]),
-    ])
-      .then(([o, p]) => {
-        if (cancelled) return;
-        setOverview(o);
-        setPolicies(p);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Shared collections (2.2-2): this page used to fetch the compliance view and
+  // the policy list itself, on top of the list read useDevices already made.
+  const { data: overview } = useFleet('patchOverview', { enabled: canAct });
+  const { data: policies } = useFleet('patchPolicies');
 
   const complianceById = useMemo(
     () => new Map((overview?.devices ?? []).map((d) => [d.device_id, d]) as [string, DeviceCompliance][]),

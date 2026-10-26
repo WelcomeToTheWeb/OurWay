@@ -1,40 +1,33 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { MonitorSmartphone, RefreshCw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { listSessions, endSession, type Session } from '../api/sessions';
+import { endSession, type Session } from '../api/sessions';
+import { useFleet } from '../hooks/useFleet';
+import { invalidateFleet } from '../stores/fleet';
 import { Stamp } from '../components/Stamp';
 import { agoLabel } from '../utils/policyScope';
 
 /** Who is sitting at somebody else's screen right now. */
 export function Sessions() {
   const { t } = useTranslation();
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [loading, setLoading] = useState(true);
+  // The session ledger is a fleet collection (2.2-2): the dashboard reads the
+  // same list, so opening this page next to it costs no second read.
+  const { data: sessions, loading, refresh } = useFleet('sessions', { owner: true });
   const [endingId, setEndingId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    try {
-      setSessions(await listSessions());
-      setError('');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('common.error'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const load = useCallback(() => refresh(), [refresh]);
 
   const handleEnd = async (session: Session) => {
     if (!confirm(`End session ${session.id.slice(0, 8)}?`)) return;
     setEndingId(session.id);
     try {
       await endSession(session.id);
-      await load();
+      // The ledger is shared: tell the model the row is gone so a dashboard
+      // open in another tab does not keep showing it for half a minute.
+      invalidateFleet('sessions');
+      load();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('common.error'));
     } finally {

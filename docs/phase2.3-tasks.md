@@ -23,9 +23,9 @@ route-level guarantee is the feature.
 ## 2.3-0 · Schema: clients, device assignment, user scope
 
 **Context:** `server/store/migrate.go` keeps an append-only list of contiguous
-versioned migrations; the highest shipped is **version 6**
-(`sessions_viewer_token_hash`), and a shipped migration is never edited. This lands
-as **version 7**.
+versioned migrations; the highest shipped is **version 7**
+(`devices_input_and_capture_capability`, 2.2-1), and a shipped migration is never
+edited. This lands as **version 8**.
 
 **Do**
 - [ ] `Client` model (`server/models/client.go`): `id`, `name`, `slug` (unique,
@@ -184,10 +184,10 @@ is an action on a client the caller must not touch.
 ## 2.3-6 · Audit log (the Phase 1.2 item that shipped with zero code)
 
 **Context:** `docs/phase1-tasks.md` lists "Audit log for user actions" as complete;
-there is no table, no writer, and no UI. This lands as migration **8**.
+there is no table, no writer, and no UI. This lands as migration **9**.
 
 **Do**
-- [ ] `AuditLog` model + migration 8: `id`, `actor_user_id`, `actor_username`,
+- [ ] `AuditLog` model + migration 9: `id`, `actor_user_id`, `actor_username`,
       `actor_provider`, `action` (verb, e.g. `device.delete`, `patch.deploy`),
       `target_type`, `target_id`, `client_id`, `details` (JSON), `source_ip`,
       `created_at`. Index on `(client_id, created_at)` and `(action, created_at)`.
