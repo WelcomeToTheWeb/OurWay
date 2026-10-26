@@ -97,6 +97,7 @@ It refuses a dirty tree, a non-`main` branch, a HEAD that is not the pushed
 tip, a number that is not greater than the latest tag, and a red gate.
 
 The pipeline then runs in order: agents → installers → Docker images (GHCR) →
-GitHub Release with all binaries attached. A tag publishes `X.Y.Z`, the
-floating `X.Y`, and `latest`; a `main` push publishes `edge` only. Verify the
+GitHub Release with all binaries attached. A tag publishes `vX.Y.Z`, the
+floating `X.Y`, and `latest`; a `main` push publishes `edge` only (the old
+scheme published a per-commit sha tag; `edge` replaces it). Verify the
 release run is green before announcing a version.

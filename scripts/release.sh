@@ -130,5 +130,5 @@ git push origin "v${VERSION}"
 
 echo
 echo "released v${VERSION}: watch Actions for the Build & Release workflow"
-echo "  images   ghcr.io/welcometotheweb/ourway/{server,web}:${VERSION} + :latest + :${VERSION%.*}"
+echo "  images   ghcr.io/welcometotheweb/ourway/{server,web}:v${VERSION} + :${VERSION%.*} + :latest"
 echo "  release  https://github.com/WelcomeToTheWeb/OurWay/releases/tag/v${VERSION}"

@@ -185,8 +185,10 @@ jobs:
           COMMIT=$(scripts/version.sh --commit)
           MINOR=$(printf '%s' "$VERSION" | cut -d- -f1 | cut -d. -f1,2)
           base=${REGISTRY}/${IMAGE_PREFIX}/server
+          # Image tags carry the v prefix, matching the git tag and the
+          # v1.5.x / v2.0.x tags already published in the registry.
           if [ "$CHANNEL" = stable ]; then
-            tags="$base:$VERSION"$'\n'"$base:$MINOR"$'\n'"$base:latest"
+            tags="$base:v$VERSION"$'\n'"$base:$MINOR"$'\n'"$base:latest"
           else
             tags="$base:edge"$'\n'"$base:main-$COMMIT"
           fi
@@ -241,8 +243,10 @@ jobs:
           COMMIT=$(scripts/version.sh --commit)
           MINOR=$(printf '%s' "$VERSION" | cut -d- -f1 | cut -d. -f1,2)
           base=${REGISTRY}/${IMAGE_PREFIX}/web
+          # Image tags carry the v prefix, matching the git tag and the
+          # v1.5.x / v2.0.x tags already published in the registry.
           if [ "$CHANNEL" = stable ]; then
-            tags="$base:$VERSION"$'\n'"$base:$MINOR"$'\n'"$base:latest"
+            tags="$base:v$VERSION"$'\n'"$base:$MINOR"$'\n'"$base:latest"
           else
             tags="$base:edge"$'\n'"$base:main-$COMMIT"
           fi

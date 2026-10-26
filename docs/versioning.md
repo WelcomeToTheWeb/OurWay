@@ -39,12 +39,15 @@ Rules that keep the numbers meaningful:
 
 | Channel | Where it comes from | Image tags | Agents auto-update to it? |
 |---|---|---|---|
-| **stable** | a `vX.Y.Z` tag | `X.Y.Z`, `X.Y`, `latest` | **yes** (default) |
+| **stable** | a `vX.Y.Z` tag | `vX.Y.Z`, `X.Y`, `latest` | **yes** (default) |
 | **edge** | `main` | `edge`, `main-<sha>` | only if `OURWAY_UPDATE_CHANNEL=edge` |
 | **dev** | a local unstamped build (`dev`) | none (never pushed) | never |
 
 - `latest` is **only ever a stable release**, and only moves to a stable
   release. This is what `docker-compose.prod.yml` pins.
+- Image tags keep the `v` prefix of the git tag (`v2.1.0`), matching the
+  `v1.5.x` and `v2.0.x` tags already in `ghcr.io/welcometotheweb/ourway/server`.
+  The floating minor does not: it reads `2.1`, Docker-style.
 - `X.Y` is a floating minor: it tracks the newest stable patch of that minor
   (`v2.1.3` moves `2.1`). Pin `X.Y.Z` if you want to be immune to that.
 - `edge` carries a prerelease string, e.g. `2.1.0-dev.20261026+5f03d77`
