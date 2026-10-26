@@ -55,7 +55,13 @@ jobs:
           echo "Building at version $VERSION (commit $GIT_COMMIT)"
           mkdir -p dist/agents
 
-          for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64"; do
+          # macOS is deliberately NOT in this list: the darwin input path is cgo
+          # (CoreGraphics), and cgo cannot cross-compile from Linux. Binaries
+          # built here would ship an agent that reports its input capability as
+          # "unavailable" — the silent view-only Mac (buglist.md H8) in a
+          # download. The darwin binaries are built on a macOS runner, in
+          # build-macos-agents below, and merged into this artifact there.
+          for platform in "linux/amd64" "linux/arm64" "windows/amd64"; do
             os="${platform%%/*}"
             arch="${platform##*/}"
             suffix=""
@@ -82,7 +88,7 @@ jobs:
             -o "../../dist/agents/ourway-viewer-windows-amd64.exe" .
 
           echo "Building installers..."
-          for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64"; do
+          for platform in "linux/amd64" "linux/arm64" "windows/amd64"; do
             os="${platform%%/*}"
             arch="${platform##*/}"
             suffix=""
@@ -110,6 +116,72 @@ jobs:
 
   # Test gate: build, vet and test every Go module, plus the web
   # build (tsc + vite). Images are only pushed when this is green.
+  # 2.2-1: the macOS agent must be built where CoreGraphics exists.
+  # CGO_ENABLED=1 on a macOS builder, for arm64 and amd64, and merged into the
+  # same artifact the server image and the release download — so the Mac binary a
+  # console offers for download is one that can actually control the unit.
+  build-macos-agents:
+    name: Build macOS Agent Binaries
+    needs: build-agents
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            go.work.sum
+            server/go.sum
+            agent/go.sum
+
+      - name: Download the non-darwin binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-binaries
+          path: dist/agents/
+
+      - name: Build the cgo macOS binaries (arm64 + amd64)
+        shell: bash
+        run: |
+          chmod +x scripts/version.sh
+          VERSION=$(scripts/version.sh)
+          GIT_COMMIT=$(scripts/version.sh --commit)
+          BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          for arch in arm64 amd64; do
+            echo "Building darwin/$arch with CGO_ENABLED=1..."
+            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -C agent \
+              -ldflags "-s -w -X ourway/agent/config.Version=$VERSION" \
+              -o "../dist/agents/ourway-agent-darwin-$arch" .
+            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -C agent \
+              -ldflags "-s -w -X ourway/agent/config.Version=$VERSION" \
+              -o "../dist/agents/ourway-remote-darwin-$arch" ./cmd/ourway-remote
+            # The installer embeds the agent it just built. `-C agent -o
+            # ../dist/...` writes to the workspace root (the `-C` directory is
+            # the base for `-o`), so the source of this copy is rooted here,
+            # not one level up — the first run of this job read its own
+            # `../dist/...` and stopped at "No such file or directory".
+            cp "dist/agents/ourway-agent-darwin-$arch" cmd/ourway-installer/assets/agent
+            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -C cmd/ourway-installer \
+              -ldflags "-s -w -X main.version=$VERSION -X 'main.buildTime=$BUILD_TIME' -X main.gitCommit=$GIT_COMMIT" \
+              -o "../dist/agents/ourway-installer-darwin-$arch" .
+          done
+          # A cgo binary is not a cross-compile artifact: say so in the log, so a
+          # red darwin build is never read as a toolchain hiccup.
+          file dist/agents/ourway-agent-darwin-*
+          ls -la dist/agents/
+
+      - name: Upload merged binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-binaries
+          path: |
+            dist/agents/ourway-agent-*
+            dist/agents/ourway-installer-*
+            dist/agents/ourway-viewer-*
+
   tests:
     name: Tests
     runs-on: ubuntu-latest
@@ -175,10 +247,16 @@ jobs:
           chmod +x scripts/coverage.sh
           scripts/coverage.sh
 
+      # 2.2 gate: "Zero hardcoded English" needs a machine-checked floor. A key
+      # added to en only renders English for everyone; a key missing from de
+      # renders the raw key path for a German operator.
+      - name: Locale parity (en/de/fr)
+        run: python3 scripts/i18n-parity.py
+
   # Build and push server Docker image
   build-server-image:
     name: Build Server Image
-    needs: [build-agents, tests]
+    needs: [build-agents, build-macos-agents, tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -298,7 +376,7 @@ jobs:
   # Create GitHub release on tags
   release:
     name: Create Release
-    needs: [build-agents, build-server-image, build-web-image]
+    needs: [build-agents, build-macos-agents, build-server-image, build-web-image]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

@@ -42,6 +42,10 @@ export const SEED_UNITS = [
     // so the alert ledger has a real critical row to acknowledge.
     metrics: { cpu: 95, ram: 40, ram_used: 4_000_000_000, ram_total: 16_000_000_000, disk_usage: 45, disk_used: 45_000_000_000, disk_total: 100_000_000_000, net_in: 1_000, net_out: 1_000, uptime: 86_400, processes: 180 },
     critical: true,
+    // 2.2-1: a unit reports its own remote-control state on the metrics
+    // envelope. The fleet carries all four states the console must render.
+    inputCapability: 'granted',
+    captureState: 'ok',
     updates: [
       { source: 'windows', title: 'E2E Security Update 001', version: '1.0.1', severity: 'critical', kb: 'KB5000001' },
       { source: 'windows', title: 'E2E Optional Update 002', version: '1.0.2', severity: 'optional', kb: 'KB5000002' },
@@ -56,6 +60,8 @@ export const SEED_UNITS = [
     // disk_usage 97 crosses the critical disk threshold (95).
     metrics: { cpu: 12, ram: 96, ram_used: 15_000_000_000, ram_total: 16_000_000_000, disk_usage: 97, disk_used: 97_000_000_000, disk_total: 100_000_000_000, net_in: 2_000, net_out: 2_000, uptime: 1_728_000, processes: 240 },
     critical: true,
+    inputCapability: 'granted',
+    captureState: 'ok',
     updates: [{ source: 'apt', title: 'E2E kernel patch', version: '6.9.9', severity: 'important', kb: '' }],
   },
   {
@@ -67,6 +73,11 @@ export const SEED_UNITS = [
     // Healthy unit: gives the fleet view a unit that needs nothing.
     metrics: { cpu: 8, ram: 22, ram_used: 3_000_000_000, ram_total: 16_000_000_000, disk_usage: 30, disk_used: 30_000_000_000, disk_total: 100_000_000_000, net_in: 500, net_out: 500, uptime: 3_600, processes: 90 },
     critical: false,
+    // The macOS case 2.2-1 is about: control opens, streams, and the system
+    // discards every event because Accessibility was never granted. The unit
+    // reports it, and the console must say so.
+    inputCapability: 'denied',
+    captureState: 'error',
     updates: [],
   },
 ] as const;
@@ -77,6 +88,11 @@ export interface SeededUnit {
   os: string;
   id: string;
   deviceKey: string;
+  /** Reported to the server on the metrics wire (2.2-1). */
+  inputCapability?: string;
+  captureState?: string;
+  /** The unit's load, reported on the wire for the whole run. */
+  metrics?: Record<string, unknown>;
 }
 
 export interface SeedManifest {
@@ -103,9 +119,18 @@ export function seededTitle(unitIndex: number, updateIndex: number): string {
   return `${SEED_UNITS[unitIndex].updates[updateIndex].title}${RUN_SUFFIX}`;
 }
 
+/**
+ * Enrollment secret, when the server under test gates enrollment (2.2-0).
+ * The harness does not run against an open door: with the secret set on both
+ * sides, the enrollment gate is exercised on every run, and the console's own
+ * registration path is what seeds the fleet.
+ */
+const ENROLLMENT_SECRET = process.env.OURWAY_E2E_ENROLLMENT_SECRET ?? '';
+
 async function req<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<{ status: number; body: T }> {
   const headers: Record<string, string> = { 'content-type': 'application/json', ...((init.headers as Record<string, string>) ?? {}) };
   if (init.token) headers.authorization = `Bearer ${init.token}`;
+  if (ENROLLMENT_SECRET) headers['x-enrollment-secret'] = ENROLLMENT_SECRET;
   const { token: _drop, ...rest } = init;
   const res = await fetch(`${API_URL}/api${path}`, { ...rest, headers });
   const text = await res.text();
@@ -236,6 +261,9 @@ export async function seedFleet(token: string): Promise<SeedManifest> {
       os: unit.os,
       id: reg.body.device.id,
       deviceKey: reg.body.device_key,
+      inputCapability: unit.inputCapability,
+      captureState: unit.captureState,
+      metrics: { ...unit.metrics, disks: [{ total: 1e11, used: unit.metrics.disk_usage * 1e9 }] },
     };
     units.push(seeded);
 

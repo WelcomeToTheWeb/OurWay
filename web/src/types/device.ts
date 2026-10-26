@@ -12,6 +12,10 @@ export interface Device {
   device_key?: string;
   tags?: string[];
   reboot_pending?: boolean;
+  /** Reported by the agent: can remote input land here? Never assume granted. */
+  input_capability?: 'granted' | 'denied' | 'unavailable' | 'unknown';
+  /** Reported by the agent: is screen capture producing frames? */
+  capture_state?: 'ok' | 'error' | 'unknown';
   created_at: string;
   updated_at: string;
 }

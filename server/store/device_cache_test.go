@@ -11,11 +11,15 @@ import (
 // MockDeviceStore is a mock implementation of DeviceStoreInterface for testing
 type MockDeviceStore struct {
 	devices map[string]*models.Device
+	// updated records the side effects a test wants to assert (e.g. the
+	// capability report the hub forwarded).
+	updated map[string]string
 }
 
 func NewMockDeviceStore() *MockDeviceStore {
 	return &MockDeviceStore{
 		devices: make(map[string]*models.Device),
+		updated: make(map[string]string),
 	}
 }
 
@@ -67,6 +71,17 @@ func (m *MockDeviceStore) UpdateLastSeen(id string) error {
 	if d, ok := m.devices[id]; ok {
 		d.LastSeen = time.Now()
 		d.Status = "online"
+	}
+	return nil
+}
+
+// UpdateCapabilities records the mock's view of the agent's self-reported
+// capabilities so tests can assert the hub forwards them.
+func (m *MockDeviceStore) UpdateCapabilities(id, inputCapability, captureState string) error {
+	m.updated["capabilities"] = inputCapability + "/" + captureState
+	if d, ok := m.devices[id]; ok {
+		d.InputCapability = inputCapability
+		d.CaptureState = captureState
 	}
 	return nil
 }

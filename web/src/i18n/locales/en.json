@@ -84,7 +84,19 @@
     "installerScript": "script",
     "installerDownloadFailed": "Failed to download {{file}}",
     "installerOneCommand": "One-command install",
-    "installerManual": "Manual download"
+    "installerManual": "Manual download",
+    "inputTitle": "Remote input",
+    "inputGranted": "Control ready",
+    "inputDenied": "Needs Accessibility",
+    "inputUnavailable": "Cannot control",
+    "inputUnknown": "Not reported",
+    "captureTitle": "Capture",
+    "captureError": "Capture failing",
+    "hintGranted": "This unit accepts keyboard and mouse input from a remote session.",
+    "hintDenied": "macOS is discarding every keystroke and click. Run `ourway-agent --grant-input-permission` on the unit, then approve OurWay Agent in System Settings → Privacy & Security → Accessibility. A session looks completely live while control is inert — this is the reason.",
+    "hintUnavailable": "This agent build cannot synthesize input: no tooling installed, or built without the macOS graphics layer. Install the cgo agent build to control this unit.",
+    "hintUnknown": "This unit has not reported an input capability. Remote control is unverified here — not assumed to work.",
+    "hintCaptureError": "Capture is failing on this unit, so a remote session shows no frames."
   },
   "alerts": {
     "title": "Alerts",

@@ -4,10 +4,15 @@ import { sendInput, endSession, setQuality as setSessionQuality } from '../api/s
 import type { Session } from '../api/sessions';
 import { useAuth } from '../auth/context';
 import { Stamp } from './Stamp';
+import { useTranslation } from 'react-i18next';
 
 interface SessionViewProps {
   session: Session;
   onClose: () => void;
+  /** What the unit reported about its own input capability (2.2-1). Control
+      mode on a unit that cannot synthesize input must say so on the screen
+      where the technician is about to type, not only on the device view. */
+  inputCapability?: 'granted' | 'denied' | 'unavailable' | 'unknown';
 }
 
 type SessionMode = 'view' | 'control';
@@ -17,8 +22,9 @@ type SessionMode = 'view' | 'control';
  * the control affordances named plainly. Standard controls — buttons, a
  * range slider — nothing theatrical between the technician and the screen.
  */
-export function SessionView({ session, onClose }: SessionViewProps) {
+export function SessionView({ session, onClose, inputCapability }: SessionViewProps) {
   const { accessToken } = useAuth();
+  const { t } = useTranslation();
   const frameRef = useRef<HTMLImageElement>(null);
   const [status, setStatus] = useState<'connecting' | 'active' | 'ended'>('connecting');
   const [mode, setMode] = useState<SessionMode>('view');
@@ -222,6 +228,22 @@ export function SessionView({ session, onClose }: SessionViewProps) {
             <Keyboard className="h-3 w-3" aria-hidden="true" /> Click the screen, then type
           </span>
           <span>Right-click opens the context menu</span>
+          {/* The unit's own report, stated where the technician is about to
+              type: on macOS without the Accessibility grant, every keystroke
+              is discarded and the session looks fully live. */}
+          {inputCapability && inputCapability !== 'granted' && (
+            <span
+              className="flex items-center gap-1.5 font-mono uppercase tracking-[0.1em] text-[var(--color-danger)]"
+              role="status"
+            >
+              {t(`devices.input${inputCapability === 'unknown' ? 'Unknown' : inputCapability === 'denied' ? 'Denied' : 'Unavailable'}`)}
+              {inputCapability === 'denied'
+                ? '— macOS is discarding input: grant Accessibility on the unit'
+                : inputCapability === 'unknown'
+                  ? '— this unit never reported its input capability'
+                  : '— this agent build cannot synthesize input'}
+            </span>
+          )}
         </footer>
       )}
     </div>

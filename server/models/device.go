@@ -27,6 +27,16 @@ type Device struct {
 	// in JSON (C3): any API that exposes it lets the holder connect as
 	// the device. It is returned explicitly, exactly once, by
 	// POST /api/agent/register.
+	// InputCapability and CaptureState are reported by the agent with each
+	// metrics sample (2.2-1). Input capability says whether synthetic input can
+	// land at all: "granted", "denied" (macOS without the Accessibility grant),
+	// "unavailable" (no tooling, or a build without the capability). Capture
+	// state says whether frames are being produced: "ok" / "error".
+	// "unknown" is what a unit that has never reported shows — never
+	// presented as granted.
+	InputCapability string `gorm:"not null;default:'unknown'" json:"input_capability"`
+	CaptureState    string `gorm:"not null;default:'unknown'" json:"capture_state"`
+
 	DeviceKey string    `gorm:"uniqueIndex;not null" json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

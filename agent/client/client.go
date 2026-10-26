@@ -435,6 +435,12 @@ func (c *Client) sendMetrics(ctx context.Context, sendCh chan []byte) {
 			"hostname":   hostname,
 			"timestamp":  time.Now().Unix(),
 			"data":       data,
+
+			// Additive capability reporting (2.2-1): the server stores these
+			// on the device so the console can state why remote control is
+			// inert, instead of the technician discovering it live.
+			"input_capability": session.InputCapability(),
+			"capture_state":    session.CaptureState(),
 		},
 	}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"ourway/agent/session"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,14 @@ func main() {
 	// Handle --version
 	if cfg.ShowVersion {
 		fmt.Printf("ourway-agent %s\n", config.Version)
+		return
+	}
+
+	if cfg.GrantInput {
+		// macOS gates synthetic input behind a user grant (Accessibility/TCC).
+		// Ask for it explicitly: the grant is per binary and per stable path,
+		// so the operator triggers it deliberately (docs/agent.md).
+		session.RequestInputGrant()
 		return
 	}
 

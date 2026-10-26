@@ -4,8 +4,8 @@ package session
 
 // InjectKey synthesizes a key event for the remote-control executable
 // (see the Windows variant for why it is exported).
-func InjectKey(key, event string) {
-	synthesizeKey(key, event)
+func InjectKey(key, code, event string, mods InputModifiers) {
+	synthesizeKey(key, code, event, mods)
 }
 
 // InjectMouse synthesizes a mouse event for the remote-control

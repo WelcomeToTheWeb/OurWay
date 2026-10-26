@@ -143,12 +143,23 @@ Alerts are automatically deduplicated within a 5-minute window. If the same aler
 Remote sessions provide real-time screen sharing and control over any managed
 device.
 
-> **Platform reality check.** Screen capture works on Windows, Linux, and macOS.
-> **Input synthesis is implemented on Windows and Linux only** — a macOS session
-> is view-only: control mode opens, streams, and discards every keystroke and
-> click (`agent/session/input_darwin.go`). Windows machines can also be driven
-> from the native viewer (`ourway://` launch) for multi-monitor and
-> clipboard-aware control.
+> **Platform reality check.** Screen capture works on Windows, Linux, and macOS,
+> and input synthesis is implemented on all three. Two macOS conditions decide
+> whether control on a Mac actually lands:
+>
+> - the unit must run the **cgo** agent build (`CGO_ENABLED=1` on a macOS
+>   builder — a plain cross-compile cannot synthesize input), and
+> - **OurWay Agent** must be granted **Accessibility** on that Mac: run
+>   `ourway-agent --grant-input-permission`, then approve it in System Settings
+>   → Privacy & Security → Accessibility.
+>
+> Without the grant, a macOS session streams and the pointer looks alive while
+> every keystroke is discarded — so the unit view states the capability the agent
+> reported (*Control ready*, *Needs Accessibility*, *Cannot control*, *Not
+> reported*) and the session panel repeats it before you type. Windows machines
+> can also be driven from the native viewer (`ourway://` launch) for
+> multi-monitor and clipboard-aware control. See `docs/agent.md` for the grant,
+> the fixed-path rule and code signing.
 
 ### Starting a Session
 

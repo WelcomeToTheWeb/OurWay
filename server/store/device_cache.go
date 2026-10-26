@@ -85,6 +85,16 @@ func (s *CachedDeviceStore) UpdateLastSeen(id string) error {
 	return err
 }
 
+// UpdateCapabilities forwards the agent's self-reported capabilities and drops
+// the cached device row, since the record it cached is now stale.
+func (s *CachedDeviceStore) UpdateCapabilities(id, inputCapability, captureState string) error {
+	err := s.ds.UpdateCapabilities(id, inputCapability, captureState)
+	if err == nil && s.cache != nil {
+		s.cache.Delete("device:" + id)
+	}
+	return err
+}
+
 // Delete removes a device by ID.
 func (s *CachedDeviceStore) Delete(id string) error {
 	err := s.ds.Delete(id)

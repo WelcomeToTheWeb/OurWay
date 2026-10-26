@@ -331,8 +331,8 @@ func gdiCaptureJPEG(quality int) ([]byte, error) {
 // for the per-session remote-control executable, which receives input
 // over its own WebSocket and injects it directly (it runs in the
 // interactive user session).
-func InjectKey(key, event string) {
-	synthesizeKey(key, event)
+func InjectKey(key, code, event string, mods InputModifiers) {
+	synthesizeKey(key, code, event, mods)
 }
 
 // InjectMouse synthesizes a mouse event in this process's session.

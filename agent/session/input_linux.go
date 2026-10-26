@@ -3,10 +3,29 @@
 package session
 
 import (
+	"fmt"
 	"log"
 	"os/exec"
 	"strconv"
 )
+
+// xdotoolCombo renders the modifier state as an xdotool prefix ("ctrl+shift+").
+func xdotoolCombo(m inputModifiers) string {
+	var out string
+	if m.Ctrl {
+		out += "ctrl+"
+	}
+	if m.Shift {
+		out += "shift+"
+	}
+	if m.Alt {
+		out += "alt+"
+	}
+	if m.Meta {
+		out += "super+"
+	}
+	return out
+}
 
 // xdotoolKeyMap maps browser KeyboardEvent.key values to the key names
 // xdotool expects (the two naming schemes differ).
@@ -44,16 +63,20 @@ func xdotoolPath() (string, error) {
 	return exec.LookPath("xdotool")
 }
 
-// synthesizeKey presses (or releases) a key using xdotool.
-// It is a no-op with a log line if xdotool is not installed.
-func synthesizeKey(key, event string) {
+// synthesizeKey presses (or releases) a key using xdotool, with the
+// technician's modifiers expressed as an xdotool combination (ctrl+shift+c).
+// It reports through the capability field if xdotool is not installed.
+func synthesizeKey(key, code, event string, mods inputModifiers) {
 	bin, err := xdotoolPath()
 	if err != nil {
-		log.Printf("session: xdotool not found; cannot synthesize key %q (install xdotool)", key)
+		logThrottled("input-unavailable", "session: xdotool not found; cannot synthesize key "+key+" (install xdotool)")
 		return
 	}
 	if mapped, ok := xdotoolKeyMap[key]; ok {
 		key = mapped
+	}
+	if combo := xdotoolCombo(mods); combo != "" && len(key) == 1 {
+		key = combo + key
 	}
 	args := []string{"key", key}
 	switch event {
@@ -63,7 +86,7 @@ func synthesizeKey(key, event string) {
 		args = []string{"keyup", key}
 	}
 	if err := exec.Command(bin, args...).Run(); err != nil {
-		log.Printf("session: xdotool %v failed: %v", args, err)
+		logThrottled("xdotool", "session: xdotool "+fmt.Sprint(args)+" failed: "+err.Error())
 	}
 }
 

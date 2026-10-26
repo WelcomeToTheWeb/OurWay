@@ -252,7 +252,8 @@ deliberately deferred. Task breakdowns with acceptance criteria:
 See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Implemented:
 
 - ✅ **Remote Sessions**: agent frame relay with browser and native Windows viewers
-  (control is implemented on Windows and Linux; **macOS is view-only** — see Known gaps)
+  (control is implemented on Windows, Linux and macOS — macOS needs the cgo agent
+  build and an Accessibility grant, see Known gaps)
 - ✅ **Streaming mode**: detail page switches the agent to 2 s metric intervals
 - ✅ **Patching**: OS update management for Windows, macOS, and Linux (scan, deploy, policies)
 - ✅ **User Management**: RBAC with roles and permissions
@@ -270,9 +271,13 @@ Honest list of what the product advertises and does not yet do, so nobody has to
 discover it in production. Each item is tracked in
 [`docs/roadmap-2.x.md`](docs/roadmap-2.x.md).
 
-- **macOS remote control is view-only.** `agent/session/input_darwin.go` logs input
-  events instead of synthesizing them: keyboard and mouse injection is implemented
-  on Windows and Linux, not on macOS. Screen capture works on all three.
+- **macOS remote control needs two conditions on the unit.** Control is implemented
+  on macOS (CoreGraphics `CGEvent` posting), but it lands only on a **cgo** agent
+  build (`CGO_ENABLED=1` on a macOS builder) with **Accessibility** granted on that
+  Mac (`ourway-agent --grant-input-permission`). A `CGO_ENABLED=0` cross-compile
+  reports `unavailable`, and a unit without the grant reports `denied` — the unit
+  view and the session panel state which one it is, so nobody discovers it live.
+  macOS screen capture additionally needs the Screen Recording grant.
 - **SAML is not implemented.** SSO is OAuth 2.0 / OIDC; the API rejects a
   `saml`-typed provider at create, authorize, and callback.
 - **SSO presets are the big three.** The flow is generic OAuth2 and the create API

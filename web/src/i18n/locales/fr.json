@@ -84,7 +84,19 @@
     "installerScript": "script",
     "installerDownloadFailed": "Échec du téléchargement de {{file}}",
     "installerOneCommand": "Installation en une commande",
-    "installerManual": "Téléchargement manuel"
+    "installerManual": "Téléchargement manuel",
+    "inputTitle": "Contrôle à distance",
+    "inputGranted": "Contrôle prêt",
+    "inputDenied": "Accessibilité requise",
+    "inputUnavailable": "Contrôle impossible",
+    "inputUnknown": "Non signalé",
+    "captureTitle": "Captation",
+    "captureError": "Captation en échec",
+    "hintGranted": "Cet unité accepte les entrées clavier et souris d’une session à distance.",
+    "hintDenied": "macOS jette chaque frappe et chaque clic. Exécutez `ourway-agent --grant-input-permission` sur l’unité, puis approuvez OurWay Agent dans Réglages Système → Confidentialité et sécurité → Accessibilité. Une session paraît parfaitement vivante alors que le contrôle est inerte — voici pourquoi.",
+    "hintUnavailable": "Cette build de l’agent ne peut pas synthétiser d’entrée : outil absent, ou build sans la couche graphique macOS. Installez la build cgo de l’agent pour contrôler cette unité.",
+    "hintUnknown": "Cette unité n’a pas signalé sa capacité de contrôle. Le contrôle à distance n’est pas vérifié ici — il n’est pas présumé fonctionnel.",
+    "hintCaptureError": "La captation échoue sur cette unité : la session à distance n’affiche aucune image."
   },
   "alerts": {
     "title": "Alertes",
@@ -338,7 +350,9 @@
       "completed": "Terminé",
       "failed": "Échoué",
       "pending": "En attente"
-    }
+    },
+    "scopeTagsHelp": "Étiquettes (séparées par des virgules, correspondance quelconque)",
+    "scopeDevicesHelp": "Noms ou identifiants d’unité (séparés par des virgules)"
   },
   "users": {
     "title": "Utilisateurs",

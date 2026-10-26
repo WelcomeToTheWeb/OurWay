@@ -185,12 +185,22 @@ Authorization: Bearer <access-token>
       "last_seen": "2026-01-15T10:30:45Z",
       "public_ip": "203.0.113.50",
       "private_ip": "192.168.1.100",
+      "input_capability": "granted",
+      "capture_state": "ok",
       "created_at": "2026-01-10T09:00:00Z",
       "updated_at": "2026-01-15T10:30:45Z"
     }
   ]
 }
 ```
+
+`input_capability` (`granted` / `denied` / `unavailable` / `unknown`) and
+`capture_state` (`ok` / `error` / `unknown`) are reported by the agent itself with
+each metrics sample (v2.2.0+). They describe what remote control can do on the
+unit: `denied` is a macOS unit whose Accessibility grant is missing, `unavailable`
+is a build or tooling that cannot synthesize input, and `unknown` is an agent that
+has never reported — never rendered as ready. Older agents send neither field and
+the server keeps `unknown`, so this addition is wire-additive (MINOR).
 
 **Error Responses:**
 

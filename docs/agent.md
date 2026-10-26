@@ -10,6 +10,7 @@ The OurWay agent is a lightweight, cross-platform Go binary that collects system
 - [Metric Collection](#metric-collection)
 - [WebSocket Protocol](#websocket-protocol)
 - [Streaming Mode](#streaming-mode)
+- [Remote Control](#remote-control)
 - [Self-Updating](#self-updating)
 - [Platform-Specific Notes](#platform-specific-notes)
 - [Agent CLI Usage](#agent-cli-usage)
@@ -206,6 +207,23 @@ All messages use this envelope format:
 
 ### Agent → Server Messages
 
+#### capability reporting (v2.2.0+)
+
+`metrics` carries two additive fields describing what remote control can do on
+this unit, so the console states it and the technician never discovers it live:
+
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `input_capability` | `granted` `denied` `unavailable` `unknown` | whether synthetic keyboard/mouse events land |
+| `capture_state` | `ok` `error` `unknown` | whether the last capture produced a frame |
+
+`denied` is the macOS case: the agent posts events, macOS discards them, and the
+session looks completely live. `unavailable` means the build or tooling cannot
+synthesize input at all (a `CGO_ENABLED=0` darwin build, Linux without `xdotool`).
+`unknown` is what a unit that has never reported shows — the console never
+renders it as ready. Older agents send neither field; the server keeps `unknown`,
+so upgrading the server alone changes nothing on the wire.
+
 #### heartbeat
 
 Sent every 15 seconds to indicate the agent is alive.
@@ -228,6 +246,8 @@ Sent every 60 seconds (configurable via `OURWAY_METRICS_INTERVAL`) with full sys
   "device_key": "550e8400-e29b-41d4-a716-446655440000",
   "hostname": "my-workstation",
   "timestamp": 1727232000,
+  "input_capability": "granted",
+  "capture_state": "ok",
   "data": {
     "cpu": 45.2,
     "cpu_per_core": [12.3, 34.5, 56.7, 78.9],
@@ -328,6 +348,63 @@ agent always reports metrics at the normal interval (default 60 seconds).
 
 ---
 
+## Remote Control
+
+A remote session streams frames and relays input. Capture and input are gated
+separately: a unit can stream and still be unable to control, and the console
+says which is which.
+
+### Per platform
+
+| Platform | Input mechanism | Grant needed | Notes |
+|----------|-----------------|--------------|-------|
+| Linux | `xdotool` | none | install `xdotool`; the agent reports `unavailable` without it |
+| Windows | `SendInput` | none | modifier state is sent as key down/up around the key |
+| macOS | CoreGraphics `CGEventPost` | **Accessibility (TCC)** | requires a **cgo** build; see below |
+
+The browser's modifier state (ctrl/shift/alt/meta) travels with every key event,
+so `Ctrl+Shift+K` is not delivered as a plain `K`.
+
+### macOS: Accessibility (TCC), the cgo build, and the fixed path
+
+macOS discards synthetic keyboard and mouse events from any process that lacks
+Accessibility trust. Without the grant the agent's events are accepted by the
+system and go nowhere: the session streams, the pointer appears to move, and
+nothing happens. (This was `buglist.md` H8 — the stub used to log the event and
+return; the failure mode is identical from the technician's side, which is why
+the state is now reported, not discovered.)
+
+Three rules:
+
+1. **Only the cgo build can control input.** `CGEventPost` is CoreGraphics, and
+   CoreGraphics needs cgo. `CGO_ENABLED=0` darwin builds — what a plain Linux
+   cross-compile produces — compile a build that reports `unavailable` and drops
+   input deliberately. Produce the macOS agent on a macOS builder with
+   `CGO_ENABLED=1`; the Agent Smoke job in CI does exactly that, for arm64 and
+   amd64.
+2. **The grant is per binary, and per path.** macOS keys the permission on the
+   binary's identity at its filesystem path. Install the agent at its final path
+   *before* granting, and do not move it afterwards: a self-update that replaces
+   the binary at the same path keeps the grant, an install that relocates the
+   binary (or runs the agent from a `~/Downloads`-style temp path) loses it and
+   silently returns to `denied`. Ad-hoc or Developer ID **code signing** keeps the
+   identity stable across updates; an unsigned binary that is re-signed by a
+   rebuild may need the grant re-approved.
+3. **Ask explicitly.** Grant on the unit:
+
+   ```bash
+   ourway-agent --grant-input-permission
+   ```
+
+   This shows the macOS prompt naming the binary. Then approve **OurWay Agent**
+   in System Settings → Privacy & Security → Accessibility and restart the
+   service. The agent never prompts implicitly — the prompt is an operator action
+   on a machine the operator is standing at.
+
+After the grant, the unit's next metrics sample reports `granted` and the unit
+view shows *Control ready*. The console reads only what the agent reported; a
+unit that never reports shows *Not reported*.
+
 ## Self-Updating
 
 *Shipped.* The agent polls `GET /api/agent/version` hourly (and on the server's
@@ -377,6 +454,10 @@ newer.
 
 - macOS 10.15+
 - No external dependencies
+- **Screen Recording** (TCC) grant for screen capture, **Accessibility** (TCC)
+  grant for remote input — see [Remote Control](#remote-control-macos-accessibility-tcc-and-the-cgo-build)
+- Remote input additionally requires the **cgo** agent build (`CGO_ENABLED=1`
+  on a macOS builder); a `CGO_ENABLED=0` cross-compile cannot control input
 
 ### Windows
 
@@ -461,6 +542,7 @@ Flags:
   --yes                 Skip the uninstall confirmation prompt
   --pause               Wait for Enter before exiting (with --uninstall)
   --version             Print version and exit
+  --grant-input-permission  macOS: show the Accessibility grant prompt for remote input and exit
   --log-file string     Log file path
   -h, --help            help for ourway-agent
 

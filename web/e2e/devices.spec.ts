@@ -54,3 +54,18 @@ test('the unit view is legible before the next live sample arrives', async ({ pa
     await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
   }
 });
+
+test('the unit view states the remote-control state the unit reported (2.2-1)', async ({ page }) => {
+  // The Mac in the seed fleet reports `denied` + `capture_state: error` on the
+  // metrics wire — the macOS case this task exists to close. The console must
+  // name it on the unit view, before a technician is in front of the machine.
+  const mac = manifest().units[2];
+  await page.goto(`/devices/${mac.id}`);
+  await expect(page.getByRole('heading', { level: 1, name: mac.name })).toBeVisible({ timeout: 15_000 });
+
+  await expect(page.getByText('Remote input')).toBeVisible();
+  await expect(page.getByText('Needs Accessibility')).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText('Capture failing')).toBeVisible({ timeout: 5_000 });
+  // The reason is stated, not implied by a colour.
+  await expect(page.getByText(/ourway-agent --grant-input-permission|Accessibility/i).last()).toBeVisible();
+});

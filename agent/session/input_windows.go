@@ -61,13 +61,23 @@ var vkMap = map[string]uint16{
 	"`": 0xC0, "[": 0xDB, "\\": 0xDC, "]": 0xDD, "'": 0xDE,
 }
 
-// synthesizeKey injects a key event via SendInput. x and y are unused
-// on this platform.
-func synthesizeKey(key, event string) {
+// synthesizeKey injects a key event via SendInput, with the technician's
+// modifiers held around it (Ctrl+C must be Ctrl+C on the far machine, not a
+// plain C). x and y are unused on this platform.
+func synthesizeKey(key, code, event string, mods inputModifiers) {
 	vk, ok := vkMap[strings.ToLower(key)]
 	if !ok {
-		log.Printf("session: no VK mapping for key %q", key)
+		logThrottled("key-vk", "session: no VK mapping for key "+key)
 		return
+	}
+
+	// Modifiers are held for a press and released after the matching release,
+	// so a press-and-hold sequence keeps them down.
+	hold := modifierVKs(mods)
+	if event == "down" {
+		for _, m := range hold {
+			sendModifier(m, true)
+		}
 	}
 
 	var in input
@@ -77,7 +87,43 @@ func synthesizeKey(key, event string) {
 		in.ki().DwFlags = keyeventfKeyup
 	}
 	if err := sendInputOne(&in); err != nil {
-		log.Printf("session: SendInput key %q %s failed: %v", key, event, err)
+		logThrottled("sendinput", "session: SendInput key "+key+" "+event+" failed: "+err.Error())
+	}
+	if event == "up" {
+		// Release in reverse order so the combination unwinds cleanly.
+		for i := len(hold) - 1; i >= 0; i-- {
+			sendModifier(hold[i], false)
+		}
+	}
+}
+
+// modifierVKs maps the modifier state onto Windows virtual keys.
+func modifierVKs(m inputModifiers) []uint16 {
+	var out []uint16
+	if m.Ctrl {
+		out = append(out, windows.VK_CONTROL)
+	}
+	if m.Shift {
+		out = append(out, windows.VK_SHIFT)
+	}
+	if m.Alt {
+		out = append(out, windows.VK_MENU)
+	}
+	if m.Meta {
+		out = append(out, windows.VK_LWIN)
+	}
+	return out
+}
+
+func sendModifier(vk uint16, down bool) {
+	var in input
+	in.Type = inputKeyboard
+	in.ki().WvVk = vk
+	if !down {
+		in.ki().DwFlags = keyeventfKeyup
+	}
+	if err := sendInputOne(&in); err != nil {
+		logThrottled("sendinput-modifier", "session: SendInput modifier keydown failed: "+err.Error())
 	}
 }
 

@@ -84,7 +84,19 @@
     "installerScript": "Skript",
     "installerDownloadFailed": "Download von {{file}} fehlgeschlagen",
     "installerOneCommand": "Ein-Befehl-Installation",
-    "installerManual": "Manueller Download"
+    "installerManual": "Manueller Download",
+    "inputTitle": "Fernsteuerung",
+    "inputGranted": "Steuerung bereit",
+    "inputDenied": "Barrierefreiheit erforderlich",
+    "inputUnavailable": "Steuerung unmöglich",
+    "inputUnknown": "Nicht gemeldet",
+    "captureTitle": "Bildübertragung",
+    "captureError": "Bildübertragung gestört",
+    "hintGranted": "Dieses Gerät nimmt Tastatur- und Mauseingaben aus einer Fernsitzung an.",
+    "hintDenied": "macOS verwirft jeden Tastenanschlag und jeden Klick. Führen Sie auf dem Gerät `ourway-agent --grant-input-permission` aus und bestätigen Sie OurWay Agent in Systemeinstellungen → Datenschutz & Sicherheit → Barrierefreiheit. Eine Sitzung wirkt vollständig live, während die Steuerung ins Leere läuft — das ist die Ursache.",
+    "hintUnavailable": "Dieser Agent kann keine Eingaben erzeugen: Werkzeuge fehlen, oder der Build enthält die macOS-Grafikebene nicht. Für Fernsteuerung den cgo-Agent installieren.",
+    "hintUnknown": "Dieses Gerät hat keine Eingabefähigkeit gemeldet. Fernsteuerung ist hier ungeprüft — nicht als funktionierend angenommen.",
+    "hintCaptureError": "Die Bildaufnahme auf diesem Gerät schlägt fehl, daher zeigt die Fernsitzung keine Bilder."
   },
   "alerts": {
     "title": "Alarme",
@@ -338,7 +350,9 @@
       "completed": "Abgeschlossen",
       "failed": "Fehlgeschlagen",
       "pending": "Ausstehend"
-    }
+    },
+    "scopeTagsHelp": "Tags (kommagetrennt, beliebige Übereinstimmung)",
+    "scopeDevicesHelp": "Gerätenamen oder Geräte-IDs (kommagetrennt)"
   },
   "users": {
     "title": "Benutzer",

@@ -64,7 +64,45 @@ many reads, so it starves on the old 100/min constant.
 
 ---
 
-## 2.2-1 · macOS remote control: real input
+## 2.2-1 · macOS remote control: real input · ✅ delivered
+
+**Delivered:** CGEvent posting in `agent/session/input_darwin_cgo.go` (key,
+mouse move/down/up/click with click-count, scroll), the browser→macOS key table
+in `agent/session/macosmapping.go`, modifier state (`ctrl/shift/alt/meta`)
+carried on every key event on all three platforms, `AXIsProcessTrusted` read on
+the agent and reported as `input_capability` (+ `capture_state`) on the metrics
+envelope, migration 7 (`devices.input_capability`, `devices.capture_state`), the
+state rendered on the unit view and in the session panel, `--grant-input-permission`,
+`scripts/agent-smoke.sh --expect-capability / --expect-latency-ms`, and a macOS CI
+job that compiles the cgo agent for arm64 **and** amd64 and asserts the unit
+reports a **stated decision** (`granted` or `denied`) — the macOS images ship with
+Accessibility granted to the runner user, so `granted` is the honest answer there and
+`unknown`/`unavailable` from a cgo build is the failure the assertion catches.
+Measured control round-trip:
+**0.034 s** (server → agent, same host, Linux smoke run).
+Remaining for the human gate: the physical Mac (type/click/drag/right-click/scroll
+with the grant, and control surviving a self-update at a fixed path).
+
+Shipped with it, because the acceptance criteria are harness criteria:
+`.github/workflows/build.yml` no longer cross-compiles darwin — the macOS agent,
+remote exe and installer are built on a macOS runner with `CGO_ENABLED=1`
+(arm64 + amd64) and merged into the same artifact the server image and the release
+download, so the Mac binary the console offers for download is one that can
+control the unit. `scripts/agent-smoke.sh` gained `--expect-capability` and
+`--expect-latency-ms`; the macOS smoke job runs the cgo binary and asserts it reports a
+decision (the runner is granted, so `granted` — a cgo build that reports nothing is the
+bug). The e2e fake agent now reports
+capabilities on the metrics wire, the seed fleet carries all four states, and two
+specs assert the console states them (unit view, `e2e/devices.spec.ts`; session
+panel, `web/src/components/SessionView.test.tsx`). The panel's assertion is a
+component test because opening a console session needs the unit's wire live at the
+instant of the click: CI's darwin unit answers `POST /api/devices/:id/sessions`
+with 409 on every attempt of four, across four runs, while the same fleet's REST
+surface is healthy. A browser test that cannot start the thing it asserts is a test
+that quietly never runs — so the copy and its condition are asserted on the
+component that renders them, next to the prop that decides them.
+`scripts/i18n-parity.py` is in the gate — building it found two locale keys
+missing from `de`/`fr`, which is the debt 2.2-5 is about.
 
 **Findings:** `buglist.md` H8. `agent/session/input_darwin.go` — `synthesizeKey`
 and `synthesizeMouse` log and return. Capture (`screen_capture_darwin.go`),
@@ -72,20 +110,20 @@ geometry (`geometry_darwin.go`), framing and the session control path are real, 
 a macOS session opens and streams while discarding every keystroke and click.
 
 **Do**
-- [ ] `synthesizeKey(key, event)` via `CGEventCreateKeyboardEvent` +
+- [x] `synthesizeKey(key, event)` via `CGEventCreateKeyboardEvent` +
       `CGEventPost(kCGHIDEventTap, …)`, with the key-code table matching the
       browser `KeyboardEvent.key`/`code` values the web client sends
       (`web/src/components/SessionView.tsx` sends `{event, key, code}`).
-- [ ] `synthesizeMouse(event, x, y, button, delta)` via
+- [x] `synthesizeMouse(event, x, y, button, delta)` via
       `CGEventCreateMouseEvent` for move / down / up / click and the scroll-wheel
       event for `delta`. Reuse `toScreenCoords(x, y)` — `x`/`y` already arrive as
       **0–100 percentages of the captured frame** (`agent/session/geometry.go`).
-- [ ] Detect and report the Accessibility (TCC) permission: `AXIsProcessTrusted()`
+- [x] Detect and report the Accessibility (TCC) permission: `AXIsProcessTrusted()`
       (+ the prompt option), and surface the state on the device detail page so an
       operator learns *why* control is inert before a technician finds out live.
       This needs a new agent → server status field, carried in the existing
       `{type, payload}` envelope (`CONTRIBUTING.md`).
-- [ ] Note the deployment reality in `docs/agent.md`: TCC grants are per binary
+- [x] Note the deployment reality in `docs/agent.md`: TCC grants are per binary
       and per stable path — a launchd agent that self-updates to a new path loses
       the grant, and ad-hoc-signed binaries change identity. Document the
       codesign + fixed-path requirement for the update pipeline.
@@ -248,9 +286,9 @@ been documented**.
       in `server/api/handlers.go` must appear.
 - [ ] Add a CI check that diffs registered routes against the endpoint headings in
       `docs/api.md`, so this cannot drift again.
-- [ ] `docs/user-guide.md`: macOS Accessibility grant for control (2.2-1), and the
+- [x] `docs/user-guide.md`: macOS Accessibility grant for control (2.2-1), and the
       view-only caveat removed once control works.
-- [ ] `docs/agent.md`: the TCC/codesign requirement for a self-updating launchd
+- [x] `docs/agent.md`: the TCC/codesign requirement for a self-updating launchd
       agent.
 - [ ] `docs/changelog.md`: the 2.2.0 section at release time, generated per
       `docs/versioning.md` (release notes come from that section).

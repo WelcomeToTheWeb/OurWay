@@ -99,6 +99,10 @@ jobs:
           # runs with headroom instead of tripping its own limit.
           RATE_LIMIT_PER_MINUTE: '600'
           RATE_LIMIT_BURST: '60'
+          # Enrollment is gated (2.0-5). The harness seeds the fleet through the
+          # product's own registration path, so it presents the same secret the
+          # server expects — the gate is exercised on every run, never bypassed.
+          ENROLLMENT_SECRET: ${{ github.run_id }}-${{ github.run_number }}-e2e-enrollment
           INSTALLERS_DIR: ./dist/agents
         run: |
           nohup /tmp/ourway-server > /tmp/ourway-server.log 2>&1 &
@@ -125,6 +129,7 @@ jobs:
         env:
           OURWAY_E2E_BASE_URL: http://localhost:3000
           OURWAY_E2E_API_URL: http://localhost:9090
+          OURWAY_E2E_ENROLLMENT_SECRET: ${{ github.run_id }}-${{ github.run_number }}-e2e-enrollment
         run: npm run test:e2e --prefix web -- --reporter=list
 
       - name: Upload report and traces

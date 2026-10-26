@@ -1102,6 +1102,17 @@ func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Stor
 		if !ok {
 			return
 		}
+		// 2.2-1: the agent reports its own input/capture capability with each
+		// sample. Take it from the payload (an older agent sends neither, and
+		// the stored "unknown" stays).
+		inputCap, _ := payloadMap["input_capability"].(string)
+		captureSt, _ := payloadMap["capture_state"].(string)
+		if inputCap != "" || captureSt != "" {
+			if err := store.Devices.UpdateCapabilities(dev.ID, inputCap, captureSt); err != nil {
+				log.Printf("ws: capability update failed for %s: %v", dev.ID, err)
+			}
+		}
+
 		dataVal, ok := payloadMap["data"].(map[string]interface{})
 		if !ok {
 			return

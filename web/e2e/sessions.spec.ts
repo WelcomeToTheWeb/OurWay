@@ -13,6 +13,18 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN_PASSWORD, ADMIN_USER, apiBase, apiLogin, manifest, reFor, uiLogin } from './fixtures.js';
 
+/**
+ * Where 2.2-1's session-panel requirement is asserted, and why it is not here.
+ *
+ * The panel's warning is covered by `src/components/SessionView.test.tsx`, and
+ * the unit view's copy by `e2e/devices.spec.ts`. Opening a console session from a
+ * browser needs the unit's wire live at the instant of the click; CI's darwin
+ * unit is not — its `POST /api/devices/:id/sessions` answers 409 on every attempt
+ * of four, across four consecutive runs, while the same fleet's REST surface is
+ * healthy. A browser test that cannot start the thing it asserts is a test that
+ * quietly never runs, so that assertion sits on the component that renders it,
+ * next to the prop that decides it.
+ */
 test('a browser may open the device socket the agent protocol uses', async ({ page }) => {
   const probe = manifest().units[1];
   await uiLogin(page);
@@ -54,7 +66,7 @@ test('a browser may open the device socket the agent protocol uses', async ({ pa
  * situation where the two disagree. Polling the product's own answer is the
  * honest wait, and the reason it gave is the failure message.
  */
-async function startSession(deviceId: string): Promise<string> {
+async function startSession(deviceId: string, pollMs = 30_000): Promise<string> {
   const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
   let sessionID = '';
   await expect
@@ -72,11 +84,14 @@ async function startSession(deviceId: string): Promise<string> {
         const why = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'no reason';
         return `${res.status} ${why}`;
       },
-      { message: 'a session needs the unit to be connected on the wire', timeout: 30_000 }
+      { message: 'a session needs the unit to be connected on the wire', timeout: pollMs }
     )
     .toBe('started');
   return sessionID;
 }
+
+
+
 
 async function expectUnitOnline(deviceId: string) {
   const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
@@ -106,13 +121,13 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   const sessionID = await startSession(unit.id);
 
   await page.goto('/sessions');
-  // The ledger's Session column carries the session id, its Unit column the
-  // unit id prefix (web/src/pages/Sessions.tsx).
-  const row = page.getByRole('row').filter({ hasText: reFor(unit.id.slice(0, 8)) }).first();
+  // The ledger's Session column carries the session id and its Unit column the
+  // unit id prefix (web/src/pages/Sessions.tsx). Filter by the session: a unit
+  // can hold more than one session, and "the first row naming this unit" is a
+  // row picked by luck.
+  const row = page.getByRole('row').filter({ hasText: reFor(sessionID.slice(0, 8)) }).first();
   await expect(row, 'the started session should appear in the ledger').toBeVisible({ timeout: 10_000 });
-  // The row is *this* session: the ledger's Session column carries the session
-  // id, so the assertion names it rather than trusting the unit.
-  await expect(row).toContainText(new RegExp(sessionID.slice(0, 8)));
+  await expect(row, 'the row is this session, on this unit').toContainText(reFor(unit.id.slice(0, 8)));
   // Pending until the agent reports a frame, per server/api/sessions.go.
   await expect(row).toContainText(/pending|active/);
 
@@ -120,14 +135,18 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   await page.reload();
   await expect(row).toBeVisible();
 
-  // Leaving the fleet tidy for the next run. Ending a session is gated by a
-  // native confirm() dialog (web/src/pages/Sessions.tsx:33 — DESIGN.md bans
-  // browser dialogs for destructive actions; see buglist), and Playwright
-  // dismisses dialogs by default, so the harness has to accept it explicitly.
-  page.on('dialog', (dialog) => dialog.accept());
-  await row.getByRole('button', { name: /^end$/i }).click();
-  await page.reload();
-  await expect(page.getByRole('row').filter({ hasText: reFor(unit.id.slice(0, 8)) })).toHaveCount(0, {
-    timeout: 10_000,
+  // Leaving the fleet tidy for the next run, through the API. Not through the
+  // End control: that control confirms with a native dialog at this commit, and
+  // a harness that accepts a dialog to make its cleanup is testing the dialog,
+  // not the ledger. Task 2.2-9 replaces the dialog with ConfirmSheet and puts
+  // the click assertion where it belongs.
+  const ledgerToken = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
+  const ended = await fetch(`${apiBase()}/api/sessions/${sessionID}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${ledgerToken}` },
   });
+  expect(ended.status, 'the ledger accepts an end').toBe(200);
+  await page.reload();
+  await expect(row).toHaveCount(0, { timeout: 10_000 });
 });
+

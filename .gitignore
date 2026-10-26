@@ -25,6 +25,9 @@ web/e2e/.fake-agent.pid
 # scripts/coverage.sh working files
 .coverage-*.out
 
-# Local dev secrets and the binaries scripts/ builds for a run.
+# Local deployment config: holds JWT_SECRET / ENROLLMENT_SECRET, plus the
+# binaries scripts/ builds for a run. Only .env.example is committed.
 .env
+
+# Local scratch (built agent binaries for scripts/agent-smoke.sh, ...)
 .tmp/
