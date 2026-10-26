@@ -5,6 +5,13 @@ name: Agent Smoke
 # real server and PostgreSQL and asserts the install path in the order a real
 # install experiences it: enroll → connect → heartbeat → metrics → remote
 # frames → installed service. See scripts/agent-smoke.sh for the assertions.
+#
+# PostgreSQL comes from the runner, not from job `services:`: Actions does not
+# support service containers on Windows runners, and the macOS runners have no
+# Docker (the licence isn't there). A job that declares services therefore
+# fails at "Initialize containers" on two of the three platforms — which is
+# exactly how the first run of this job died, before a single line of product
+# code ran.
 
 on:
   push:
@@ -17,6 +24,14 @@ concurrency:
   group: agent-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  ENROLLMENT_SECRET: ${{ github.run_id }}-enrollment-secret
+  JWT_SECRET: ${{ github.run_id }}-${{ github.run_number }}-smoke-secret
+  DATABASE_URL: postgresql://ourway:ourway@localhost:5432/ourway_smoke?sslmode=disable
+  SERVER_PORT: :9090
+  WEB_URL: http://localhost:3000
+  REDIS_ENABLED: 'false'
+
 jobs:
   smoke:
     name: Agent smoke (${{ matrix.os }})
@@ -26,20 +41,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: ourway
-          POSTGRES_PASSWORD: ourway
-          POSTGRES_DB: ourway
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout
@@ -60,39 +61,62 @@ jobs:
           go build -C agent -o ./ourway-agent .
         shell: bash
 
+      # ── PostgreSQL, per platform ───────────────────────────────────────────
+      - name: Start PostgreSQL (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          docker run -d --name ourway-pg -p 5432:5432 \
+            -e POSTGRES_USER=ourway -e POSTGRES_PASSWORD=ourway -e POSTGRES_DB=ourway_smoke \
+            postgres:16
+          for i in $(seq 1 40); do
+            docker exec ourway-pg pg_isready -U ourway -q && { echo "pg ready after ${i}s"; exit 0; }
+            sleep 2
+          done
+          echo "::error::PostgreSQL never became ready"
+          exit 1
+
+      - name: Start PostgreSQL (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          brew install postgresql@16
+          brew services start postgresql@16
+          export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
+          for i in $(seq 1 40); do pg_isready -h localhost -q && break; sleep 2; done
+          psql -h localhost -U "$USER" -d postgres -c "CREATE ROLE ourway LOGIN PASSWORD 'ourway';"
+          psql -h localhost -U "$USER" -d postgres -c "CREATE DATABASE ourway_smoke OWNER ourway;"
+
+      - name: Start PostgreSQL (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Windows runners ship PostgreSQL preinstalled, stopped, with the
+          # `postgres` role protected by the runner image's password.
+          $svc = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          $svc | Start-Service
+          $svc | WaitForStatus -GoalStatus 'Running' -GoalWaitingStatus 'Running' -Timeout 120
+          $env:Path += ";C:\Program Files\PostgreSQL\16\bin"
+          $env:PGPASSWORD = 'Password12!'
+          & 'C:\Program Files\PostgreSQL\16\bin\psql.exe' -U postgres -h localhost -c "ALTER USER postgres PASSWORD 'Password12!';"
+          & 'C:\Program Files\PostgreSQL\16\bin\psql.exe' -U postgres -h localhost -c "CREATE ROLE ourway LOGIN PASSWORD 'ourway';"
+          & 'C:\Program Files\PostgreSQL\16\bin\psql.exe' -U postgres -h localhost -c "CREATE DATABASE ourway_smoke OWNER ourway;"
+
       # Linux screen capture shells out to scrot/import on an X display; the
       # runner has Xvfb but not a display, and scrot is not preinstalled.
       - name: Prepare a display (Linux)
         if: matrix.os == 'ubuntu-latest'
+        shell: bash
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq scrot imagemagick xvfb
           Xvfb :99 -screen 0 1280x800x24 -ac >/tmp/xvfb.log 2>&1 &
           sleep 2
           echo "DISPLAY=:99" >> "$GITHUB_ENV"
-        shell: bash
 
       - name: Start server
         shell: bash
-        env:
-          ENROLLMENT_SECRET: ${{ github.run_id }}-enrollment-secret
         run: |
-          if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            # No Docker Desktop licence on the macOS runners; run Postgres natively.
-            brew install postgresql@16
-            brew services start postgresql@16
-            for i in $(seq 1 30); do pg_isready -h localhost -q && break; sleep 2; done
-            psql -h localhost -U "$USER" -d postgres -c "CREATE ROLE ourway LOGIN PASSWORD 'ourway';" || true
-            psql -h localhost -U "$USER" -d postgres -c "CREATE DATABASE ourway_smoke OWNER ourway;" || true
-            export DATABASE_URL="postgresql://ourway:ourway@localhost:5432/ourway_smoke?sslmode=disable"
-          else
-            export DATABASE_URL="postgresql://ourway:ourway@localhost:5432/postgres?sslmode=disable"
-          fi
-          export SERVER_PORT=:9090
-          export JWT_SECRET="${{ github.run_id }}-${{ github.run_number }}-smoke-secret"
-          export REDIS_ENABLED=false
-          export WEB_URL=http://localhost:3000
-          export ENROLLMENT_SECRET
           nohup ./ourway-server >/tmp/ourway-server.log 2>&1 &
           for i in $(seq 1 60); do
             curl -fsS http://localhost:9090/ready >/dev/null && { echo "server ready after ${i}s"; exit 0; }
@@ -104,8 +128,6 @@ jobs:
 
       - name: Run agent smoke
         shell: bash
-        env:
-          ENROLLMENT_SECRET: ${{ github.run_id }}-enrollment-secret
         run: |
           chmod +x scripts/agent-smoke.sh
           args=(--server http://localhost:9090 --ws ws://localhost:9090
@@ -121,7 +143,7 @@ jobs:
       - name: Server log (on failure)
         if: failure()
         shell: bash
-        run: tail -120 /tmp/ourway-server.log
+        run: tail -120 /tmp/ourway-server.log || true
 
       - name: Service log (on failure)
         if: failure()
@@ -133,6 +155,5 @@ jobs:
             launchctl print "gui/$(id -u)/com.ourway.agent" 2>&1 | tail -40 || true
             tail -60 "$HOME/Library/Logs/ourway-agent.log" 2>/dev/null || true
           else
-            sc query OurWayAgent || true
             powershell -Command "Get-Content -Tail 40 'C:\Program Files\OurWay\agent.log' -ErrorAction SilentlyContinue" || true
           fi
