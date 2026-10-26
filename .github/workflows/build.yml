@@ -299,10 +299,40 @@ jobs:
           name: agent-binaries
           path: dist/agents/
 
+      # Notes come from the changelog section for this version, so the
+      # release says what changed for an operator. GitHub's generated notes
+      # list merged PRs only, so work pushed straight to main is invisible
+      # there. Fallback keeps generated notes when a section is missing.
+      - name: Assemble release notes
+        id: notes
+        run: |
+          chmod +x scripts/version.sh
+          VERSION=$(scripts/version.sh)
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          {
+            echo "## OurWay $VERSION"
+            echo
+            awk -v want="[$VERSION]" '
+              /^## \[/ { if (found) exit; found = (index($0, want) > 0); next }
+              found { print }
+            ' docs/changelog.md
+            echo
+            if [ -n "$PREV" ]; then
+              echo "**Full Changelog**: https://github.com/$GITHUB_REPOSITORY/compare/${PREV}...v$VERSION"
+            fi
+          } > release-notes.md
+          if grep -q "###" release-notes.md; then
+            echo "has_notes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_notes=false" >> "$GITHUB_OUTPUT"
+          fi
+          head -20 release-notes.md
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          generate_release_notes: ${{ steps.notes.outputs.has_notes != 'true' }}
+          body_path: ${{ steps.notes.outputs.has_notes == 'true' && 'release-notes.md' || '' }}
           files: |
             dist/agents/ourway-agent-*
             dist/agents/ourway-installer-*
