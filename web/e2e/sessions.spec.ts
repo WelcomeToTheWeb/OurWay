@@ -46,6 +46,38 @@ test('a browser may open the device socket the agent protocol uses', async ({ pa
  * before the unit is back online starts nothing, and the ledger is correctly
  * empty. So the suite waits for the state its assertion depends on.
  */
+/**
+ * Ask the product for a session, and keep asking while it says the fleet is
+ * not there. `POST /api/devices/:id/sessions` answers 409 with "device is not
+ * connected" (server/api/sessions.go:58) — the unit's stored status is not the
+ * socket, and a harness whose agent has just been displaced is exactly the
+ * situation where the two disagree. Polling the product's own answer is the
+ * honest wait, and the reason it gave is the failure message.
+ */
+async function startSession(deviceId: string): Promise<string> {
+  const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
+  let sessionID = '';
+  await expect
+    .poll(
+      async () => {
+        const res = await fetch(`${apiBase()}/api/devices/${deviceId}/sessions`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        });
+        if (res.status === 200) {
+          const body = await res.json();
+          sessionID = body.session.id;
+          return 'started';
+        }
+        const why = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'no reason';
+        return `${res.status} ${why}`;
+      },
+      { message: 'a session needs the unit to be connected on the wire', timeout: 30_000 }
+    )
+    .toBe('started');
+  return sessionID;
+}
+
 async function expectUnitOnline(deviceId: string) {
   const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
   await expect
@@ -71,18 +103,16 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   // closes (server/ws/hub.go:685) — so a test that starts a session in the UI
   // and then navigates is testing a race it created, not the ledger.
   await expectUnitOnline(unit.id);
-  const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
-  const start = await fetch(`${apiBase()}/api/devices/${unit.id}/sessions`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-  });
-  expect(start.status, 'starting a session on a connected unit').toBe(200);
+  const sessionID = await startSession(unit.id);
 
   await page.goto('/sessions');
   // The ledger's Session column carries the session id, its Unit column the
   // unit id prefix (web/src/pages/Sessions.tsx).
   const row = page.getByRole('row').filter({ hasText: reFor(unit.id.slice(0, 8)) }).first();
   await expect(row, 'the started session should appear in the ledger').toBeVisible({ timeout: 10_000 });
+  // The row is *this* session: the ledger's Session column carries the session
+  // id, so the assertion names it rather than trusting the unit.
+  await expect(row).toContainText(new RegExp(sessionID.slice(0, 8)));
   // Pending until the agent reports a frame, per server/api/sessions.go.
   await expect(row).toContainText(/pending|active/);
 

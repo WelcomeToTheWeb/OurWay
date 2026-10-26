@@ -148,6 +148,23 @@ section so the claims in H8 / M17 are stated rather than discovered.
 
 **Fix:** 2.3.0 (tenancy + audit log), 2.4.0 (thresholds), 2.5.0 (patch parity).
 
+### 🟠 H10. The macOS agent has never been compiled with cgo
+**Status:** ✅ Fixed 2026-10-26 — `agent/session/geometry_darwin.go`, found by the 2.2-0 agent-smoke job on a macOS runner
+**Files:** `agent/session/geometry_darwin.go` (and, by the same logic, every darwin cgo file added later)
+
+`geometry_darwin.go` is guarded `//go:build darwin && cgo` and declares CoreGraphics
+functions with no `#cgo LDFLAGS` for the frameworks, so the file has never
+compiled: `CGDisplayPixelsHeight` sits behind a deployment-target conditional in
+the SDK headers and cgo refuses to evaluate it — `could not determine what
+C.CGDisplayPixelsHeight refers to`. CI never saw it because every darwin build
+was a `CGO_ENABLED=0` cross-compile, which excludes the file by its own build
+tag: the darwin cgo path existed only as source. A macOS build on a Mac
+(`CGO_ENABLED=1`, the default there) failed at the first step of the smoke job.
+Fixed by reading the geometry out of `CGDisplayBounds` through a C helper and
+linking the frameworks. Rule for 2.2-1 and everything after: darwin cgo files
+declare frameworks, keep version-conditioned symbols inside C helpers, and are
+compiled on a macOS runner — a Linux cross-compile cannot check them.
+
 ### 🟠 H9. Every browser WebSocket on a `localhost` install was refused
 **Status:** ✅ Fixed 2026-10-26 — `server/ws/hub.go`, regression test `TestHubBrowserOriginHandshake`
 **Files:** `server/ws/hub.go`, found by the 2.2-0 end-to-end harness

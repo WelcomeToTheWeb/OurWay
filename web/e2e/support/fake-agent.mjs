@@ -63,6 +63,11 @@ function connect(key, attempt = 0) {
     const index = sockets.indexOf(ws);
     if (index >= 0) sockets.splice(index, 1);
     if (stopping) return;
+    // Say when a unit drops and why. "the device is not connected" from the
+    // session API is the product's answer to a fleet the harness lost track
+    // of, and a harness that prints nothing on close cannot tell a
+    // displacement from an outage.
+    console.log(`${args.label}: closed ${key.slice(0, 8)} code=${event?.code} reason=${event?.reason || 'none'}`);
     // Back off when the network is the problem — a 1006 with no reason is a
     // dropped connection, and swarming a server that is unhappy is how a
     // reconnect becomes an outage. A *displacement* is not that: the hub
