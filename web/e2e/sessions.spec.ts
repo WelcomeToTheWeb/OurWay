@@ -66,9 +66,17 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   const unit = manifest().units[0];
   await uiLogin(page);
 
-  await page.goto(`/devices/${unit.id}`);
+  // Start through the API, not through the console overlay. The technician's
+  // viewer socket *is* the session — the hub ends it the moment that socket
+  // closes (server/ws/hub.go:685) — so a test that starts a session in the UI
+  // and then navigates is testing a race it created, not the ledger.
   await expectUnitOnline(unit.id);
-  await page.getByRole('button', { name: /remote session/i }).click();
+  const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
+  const start = await fetch(`${apiBase()}/api/devices/${unit.id}/sessions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+  });
+  expect(start.status, 'starting a session on a connected unit').toBe(200);
 
   await page.goto('/sessions');
   // The ledger's Session column carries the session id, its Unit column the

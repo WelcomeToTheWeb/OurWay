@@ -107,7 +107,21 @@ Three constraints that are easy to get wrong in this suite:
   a database that already holds a fleet hits the C4 re-registration guard. Point
   `OURWAY_E2E_API_URL` at a fresh database (what CI does), or set
   `OURWAY_E2E_RUN_ID=2` to seed a run-scoped fleet — host names and private
-  addresses move with the run, so the units enroll cleanly.
+  addresses move with the run, so the units enroll cleanly. A 401 from
+  registration says which guard fired — the harness quotes the server's own
+  reason, because "already enrolled" and "enrollment secret missing" are
+  opposite problems.
+- **A viewer socket *is* a session.** The hub ends the session the moment the
+  viewer that started it disconnects (`server/ws/hub.go:685`). So a test that
+  starts a session from the console overlay and then navigates is watching a
+  session it just ended: start sessions through the API when the assertion is
+  about the ledger, and keep the overlay open when the assertion is about the
+  session itself.
+- **One connection per device key.** The hub accepts a single client per key, so
+  a test that opens a device socket displaces the harness's fake agent for that
+  unit. The support agent re-registers in milliseconds on a clean close; tests
+  that need a connected unit wait for it to report `online`
+  (`expectUnitOnline` in `e2e/sessions.spec.ts`) before they act on it.
 - **Do not `waitForLoadState('networkidle')`.** The console holds a WebSocket open
   for the whole session, so that event never settles.
 - **Destructive actions are gated by `window.confirm` today** (`buglist.md` M19,
