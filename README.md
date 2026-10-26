@@ -214,8 +214,9 @@ alert thresholds, notification channels, generic OIDC + SAML · 2.5.0
 self-host observability), what each must pass before it is tagged, and what is
 deliberately deferred. Task breakdowns with acceptance criteria:
 [`docs/phase2.2-tasks.md`](docs/phase2.2-tasks.md),
-[`docs/phase2.3-tasks.md`](docs/phase2.3-tasks.md) and
-[`docs/phase2.4-tasks.md`](docs/phase2.4-tasks.md).
+[`docs/phase2.3-tasks.md`](docs/phase2.3-tasks.md),
+[`docs/phase2.4-tasks.md`](docs/phase2.4-tasks.md) and
+[`docs/phase2.5-tasks.md`](docs/phase2.5-tasks.md).
 [`docs/roadmap-2.0.md`](docs/roadmap-2.0.md) is kept as the 2.0 record.
 
 ### MVP (v1.0)

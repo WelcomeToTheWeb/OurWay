@@ -155,6 +155,9 @@ are additive on the provider row; the admin-only provider endpoint keeps
 **Theme:** a self-hosted operator can see what their infrastructure is doing, and
 what is broken about it (`PRODUCT.md`, Product Principle 5).
 
+**Task breakdown with acceptance criteria:**
+[`phase2.5-tasks.md`](phase2.5-tasks.md)
+
 | Scope | Detail |
 |---|---|
 | Self-metrics | Counters and histograms for WS drops, full-queue drops, frame throughput, alert-engine latency, session counts, queue depth, deploy outcomes. The 2026-10 review's standing complaint: "no dropped-frame counters anywhere" (`buglist.md` M8, M10). |
