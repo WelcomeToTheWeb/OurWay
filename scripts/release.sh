@@ -4,6 +4,10 @@
 #   scripts/release.sh 2.1.0            cut and publish v2.1.0
 #   scripts/release.sh --check 2.1.0    run every check and the gate, publish nothing
 #   scripts/release.sh --dry-run 2.1.0  show the checks and what would be published
+#   scripts/release.sh --skip-gate 2.1.0  cut without running the gate here: the
+#                                CI tests job runs the identical gate on the
+#                                tag and blocks publishing if it is red. Use
+#                                only where the toolchain is not installed.
 #
 # The git tag is the version: see docs/versioning.md.
 set -euo pipefail
@@ -12,14 +16,16 @@ cd "$(git rev-parse --show-toplevel)"
 
 CHECK_ONLY=0
 DRY_RUN=0
+SKIP_GATE=0
 VERSION=""
 
 for arg in "$@"; do
   case "$arg" in
     --check) CHECK_ONLY=1 ;;
     --dry-run) DRY_RUN=1 ;;
+    --skip-gate) SKIP_GATE=1 ;;
     -h | --help)
-      sed -n '2,10p' "$0"
+      sed -n '2,12p' "$0"
       exit 0
       ;;
     *) VERSION="$arg" ;;
@@ -66,6 +72,9 @@ git fetch --quiet origin "$BRANCH"
 git cat-file -e "origin/main:docker/Dockerfile.server" 2>/dev/null || fail "not the OurWay repository root"
 
 # --- 3. the gate --------------------------------------------------------------
+if [[ "$SKIP_GATE" == "1" ]]; then
+  step "gate skipped (--skip-gate): CI runs the identical gate on the tag and blocks publishing if red"
+else
 step "gate: server"
 go -C server build ./...
 go -C server vet ./...
@@ -89,6 +98,7 @@ step "gate: web"
 npm ci --prefix web
 npm test --prefix web -- --run
 npm run build --prefix web
+fi
 
 if [[ "$CHECK_ONLY" == "1" ]]; then
   echo
