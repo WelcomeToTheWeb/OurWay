@@ -148,6 +148,22 @@ section so the claims in H8 / M17 are stated rather than discovered.
 
 **Fix:** 2.3.0 (tenancy + audit log), 2.4.0 (thresholds), 2.5.0 (patch parity).
 
+### 🟠 H11. `--install` pointed the service at a binary that is not there
+**Status:** ✅ Fixed 2026-10-26 — `agent/install/linux.go`, `agent/install/darwin.go`, `agent/install/service_path.go`
+**Files:** `agent/install/linux.go` (systemd `ExecStart`), `agent/install/darwin.go` (launchd `ProgramArguments`)
+
+Both installers hardcode `/usr/local/bin/ourway-agent` as the program the service
+runs, while `--install` installs the service **from wherever the agent binary
+currently is**. Run `./ourway-agent --install` from the directory you downloaded
+it into — the way the smoke job, and plenty of people, do it — and systemd
+starts a unit whose `ExecStart` does not exist: `status=203/EXEC`, a restart
+loop every 5 s, and a console showing a unit that never comes online. The
+installer now uses the binary it was invoked from (`os.Executable()`, symlinks
+resolved), the Windows installer's behaviour all along, and warns when that path
+is not one a root-run service should depend on — on macOS the Accessibility grant
+follows the binary's path, so a service running out of a home directory loses
+remote control at the next self-update.
+
 ### 🟠 H10. The macOS agent has never been compiled with cgo
 **Status:** ✅ Fixed 2026-10-26 — `agent/session/geometry_darwin.go`, found by the 2.2-0 agent-smoke job on a macOS runner
 **Files:** `agent/session/geometry_darwin.go` (and, by the same logic, every darwin cgo file added later)

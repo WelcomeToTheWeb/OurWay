@@ -23,7 +23,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/ourway-agent --server %s --key %s
+ExecStart=%s --server %s --key %s
 Restart=always
 RestartSec=5
 User=root
@@ -32,7 +32,7 @@ Environment=OURWAY_DEVICE_KEY=%s
 
 [Install]
 WantedBy=multi-user.target
-`, cfg.ServerURL, cfg.DeviceKey, cfg.ServerURL, cfg.DeviceKey)
+`, serviceExecutable(), cfg.ServerURL, cfg.DeviceKey, cfg.ServerURL, cfg.DeviceKey)
 
 	if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
 		return fmt.Errorf("write unit file: %w", err)

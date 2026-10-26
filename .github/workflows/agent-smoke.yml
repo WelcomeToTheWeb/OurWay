@@ -104,7 +104,9 @@ jobs:
                   Select-Object -First 1).DirectoryName
           $data = Join-Path $env:RUNNER_TEMP 'pgdata'
           Set-Content -Path (Join-Path $env:RUNNER_TEMP 'pw.txt') -Value 'postgres'
-          & (Join-Path $bin 'initdb.exe') -D $data -U postgres --pwfile=(Join-Path $env:RUNNER_TEMP 'pw.txt') --auth-local=trust --auth-host=trust | Out-Null
+          # PowerShell 5.1 does not parse `--flag=(expression)`: pass the value
+          # as its own argument, which is also how initdb documents --pwfile.
+          & (Join-Path $bin 'initdb.exe') -D $data -U postgres --pwfile (Join-Path $env:RUNNER_TEMP 'pw.txt') --auth-local=trust --auth-host=trust | Out-Null
           & (Join-Path $bin 'pg_ctl.exe') -D $data -o '-p 5432 -h 127.0.0.1' -w -l (Join-Path $env:RUNNER_TEMP 'pglog.txt') start
           $env:PGPASSWORD = 'postgres'
           & (Join-Path $bin 'psql.exe') -U postgres -h 127.0.0.1 -c "CREATE ROLE ourway LOGIN PASSWORD 'ourway';"
