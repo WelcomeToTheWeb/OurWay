@@ -59,13 +59,19 @@ function connect(key, attempt = 0) {
       ws.send(JSON.stringify({ type: 'pong' }));
     }
   };
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     const index = sockets.indexOf(ws);
     if (index >= 0) sockets.splice(index, 1);
     if (stopping) return;
-    // Reconnect with the same discipline an agent uses: back off, do not swarm.
-    const delay = Math.min(30_000, 500 * 2 ** attempt);
-    setTimeout(() => connect(key, attempt + 1), delay);
+    // Back off when the network is the problem — a 1006 with no reason is a
+    // dropped connection, and swarming a server that is unhappy is how a
+    // reconnect becomes an outage. A *displacement* is not that: the hub
+    // allows one connection per device, so when a test opens the device
+    // socket with the same key the hub closes ours, and the run must be
+    // online again in milliseconds, not 500.
+    const displaced = event?.code === 1000 || event?.code === 4001;
+    const delay = displaced ? 50 : Math.min(30_000, 500 * 2 ** attempt);
+    setTimeout(() => connect(key, displaced ? attempt : attempt + 1), delay);
   };
   ws.onerror = () => {
     // onclose follows onerror and owns the reconnect.

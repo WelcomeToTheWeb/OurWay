@@ -198,7 +198,7 @@ export async function seedFleet(token: string): Promise<SeedManifest> {
     const name = runSuffix ? `${unit.name}${runSuffix}` : unit.name;
     const hostname = runTag ? `${unit.hostname}-r${runTag}` : unit.hostname;
     const privateIP = runTag ? `10.61.${(Number(runTag) % 251) + 1}.${index + 1}` : unit.privateIP;
-    const reg = await req<{ device: { id: string }; device_key: string }>('/agent/register', {
+    const reg = await req<{ device: { id: string }; device_key: string; error?: string }>('/agent/register', {
       method: 'POST',
       body: JSON.stringify({
         name,
@@ -210,10 +210,21 @@ export async function seedFleet(token: string): Promise<SeedManifest> {
         private_ip: privateIP,
       }),
     });
-    if (reg.status === 401 && !runSuffix) {
+    // Name the cause the server gave. A 401 from registration means one of two
+    // opposite things — the fleet is already enrolled (the C4 guard) or the
+    // enrollment gate is not satisfied — and blaming the first when the second
+    // is true sends the next reader to the wrong file.
+    if (reg.status === 401) {
+      const why = reg.body?.error ?? '';
+      if (/re-registration requires/i.test(why)) {
+        throw new Error(
+          `e2e setup: ${name} is already enrolled on this database and re-registration needs its device key (the C4 guard): ${why}. ` +
+            'Set OURWAY_E2E_RUN_ID to seed a run-scoped fleet, or point OURWAY_E2E_API_URL at a fresh database.',
+        );
+      }
       throw new Error(
-        `e2e setup: ${name} is already enrolled on this database and re-registration needs its device key (the C4 guard). ` +
-          'Set OURWAY_E2E_RUN_ID to seed a run-scoped fleet, or point OURWAY_E2E_API_URL at a fresh database.',
+        `e2e setup: ${name} could not enroll: ${why}. ` +
+          'If the server has ENROLLMENT_SECRET set, pass OURWAY_E2E_ENROLLMENT_SECRET with the same value.',
       );
     }
     if (reg.status !== 200 && reg.status !== 201) {

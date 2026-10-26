@@ -11,7 +11,7 @@
  * localhost console was silently getting 403.
  */
 import { test, expect } from '@playwright/test';
-import { manifest, reFor, uiLogin } from './fixtures.js';
+import { ADMIN_PASSWORD, ADMIN_USER, apiBase, apiLogin, manifest, reFor, uiLogin } from './fixtures.js';
 
 test('a browser may open the device socket the agent protocol uses', async ({ page }) => {
   const probe = manifest().units[1];
@@ -22,8 +22,12 @@ test('a browser may open the device socket the agent protocol uses', async ({ pa
       new Promise<boolean>((resolve) => {
         const ws = new WebSocket(url, ['ourway-auth', deviceKey]);
         ws.onopen = () => {
-          // Close immediately: a device key identifies one client in the hub,
-          // and this probe must not displace the fake agent holding that unit.
+          // Open then close, as fast as possible. This *does* displace the
+          // fake agent's connection for that key — the hub allows one client
+          // per device key, so the later arrival wins — which is why the
+          // support agent treats a clean close as a displacement and
+          // re-registers in milliseconds, and why the session tests wait for
+          // the unit to be online before they act on it.
           ws.close(1000, 'handshake probe');
           resolve(true);
         };
@@ -36,11 +40,34 @@ test('a browser may open the device socket the agent protocol uses', async ({ pa
   expect(opened, 'the console origin was refused by the WS origin gate').toBe(true);
 });
 
+/**
+ * A session needs a peer. The harness's fake agent is displaced whenever a test
+ * opens the same device socket, and it re-registers in milliseconds — clicking
+ * before the unit is back online starts nothing, and the ledger is correctly
+ * empty. So the suite waits for the state its assertion depends on.
+ */
+async function expectUnitOnline(deviceId: string) {
+  const token = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
+  await expect
+    .poll(
+      async () => {
+        const res = await fetch(`${apiBase()}/api/devices/${deviceId}`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const body = await res.json();
+        return (body.device as { status?: string } | undefined)?.status;
+      },
+      { message: 'the unit must be connected before it can be remote-controlled', timeout: 30_000 }
+    )
+    .toBe('online');
+}
+
 test('a connected unit can start a session, and the ledger shows it', async ({ page }) => {
   const unit = manifest().units[0];
   await uiLogin(page);
 
   await page.goto(`/devices/${unit.id}`);
+  await expectUnitOnline(unit.id);
   await page.getByRole('button', { name: /remote session/i }).click();
 
   await page.goto('/sessions');

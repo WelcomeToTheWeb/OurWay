@@ -24,3 +24,7 @@ web/e2e/.fake-agent.pid
 
 # scripts/coverage.sh working files
 .coverage-*.out
+
+# Local dev secrets and the binaries scripts/ builds for a run.
+.env
+.tmp/
