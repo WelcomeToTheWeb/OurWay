@@ -44,7 +44,9 @@ step() { echo "▶ $*"; }
 LATEST_TAG=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
 if [[ -n "$LATEST_TAG" ]]; then
   step "latest tag: $LATEST_TAG"
-  if [[ "$(printf '%s\n%s\n' "${LATEST_TAG#v}" "$VERSION" | sort -V | head -1)" != "$VERSION" ]]; then
+  # sort -V puts the OLDER of the two first: if the new number comes out
+  # first, it is not strictly greater than the released one.
+  if [[ "$(printf '%s\n%s\n' "$VERSION" "${LATEST_TAG#v}" | sort -V | head -1)" == "$VERSION" ]]; then
     fail "$VERSION is not greater than ${LATEST_TAG#v}"
   fi
 fi
