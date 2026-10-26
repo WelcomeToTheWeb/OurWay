@@ -5,7 +5,13 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/context';
 import { listSSOProviders, authorizeProvider, exchangeSSOCode, type SSOProvider } from '../api/sso';
 import { getAuthStatus } from '../api/auth';
+import { Stamp } from '../components/Stamp';
 
+/**
+ * The console door: a plate with the shop's own facts (this server, this
+ * build, self-hosted) beside the sign-in fields. First run prints the
+ * register form and says plainly that this account becomes the admin.
+ */
 export function Login() {
   const { t } = useTranslation();
   const { login, register, isAuthenticated, setToken } = useAuth();
@@ -34,10 +40,12 @@ export function Login() {
         setToken(access_token, refresh_token);
         navigate('/');
       } catch {
-        if (!cancelled) setError('SSO login failed. Please try again.');
+        if (!cancelled) setError('SSO login failed. Sign in again, or use the password form.');
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams, setToken, navigate]);
 
   if (isAuthenticated) {
@@ -45,14 +53,12 @@ export function Login() {
     return null;
   }
 
-  // Check if users exist (first-run detection)
   useEffect(() => {
     getAuthStatus()
       .then((status) => setHasUsers(status.has_users))
       .catch(() => setHasUsers(true));
   }, []);
 
-  // Load SSO providers
   useEffect(() => {
     let mounted = true;
     listSSOProviders()
@@ -105,156 +111,224 @@ export function Login() {
     }
   }
 
-  // Loading state while checking for existing users
   if (hasUsers === null) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-bg">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent">
-          <MonitorSmartphone className="h-7 w-7 text-text-primary" />
-        </div>
-      </div>
+      <main className="plate flex min-h-screen items-center justify-center">
+        <span className="cap cap-lg" style={{ color: 'var(--ink-on-plate-muted)' }}>
+          Opening the console…
+        </span>
+      </main>
     );
   }
 
+  const origin = typeof window !== 'undefined' ? window.location.host : '';
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent">
-            <MonitorSmartphone className="h-7 w-7 text-text-primary" />
+    <main className="grid min-h-screen grid-cols-1 lg:grid-cols-[22rem_minmax(0,1fr)]">
+      {/* The plate */}
+      <section className="plate flex flex-col justify-between px-6 py-8">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center border" style={{ borderColor: 'rgba(232,228,216,0.4)' }}>
+              <MonitorSmartphone className="h-4 w-4" style={{ color: 'var(--ink-on-plate)' }} aria-hidden="true" />
+            </span>
+            <span>
+              <span className="ow-display block text-[22px] leading-none" style={{ color: 'var(--ink-on-plate)' }}>
+                {t('app.name')}
+              </span>
+              <span className="cap-sm cap mt-1 block" style={{ color: 'var(--ink-on-plate-muted)' }}>
+                {t('app.tagline')}
+              </span>
+            </span>
           </div>
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-text-primary">{t('app.name')}</h1>
-            <p className="text-sm text-text-secondary">{t('app.tagline')}</p>
-          </div>
+
+          <p className="mt-8 text-[13px] leading-relaxed" style={{ color: 'var(--ink-on-plate)' }}>
+            Monitoring, patching, remote control and file transfer for Windows, Linux and macOS units — on a
+            server you run.
+          </p>
         </div>
 
-        {hasUsers ? (
-          /* Login form */
-          <form
-            onSubmit={handleLogin}
-            className="flex flex-col gap-4 rounded-2xl border border-bg-border bg-bg-card p-6"
-          >
-            {error && (
-              <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
-                {error}
-              </p>
-            )}
+        <dl className="mt-8 space-y-2">
+          <div className="flex items-baseline justify-between gap-3 border-b pb-1.5" style={{ borderColor: 'rgba(232,228,216,0.16)' }}>
+            <dt className="cap-sm cap" style={{ color: 'var(--ink-on-plate-muted)' }}>
+              Server
+            </dt>
+            <dd className="ow-num text-[12px]" style={{ color: 'var(--ink-on-plate)' }}>
+              {origin}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3 border-b pb-1.5" style={{ borderColor: 'rgba(232,228,216,0.16)' }}>
+            <dt className="cap-sm cap" style={{ color: 'var(--ink-on-plate-muted)' }}>
+              Hosting
+            </dt>
+            <dd>
+              <span className="stamp" style={{ color: 'var(--ink-on-plate)' }}>
+                Self-hosted
+              </span>
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="cap-sm cap" style={{ color: 'var(--ink-on-plate-muted)' }}>
+              Licence
+            </dt>
+            <dd className="ow-num text-[12px]" style={{ color: 'var(--ink-on-plate)' }}>
+              MIT
+            </dd>
+          </div>
+        </dl>
+      </section>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">{t('auth.username')}</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder={t('auth.usernamePlaceholder')}
-                required
-              />
-            </div>
+      {/* The door */}
+      <section className="flex items-center justify-center px-5 py-10">
+        <div className="w-full max-w-[26rem] panel p-5">
+          <h1 className="text-[24px]">{hasUsers ? 'Sign in' : 'First run'}</h1>
+          <p className="cap cap-sm mt-1 border-b border-rule pb-3 text-text-muted">
+            {hasUsers ? 'Technicians, managers and admins on this console' : 'Create the first admin account'}
+          </p>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">{t('auth.password')}</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder={t('auth.passwordPlaceholder')}
-                required
-              />
-            </div>
+          {hasUsers ? (
+            <form onSubmit={handleLogin} className="mt-4 flex flex-col gap-3">
+              {error && (
+                <p role="alert" className="border border-[var(--error)] px-3 py-2 text-[12.5px] text-[var(--error)]">
+                  {error}
+                </p>
+              )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark disabled:opacity-60"
-            >
-              {loading ? t('auth.signingIn') : t('auth.signIn')}
-            </button>
-
-            {/* SSO Buttons */}
-            {!providersLoading && providers.length > 0 && (
-              <div className="flex flex-col gap-3 pt-2">
-                <div className="relative flex items-center">
-                  <div className="flex-1 border-t border-bg-border" />
-                  <span className="px-3 text-xs text-text-muted">{t('auth.orSignInWith')}</span>
-                  <div className="flex-1 border-t border-bg-border" />
-                </div>
-
-                {providers.map((p) => (
-                  <button
-                    key={p.name}
-                    type="button"
-                    onClick={() => handleSSO(p)}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-bg-border bg-bg px-4 py-2.5 text-sm text-text-primary transition-colors hover:bg-bg"
-                  >
-                    <ProviderIcon provider={p.name} />
-                    {t('auth.signInWith', { provider: providerDisplayName(p.name) })}
-                  </button>
-                ))}
+              <div className="flex flex-col gap-1">
+                <label className="field-label" htmlFor="login-username">
+                  {t('auth.username')}
+                </label>
+                <input
+                  id="login-username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="input py-2.5 text-[13px]"
+                  placeholder={t('auth.usernamePlaceholder')}
+                  autoComplete="username"
+                  required
+                />
               </div>
-            )}
-          </form>
-        ) : (
-          /* Registration form (first run) */
-          <form
-            onSubmit={handleRegister}
-            className="flex flex-col gap-4 rounded-2xl border border-bg-border bg-bg-card p-6"
-          >
-            {error && (
-              <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
-                {error}
+
+              <div className="flex flex-col gap-1">
+                <label className="field-label" htmlFor="login-password">
+                  {t('auth.password')}
+                </label>
+                <input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="input py-2.5 text-[13px]"
+                  placeholder={t('auth.passwordPlaceholder')}
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+
+              <button type="submit" disabled={loading} className="btn btn-primary mt-2 py-2.5 text-[13px]">
+                {loading ? t('auth.signingIn') : t('auth.signIn')}
+              </button>
+
+              {!providersLoading && providers.length > 0 && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <div className="flex items-center gap-3">
+                    <span className="h-px flex-1 bg-[var(--rule)]" />
+                    <span className="cap-sm cap text-text-muted">{t('auth.orSignInWith')}</span>
+                    <span className="h-px flex-1 bg-[var(--rule)]" />
+                  </div>
+                  {providers.map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => handleSSO(p)}
+                      className="btn py-2.5 text-[13px]"
+                    >
+                      <ProviderIcon provider={p.name} />
+                      {t('auth.signInWith', { provider: providerDisplayName(p.name) })}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </form>
+          ) : (
+            <form onSubmit={handleRegister} className="mt-5 flex flex-col gap-3">
+              {error && (
+                <p role="alert" className="border border-[var(--error)] px-3 py-2 text-[12.5px] text-[var(--error)]">
+                  {error}
+                </p>
+              )}
+
+              <p className="border border-rule bg-[var(--field)] px-3 py-2 text-[12.5px] text-text-secondary">
+                This account becomes the console's admin: full access to units, users, policies and settings.
+                Enrol agents after it exists — self-registration closes once an account is here.
               </p>
-            )}
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">{t('auth.username')}</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder={t('auth.usernamePlaceholder')}
-                required
-              />
-            </div>
+              <div className="flex flex-col gap-1">
+                <label className="field-label" htmlFor="reg-username">
+                  {t('auth.username')}
+                </label>
+                <input
+                  id="reg-username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="input py-2.5 text-[13px]"
+                  placeholder={t('auth.usernamePlaceholder')}
+                  autoComplete="username"
+                  required
+                />
+              </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">{t('auth.email')}</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder={t('auth.emailPlaceholder')}
-                required
-              />
-            </div>
+              <div className="flex flex-col gap-1">
+                <label className="field-label" htmlFor="reg-email">
+                  {t('auth.email')}
+                </label>
+                <input
+                  id="reg-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="input py-2.5 text-[13px]"
+                  placeholder={t('auth.emailPlaceholder')}
+                  autoComplete="email"
+                  required
+                />
+              </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-text-secondary">{t('auth.password')}</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                placeholder={t('auth.passwordPlaceholder')}
-                required
-              />
-            </div>
+              <div className="flex flex-col gap-1">
+                <label className="field-label" htmlFor="reg-password">
+                  {t('auth.password')}
+                </label>
+                <input
+                  id="reg-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="input py-2.5 text-[13px]"
+                  placeholder={t('auth.passwordPlaceholder')}
+                  autoComplete="new-password"
+                  required
+                />
+              </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-2 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-dark disabled:opacity-60"
-            >
-              {loading ? t('auth.creatingAccount') : t('auth.getStarted')}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
+              <button type="submit" disabled={loading} className="btn btn-primary mt-2 py-2.5 text-[13px]">
+                {loading ? t('auth.creatingAccount') : t('auth.getStarted')}
+              </button>
+            </form>
+          )}
+
+          <div className="mt-6 flex items-center gap-2">
+            <Stamp tone="neutral" title="Sessions use short-lived access tokens refreshed over the API">
+              JWT session
+            </Stamp>
+            <span className="text-[11px] text-text-muted">
+              {hasUsers ? 'Access tokens expire and refresh automatically.' : 'No agents are enrolled on this server yet.'}
+            </span>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 

@@ -20,8 +20,13 @@ const Webhooks = lazy(() => import('./pages/Webhooks').then((m) => ({ default: m
 
 function RouteFallback() {
   return (
-    <div className="flex h-64 items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-bg-border border-t-accent" />
+    <div className="flex h-64 flex-col items-center justify-center gap-3">
+      <span
+        className="h-8 w-8 animate-spin border-2"
+        style={{ borderColor: 'var(--rule-strong)', borderTopColor: 'var(--service)' }}
+        aria-hidden="true"
+      />
+      <span className="cap cap-sm text-text-muted">Loading this page…</span>
     </div>
   );
 }

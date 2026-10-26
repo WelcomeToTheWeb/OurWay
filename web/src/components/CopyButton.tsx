@@ -6,6 +6,7 @@ interface CopyButtonProps {
   className?: string;
 }
 
+/** Copies a measured value (device key, link, id) and stamps the result. */
 export function CopyButton({ text, className = '' }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
@@ -15,7 +16,6 @@ export function CopyButton({ text, className = '' }: CopyButtonProps) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Fallback for older browsers
       const el = document.createElement('textarea');
       el.value = text;
       document.body.appendChild(el);
@@ -31,19 +31,16 @@ export function CopyButton({ text, className = '' }: CopyButtonProps) {
     <button
       type="button"
       onClick={handleCopy}
-      className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors ${className} ${
-        copied
-          ? 'text-status-online'
-          : 'text-text-muted hover:text-text-primary hover:bg-bg'
-      }`}
+      aria-label={copied ? 'Copied' : 'Copy to clipboard'}
+      className={`btn btn-quiet px-1.5 py-0.5 text-[11px] ${copied ? 'text-[var(--online)]' : ''} ${className}`}
     >
       {copied ? (
         <>
-          <Check className="h-3 w-3" />
-          <span>Copied!</span>
+          <Check className="h-3 w-3" aria-hidden="true" />
+          <span className="cap-sm cap">Copied</span>
         </>
       ) : (
-        <Copy className="h-3 w-3" />
+        <Copy className="h-3 w-3" aria-hidden="true" />
       )}
     </button>
   );

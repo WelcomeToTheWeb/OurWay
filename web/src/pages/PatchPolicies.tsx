@@ -1,13 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
 import {
-  Calendar,
-  Check,
   Play,
-  RefreshCw,
   Shield,
   Plus,
   Activity,
-  Clock,
   ChevronDown,
   RotateCcw,
 } from 'lucide-react';
@@ -21,10 +17,13 @@ import {
   rollbackDeployment,
 } from '../api/patching';
 import { useTranslation } from 'react-i18next';
+import { Stamp } from '../components/Stamp';
+import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import { listTags, type TagCount } from '../api/tags';
 import { useAuth } from '../auth/context';
 import { browserTimeZone, formatWindow, timeZoneOptions } from '../utils/patchWindow';
 import type { PatchPolicy, PatchDeployment, DeploymentResult } from '../types/patch';
+import { isRateLimited } from '../api/client';
 
 function timeAgo(dateStr: string): string {
   try {
@@ -34,7 +33,7 @@ function timeAgo(dateStr: string): string {
     if (diff < 60000) return 'Just now';
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return d.toLocaleDateString();
+    return d.toISOString().slice(0, 10);
   } catch {
     return 'Unknown';
   }
@@ -66,6 +65,7 @@ export function PatchPolicies() {
     listTags().then(setKnownTags).catch(() => setKnownTags([]));
   }, []);
   const [resultsFor, setResultsFor] = useState<string | null>(null);
+  const guide = useGuideWords(deployments.length);
   const [results, setResults] = useState<DeploymentResult[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
@@ -85,7 +85,9 @@ export function PatchPolicies() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 30000);
+    const interval = setInterval(() => {
+      if (!isRateLimited()) void load();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -119,7 +121,7 @@ export function PatchPolicies() {
   }
 
   async function handleDelete(policy: PatchPolicy) {
-    if (!window.confirm(`Delete policy "${policy.name}"? Queued deployments for it are dropped.`)) return;
+    if (!window.confirm(`Delete policy"${policy.name}"? Queued deployments for it are dropped.`)) return;
     try {
       await deletePolicy(policy.id);
       await load();
@@ -167,7 +169,7 @@ export function PatchPolicies() {
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <Activity className="h-8 w-8 animate-spin text-accent" />
+        <Activity className="h-8 w-8 animate-spin text-[var(--service)]" />
       </div>
     );
   }
@@ -178,7 +180,7 @@ export function PatchPolicies() {
       <div>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-text-primary">{t('patchPolicies.title')}</h1>
+            <h1 className="text-[26px]">{t('patchPolicies.title')}</h1>
             <p className="text-sm text-text-secondary">
               {t('patchPolicies.activePolicies', { count: policies.length })}
             </p>
@@ -187,7 +189,7 @@ export function PatchPolicies() {
             <button
               onClick={handleDeploy}
               disabled={creating}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg btn btn-primary px-2.5 py-1.5 text-[11px] disabled:opacity-50"
             >
               <Play className="h-3.5 w-3.5" />
               {t('patches.deployNow')}
@@ -205,7 +207,7 @@ export function PatchPolicies() {
         </div>
 
         {showCreate && (
-          <div className="mt-4 rounded-xl border border-bg-border bg-bg-card p-6">
+          <div className="mt-4 panel p-6">
             <h3 className="text-sm font-semibold text-text-primary">{t('patchPolicies.createPolicy')}</h3>
             <div className="mt-4 grid grid-cols-2 gap-4">
               <div>
@@ -217,7 +219,7 @@ export function PatchPolicies() {
                     setNewPolicy({ ...newPolicy, name: e.target.value })
                   }
                   placeholder={t('patchPolicies.namePlaceholder')}
-                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                  className="input mt-1 w-full"
                 />
               </div>
               <div>
@@ -227,7 +229,7 @@ export function PatchPolicies() {
                   onChange={(e) =>
                     setNewPolicy({ ...newPolicy, schedule: e.target.value })
                   }
-                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                  className="input mt-1 w-full"
                 >
                   <option value="daily">{t('patchPolicies.daily')}</option>
                   <option value="weekly">{t('patchPolicies.weekly')}</option>
@@ -241,7 +243,7 @@ export function PatchPolicies() {
                   type="time"
                   value={newPolicy.window_start}
                   onChange={(e) => setNewPolicy({ ...newPolicy, window_start: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                  className="input mt-1 w-full"
                 />
               </div>
               <div>
@@ -253,7 +255,7 @@ export function PatchPolicies() {
                   max={24}
                   value={newPolicy.window_hours}
                   onChange={(e) => setNewPolicy({ ...newPolicy, window_hours: parseInt(e.target.value) || 4 })}
-                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                  className="input mt-1 w-full"
                 />
               </div>
               <div>
@@ -263,7 +265,7 @@ export function PatchPolicies() {
                   list="policy-timezones"
                   value={newPolicy.timezone}
                   onChange={(e) => setNewPolicy({ ...newPolicy, timezone: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                  className="input mt-1 w-full"
                 />
                 <datalist id="policy-timezones">
                   {timeZoneOptions().map((z) => <option key={z} value={z} />)}
@@ -276,7 +278,7 @@ export function PatchPolicies() {
                   onChange={(e) =>
                     setNewPolicy({ ...newPolicy, scope: e.target.value })
                   }
-                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                  className="input mt-1 w-full"
                 >
                   <option value="all">{t('patchPolicies.allDevices')}</option>
                   <option value="tags">{t('patchPolicies.byTag')}</option>
@@ -296,7 +298,7 @@ export function PatchPolicies() {
                     value={newPolicy.scope_value}
                     onChange={(e) => setNewPolicy({ ...newPolicy, scope_value: e.target.value })}
                     placeholder={newPolicy.scope === 'tags' ? 'prod, web' : 'server-01, laptop-7'}
-                    className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                    className="input mt-1 w-full"
                   />
                   {newPolicy.scope === 'tags' && (
                     <datalist id="policy-tag-suggestions">
@@ -320,7 +322,7 @@ export function PatchPolicies() {
                       max_devices_per_batch: parseInt(e.target.value) || 10,
                     })
                   }
-                  className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+                  className="input mt-1 w-full"
                 />
               </div>
             </div>
@@ -332,7 +334,7 @@ export function PatchPolicies() {
                   onChange={(e) =>
                     setNewPolicy({ ...newPolicy, auto_reboot: e.target.checked })
                   }
-                  className="h-4 w-4 accent-accent"
+                  className="h-4 w-4" style={{ accentColor: 'var(--service)' }}
                 />
                 {t('patchPolicies.autoRebootIfNeeded')}
               </label>
@@ -346,7 +348,7 @@ export function PatchPolicies() {
                       approval_required: e.target.checked,
                     })
                   }
-                  className="h-4 w-4 accent-accent"
+                  className="h-4 w-4" style={{ accentColor: 'var(--service)' }}
                 />
                 {t('patchPolicies.requireApproval')}
               </label>
@@ -355,13 +357,13 @@ export function PatchPolicies() {
               <button
                 onClick={handleCreate}
                 disabled={creating || !newPolicy.name}
-                className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
+                className="btn-primary"
               >
                 {t('patchPolicies.createPolicy')}
               </button>
               <button
                 onClick={() => setShowCreate(false)}
-                className="rounded-lg bg-bg-secondary px-4 py-2 text-xs font-medium text-text-primary transition-colors hover:bg-bg"
+                className="btn"
               >
                 {t('common.cancel')}
               </button>
@@ -370,80 +372,93 @@ export function PatchPolicies() {
         )}
 
         {policies.length === 0 ? (
-          <div className="mt-4 flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-12 text-text-secondary">
-            <Shield className="h-10 w-10 text-text-muted" />
-            <p className="mt-3 text-sm font-medium text-text-primary">
-              {t('patchPolicies.none')}
-            </p>
-            <p className="mt-1 text-xs text-text-muted">
-              {t('patchPolicies.noneDesc')}
-            </p>
+          <div className="panel px-4 py-8 text-center">
+            <Shield className="mx-auto h-5 w-5 text-text-muted" aria-hidden="true" />
+            <p className="cap cap-sm mt-2 text-text-secondary">{t('patchPolicies.none')}</p>
+            <p className="mt-1 text-sm text-text-muted">{t('patchPolicies.noneDesc')}</p>
           </div>
         ) : (
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {policies.map((policy) => (
-              <div
-                key={policy.id}
-                className="rounded-xl border border-bg-border bg-bg-card p-4 transition-colors hover:border-accent/50"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent">
-                      <Shield className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-text-primary">
-                        {policy.name}
-                      </p>
-                      <p className="text-xs text-text-secondary">
-                        {policy.scope === 'all'
-                          ? t('patchPolicies.allDevices')
-                          : policy.scope === 'tags'
-                            ? t('patchPolicies.scopeTag', { value: policy.scope_value })
-                            : t('patchPolicies.scopeDevices', { value: policy.scope_value })}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="flex items-center gap-1 text-xs text-text-secondary">
-                      <Calendar className="h-3.5 w-3.5" />
-                      {t(`patchPolicies.${policy.schedule}`)}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-3 flex items-center gap-4 text-xs text-text-secondary">
-                  {policy.approval_required && (
-                    <span className="flex items-center gap-1">
-                      <Check className="h-3 w-3 text-status-online" />
-                      {t('patchPolicies.approvalRequired')}
-                    </span>
-                  )}
-                  {policy.auto_reboot && (
-                    <span className="flex items-center gap-1">
-                      <RefreshCw className="h-3 w-3 text-accent" />
-                      {t('patchPolicies.autoReboot')}
-                    </span>
-                  )}
-                  <span>{t('patchPolicies.batch', { count: policy.max_devices_per_batch })}</span>
-                </div>
-                <div className="mt-2 flex items-center justify-between text-xs text-text-muted">
-                  <span>
-                    Window: {formatWindow(policy)}
-                    {policy.last_run_at && ` · last ran ${new Date(policy.last_run_at).toLocaleString()}`}
-                  </span>
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDelete(policy)}
-                      className="rounded-md px-2 py-1 text-status-error hover:bg-status-error/10"
-                      aria-label={`Delete policy ${policy.name}`}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          <section className="panel mt-3 overflow-hidden">
+            <GuideWordsHead
+              total={policies.length}
+              unit={t('sheet.inView')}
+              first={policies[guide.first]?.name}
+              last={policies[guide.last]?.name}
+            />
+            <div ref={guide.ref} className="max-h-[24rem] overflow-y-auto">
+              <table className="ledger">
+                <thead>
+                  <tr>
+                    <th>{t('common.name')}</th>
+                    <th className="w-36">Scope</th>
+                    <th className="w-24">Schedule</th>
+                    <th className="w-40">Window</th>
+                    <th className="w-16">Batch</th>
+                    <th className="w-44">Conditions</th>
+                    <th className="w-32">Last run</th>
+                    <th className="w-16 text-right"> </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {policies.map((policy) => (
+                    <tr key={policy.id} data-guide title={policy.name}>
+                      <td>
+                        <span className="cap cap-sm text-text-primary">{policy.name}</span>
+                      </td>
+                      <td>
+                        <span className="cap cap-sm text-text-muted">
+                          {policy.scope === 'all'
+                            ? t('patchPolicies.allDevices')
+                            : policy.scope === 'tags'
+                              ? t('patchPolicies.scopeTag', { value: policy.scope_value })
+                              : t('patchPolicies.scopeDevices', { value: policy.scope_value })}
+                        </span>
+                      </td>
+                      <td>
+                        <Stamp tone="neutral">{t(`patchPolicies.${policy.schedule}`)}</Stamp>
+                      </td>
+                      <td>
+                        <span className="ow-num text-[12px]">{formatWindow(policy)}</span>
+                        {policy.timezone && (
+                          <span className="cap cap-sm block text-text-muted">{policy.timezone}</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className="ow-num text-[12px]">{policy.max_devices_per_batch}</span>
+                      </td>
+                      <td>
+                        <span className="flex flex-wrap gap-1.5">
+                          {policy.approval_required && <Stamp tone="service">{t('patchPolicies.approvalRequired')}</Stamp>}
+                          {policy.auto_reboot && <Stamp tone="due">{t('patchPolicies.autoReboot')}</Stamp>}
+                          {!policy.approval_required && !policy.auto_reboot && (
+                            <span className="cap cap-sm text-text-muted">none</span>
+                          )}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="ow-num text-[12px] text-text-secondary">
+                          {policy.last_run_at
+                            ? new Date(policy.last_run_at).toISOString().slice(0, 16).replace('T', ' ')
+                            : 'never'}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDelete(policy)}
+                            className="btn-quiet btn text-[var(--stamp)]"
+                            aria-label={`Delete policy ${policy.name}`}
+                          >
+                            {t('common.delete')}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
       </div>
 
@@ -451,167 +466,150 @@ export function PatchPolicies() {
       <div>
         <h2 className="text-lg font-semibold text-text-primary">{t('patchPolicies.deployments')}</h2>
         {deployments.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-bg-border bg-bg-card p-8 text-center text-sm text-text-secondary">
-            {t('patchPolicies.noDeployments')}
+          <div className="panel px-4 py-8 text-center">
+            <p className="cap cap-sm text-text-secondary">{t('patchPolicies.noDeployments')}</p>
           </div>
         ) : (
-          <div className="mt-4 space-y-3">
-            {deployments.slice(0, 10).map((dep) => {
-              const progress =
-                dep.devices_total > 0
-                  ? Math.round(
-                      (dep.devices_success / dep.devices_total) * 100
-                    )
-                  : 0;
-              return (
-                <div
-                  key={dep.id}
-                  className="rounded-xl border border-bg-border bg-bg-card p-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`flex h-10 w-10 items-center justify-center rounded-lg ${
-                          dep.status === 'completed'
-                            ? 'bg-status-online/15 text-status-online'
-                            : dep.status === 'failed'
-                              ? 'bg-status-error/15 text-status-error'
-                              : dep.status === 'running'
-                                ? 'bg-accent/15 text-accent'
-                                : 'bg-bg text-text-secondary'
-                        }`}
-                      >
-                        {dep.status === 'running' ? (
-                          <Activity className="h-5 w-5 animate-spin" />
-                        ) : (
-                          <Clock className="h-5 w-5" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-text-primary">
-                          {t('patchPolicies.deployment', { id: dep.id.slice(0, 8) })}
-                        </p>
-                        <p className="text-xs text-text-secondary">
-                          {t('patchPolicies.devicesCount', { success: dep.devices_success, total: dep.devices_total })}
-                          {dep.devices_failed > 0 &&
-                            ` • ${t('patchPolicies.failedCount', { count: dep.devices_failed })}`}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${
-                          dep.status === 'completed'
-                            ? 'bg-status-online/15 text-status-online'
-                            : dep.status === 'failed'
-                              ? 'bg-status-error/15 text-status-error'
-                              : dep.status === 'running'
-                                ? 'bg-accent/15 text-accent'
-                                : 'bg-bg text-text-secondary'
-                        }`}
-                      >
-                        {t(`patchPolicies.deployStatuses.${dep.status}`)}
-                      </span>
-                      <p className="mt-1 text-xs text-text-muted">
-                        {timeAgo(dep.created_at)}
-                      </p>
-                    </div>
-                  </div>
-                  {dep.status === 'running' && (
-                    <div className="mt-3">
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-bg">
-                        <div
-                          className="h-full rounded-full bg-accent transition-all"
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                      <p className="mt-1 text-xs text-text-secondary">
-                        {t('patchPolicies.percentComplete', { progress })}
-                      </p>
-                    </div>
-                  )}
-                  <div className="mt-3 flex items-center gap-2">
-                    <button
-                      onClick={() => toggleResults(dep.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-bg-border px-2 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
-                    >
-                      <ChevronDown
-                        className={`h-3 w-3 transition-transform ${
-                          resultsFor === dep.id ? 'rotate-180' : ''
-                        }`}
-                      />
-                      {t('patchPolicies.results')}
-                    </button>
-                    {(dep.status === 'completed' || dep.status === 'failed') && (
-                      <button
-                        onClick={() => handleRollback(dep.id)}
-                        disabled={rollingBack === dep.id}
-                        className="inline-flex items-center gap-1 rounded-lg border border-bg-border px-2 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary disabled:opacity-50"
-                      >
-                        <RotateCcw
-                          className={`h-3 w-3 ${rollingBack === dep.id ? 'animate-spin' : ''}`}
-                        />
-                        {t('patchPolicies.rollback')}
-                      </button>
-                    )}
-                  </div>
-                  {resultsFor === dep.id && (
-                    <div className="mt-2 space-y-1 rounded-lg bg-bg p-2">
-                      {resultsLoading ? (
-                        <p className="flex items-center gap-1 text-xs text-text-muted">
-                          <Activity className="h-3 w-3 animate-spin" />
-                        </p>
-                      ) : results.length === 0 ? (
-                        <p className="text-xs text-text-muted">{t('patchPolicies.noResults')}</p>
-                      ) : (
-                        results.map((r) => (
-                          <div key={r.id} className="flex items-center gap-2 text-xs">
-                            <span
-                              className={`inline-flex w-20 shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-                                r.kind === 'rollback'
-                                  ? 'bg-accent/15 text-accent'
-                                  : 'bg-bg-card text-text-secondary'
-                              }`}
-                            >
-                              {t(
-                                r.kind === 'rollback'
-                                  ? 'patchPolicies.kindRollback'
-                                  : 'patchPolicies.kindDeploy',
-                              )}
+          <section className="panel mt-3 overflow-hidden">
+            <GuideWordsHead
+              total={Math.min(deployments.length, 10)}
+              unit={t('sheet.inView')}
+              first={deployments.slice(0, 10)[guide.first]?.id.slice(0, 8)}
+              last={deployments.slice(0, 10)[guide.last]?.id.slice(0, 8)}
+            />
+            <div ref={guide.ref} className="max-h-[26rem] overflow-y-auto">
+              <table className="ledger">
+                <thead>
+                  <tr>
+                    <th className="w-32">Deployment</th>
+                    <th className="w-32">Units</th>
+                    <th className="w-28">State</th>
+                    <th className="w-24">Progress</th>
+                    <th className="w-24">Stated</th>
+                    <th className="w-40 text-right"> </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deployments.slice(0, 10).map((dep) => {
+                    const progress =
+                      dep.devices_total > 0
+                        ? Math.round((dep.devices_success / dep.devices_total) * 100)
+                        : 0;
+                    return (
+                      <Fragment key={dep.id}>
+                        <tr data-guide title={dep.id.slice(0, 8)}>
+                          <td>
+                            <span className="ow-num text-[12px]">
+                              {t('patchPolicies.deployment', { id: dep.id.slice(0, 8) })}
                             </span>
-                            <span className="font-mono text-text-secondary">
-                              {r.device_id.slice(0, 8)}
+                          </td>
+                          <td>
+                            <span className="ow-num text-[12px]">
+                              {t('patchPolicies.devicesCount', {
+                                success: dep.devices_success,
+                                total: dep.devices_total,
+                              })}
                             </span>
-                            <span
-                              className={
-                                r.result === 'success'
-                                  ? 'text-status-online'
-                                  : 'text-status-error'
-                              }
-                            >
-                              {t(
-                                r.result === 'success'
-                                  ? 'patchPolicies.resultSuccess'
-                                  : 'patchPolicies.resultFailed',
-                              )}
-                            </span>
-                            {r.message && (
-                              <span className="truncate text-text-muted" title={r.message}>
-                                {r.message}
+                            {dep.devices_failed > 0 && (
+                              <span className="cap cap-sm block text-[var(--error)]">
+                                {t('patchPolicies.failedCount', { count: dep.devices_failed })}
                               </span>
                             )}
-                            <span className="ml-auto shrink-0 text-text-muted">
-                              {timeAgo(r.updated_at)}
-                            </span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                          </td>
+                          <td>
+                            <Stamp
+                              tone={
+                                dep.status === 'completed'
+                                  ? 'online'
+                                  : dep.status === 'failed'
+                                    ? 'alert'
+                                    : dep.status === 'running'
+                                      ? 'service'
+                                      : 'neutral'
+                              }
+                            >
+                              {t(`patchPolicies.deployStatuses.${dep.status}`)}
+                            </Stamp>
+                          </td>
+                          <td>
+                            <span className="ow-num text-[12px]">{progress}%</span>
+                          </td>
+                          <td>
+                            <span className="ow-num text-[12px] text-text-secondary">{timeAgo(dep.created_at)}</span>
+                          </td>
+                          <td className="text-right">
+                            <div className="flex justify-end gap-1.5">
+                              <button onClick={() => toggleResults(dep.id)} className="btn-quiet btn">
+                                <ChevronDown
+                                  className={`h-3 w-3 transition-transform ${
+                                    resultsFor === dep.id ? 'rotate-180' : ''
+                                  }`}
+                                  aria-hidden="true"
+                                />
+                                {t('patchPolicies.results')}
+                              </button>
+                              {(dep.status === 'completed' || dep.status === 'failed') && (
+                                <button
+                                  onClick={() => handleRollback(dep.id)}
+                                  disabled={rollingBack === dep.id}
+                                  className="btn-quiet btn"
+                                >
+                                  <RotateCcw
+                                    className={`h-3 w-3 ${rollingBack === dep.id ? 'animate-spin' : ''}`}
+                                    aria-hidden="true"
+                                  />
+                                  {t('patchPolicies.rollback')}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {resultsFor === dep.id && (
+                          <tr>
+                            <td colSpan={6} className="bg-[var(--field)]">
+                              {resultsLoading ? (
+                                <p className="cap cap-sm text-text-muted">{t('common.loading')}</p>
+                              ) : results.length === 0 ? (
+                                <p className="cap cap-sm text-text-muted">{t('patchPolicies.noResults')}</p>
+                              ) : (
+                                <ul className="space-y-1">
+                                  {results.map((r) => (
+                                    <li key={r.id} className="flex flex-wrap items-baseline gap-2 text-[12px]">
+                                      <Stamp tone={r.kind === 'rollback' ? 'service' : 'neutral'}>
+                                        {r.kind === 'rollback'
+                                          ? t('patchPolicies.kindRollback')
+                                          : t('patchPolicies.kindDeploy')}
+                                      </Stamp>
+                                      <span className="ow-num text-text-secondary">{r.device_id.slice(0, 8)}</span>
+                                      <span
+                                        className={
+                                          r.result === 'success' ? 'text-[var(--online)]' : 'text-[var(--error)]'
+                                        }
+                                      >
+                                        {r.result === 'success'
+                                          ? t('patchPolicies.resultSuccess')
+                                          : t('patchPolicies.resultFailed')}
+                                      </span>
+                                      {r.message && (
+                                        <span className="cap cap-sm truncate text-text-muted" title={r.message}>
+                                          {r.message}
+                                        </span>
+                                      )}
+                                      <span className="ow-num ml-auto text-text-muted">{timeAgo(r.updated_at)}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
       </div>
     </div>

@@ -211,32 +211,32 @@ export function Settings() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-semibold text-text-primary">{t('settings.title')}</h1>
+        <h1 className="text-[26px]">{t('settings.title')}</h1>
         <p className="text-sm text-text-secondary">{t('settings.subtitle')}</p>
       </div>
 
       {saved && (
-        <div className="flex items-center gap-2 rounded-xl border border-status-online/30 bg-status-online/10 px-4 py-3">
-          <Check className="h-4 w-4 text-status-online" />
-          <span className="text-sm text-status-online">Settings saved successfully</span>
+        <div className="flex items-center gap-2 border border-[var(--online)] bg-[var(--field)] px-4 py-3">
+          <Check className="h-4 w-4 text-[var(--online)]" />
+          <span className="text-sm text-[var(--online)]">Settings saved successfully</span>
         </div>
       )}
 
       {/* Profile Section */}
-      <div className="rounded-xl border border-bg-border bg-bg-card p-6">
+      <div className="panel p-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-            <User className="h-5 w-5 text-accent" />
+          <div className="flex h-9 w-9 items-center justify-center border border-rule bg-[var(--field)]">
+            <User className="h-5 w-5 text-[var(--service)]" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">{t('settings.profile.title')}</h2>
+            <h2 className="panel-head p-0 text-[15px]">{t('settings.profile.title')}</h2>
             <p className="text-xs text-text-secondary">{t('settings.profile.subtitle')}</p>
           </div>
         </div>
 
         <form onSubmit={handleSaveProfile} className="mt-4 space-y-4">
           {profileError && (
-            <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
+            <p className="border border-[var(--error)] bg-[var(--field)] px-3 py-2 text-sm text-[var(--error)]">
               {profileError}
             </p>
           )}
@@ -247,7 +247,7 @@ export function Settings() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+                className="input w-full  px-3 py-2 text-sm text-text-primary"
               />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -256,14 +256,14 @@ export function Settings() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+                className="input w-full  px-3 py-2 text-sm text-text-primary"
               />
             </div>
           </div>
           <button
             type="submit"
             disabled={savingProfile}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-dark disabled:opacity-60"
+            className="btn-primary disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
             {savingProfile ? 'Saving...' : 'Save Profile'}
@@ -272,20 +272,20 @@ export function Settings() {
       </div>
 
       {/* Change Password */}
-      <div className="rounded-xl border border-bg-border bg-bg-card p-6">
+      <div className="panel p-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-            <Key className="h-5 w-5 text-accent" />
+          <div className="flex h-9 w-9 items-center justify-center border border-rule bg-[var(--field)]">
+            <Key className="h-5 w-5 text-[var(--service)]" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">Change Password</h2>
+            <h2 className="panel-head p-0 text-[15px]">Change password</h2>
             <p className="text-xs text-text-secondary">Update your account password</p>
           </div>
         </div>
 
         <form onSubmit={handleSavePassword} className="mt-4 space-y-4">
           {passwordError && (
-            <p className="rounded-lg bg-status-error/15 px-3 py-2 text-sm text-status-error">
+            <p className="border border-[var(--error)] bg-[var(--field)] px-3 py-2 text-sm text-[var(--error)]">
               {passwordError}
             </p>
           )}
@@ -295,7 +295,7 @@ export function Settings() {
               type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 pr-10 text-sm text-text-primary focus:border-accent focus:outline-none"
+              className="input w-full  px-3 py-2 pr-10 text-sm text-text-primary"
               placeholder={t('settings.password.enterCurrentPassword')}
               required
             />
@@ -307,7 +307,7 @@ export function Settings() {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-bg-border bg-bg px-3 py-2 pr-10 text-sm text-text-primary focus:border-accent focus:outline-none"
+                className="input w-full  px-3 py-2 pr-10 text-sm text-text-primary"
                 placeholder={t('settings.password.enterNewPassword')}
               />
               <button
@@ -322,7 +322,7 @@ export function Settings() {
           <button
             type="submit"
             disabled={savingPassword}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-dark disabled:opacity-60"
+            className="btn-primary disabled:opacity-60"
           >
             <Save className="h-4 w-4" />
             {savingPassword ? 'Updating...' : 'Update Password'}
@@ -331,13 +331,13 @@ export function Settings() {
       </div>
 
       {/* Notifications */}
-      <div className="rounded-xl border border-bg-border bg-bg-card p-6">
+      <div className="panel p-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-            <Bell className="h-5 w-5 text-accent" />
+          <div className="flex h-9 w-9 items-center justify-center border border-rule bg-[var(--field)]">
+            <Bell className="h-5 w-5 text-[var(--service)]" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">Notifications</h2>
+            <h2 className="panel-head p-0 text-[15px]">Notifications</h2>
             <p className="text-xs text-text-secondary">How you want to be alerted</p>
           </div>
         </div>
@@ -351,10 +351,10 @@ export function Settings() {
             <button
               type="button"
               onClick={() => setEmailAlerts(!emailAlerts)}
-              className={`relative h-6 w-11 rounded-full transition-colors ${emailAlerts ? 'bg-accent' : 'bg-bg-border'}`}
+              className={`relative h-6 w-11 border transition-colors ${emailAlerts ? 'border-[var(--service)] bg-[var(--service)]/25' : 'border-rule bg-[var(--field)]'}`}
             >
               <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${emailAlerts ? 'translate-x-5' : ''}`}
+                className={`absolute left-0.5 top-0.5 h-5 w-5 bg-[var(--text-primary)] transition-transform ${emailAlerts ? 'translate-x-5' : ''}`}
               />
             </button>
           </div>
@@ -365,9 +365,9 @@ export function Settings() {
             </div>
             <button
               type="button"
-              className="relative h-6 w-11 rounded-full bg-accent"
+              className="relative h-6 w-11 border border-[var(--service)] bg-[var(--service)]/25"
             >
-              <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform translate-x-5" />
+              <span className="absolute left-0.5 top-0.5 h-5 w-5 bg-[var(--text-primary)] transition-transform translate-x-5" />
             </button>
           </div>
           <div className="flex items-center justify-between">
@@ -378,10 +378,10 @@ export function Settings() {
             <button
               type="button"
               onClick={() => setCriticalOnly(!criticalOnly)}
-              className={`relative h-6 w-11 rounded-full transition-colors ${criticalOnly ? 'bg-accent' : 'bg-bg-border'}`}
+              className={`relative h-6 w-11 border transition-colors ${criticalOnly ? 'border-[var(--service)] bg-[var(--service)]/25' : 'border-rule bg-[var(--field)]'}`}
             >
               <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${criticalOnly ? 'translate-x-5' : ''}`}
+                className={`absolute left-0.5 top-0.5 h-5 w-5 bg-[var(--text-primary)] transition-transform ${criticalOnly ? 'translate-x-5' : ''}`}
               />
             </button>
           </div>
@@ -389,13 +389,13 @@ export function Settings() {
       </div>
 
       {/* Appearance */}
-      <div className="rounded-xl border border-bg-border bg-bg-card p-6">
+      <div className="panel p-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-            <Palette className="h-5 w-5 text-accent" />
+          <div className="flex h-9 w-9 items-center justify-center border border-rule bg-[var(--field)]">
+            <Palette className="h-5 w-5 text-[var(--service)]" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">{t('settings.appearance.title')}</h2>
+            <h2 className="panel-head p-0 text-[15px]">{t('settings.appearance.title')}</h2>
             <p className="text-xs text-text-secondary">{t('settings.appearance.subtitle')}</p>
           </div>
         </div>
@@ -409,7 +409,7 @@ export function Settings() {
             <select
               value={theme}
               onChange={(e) => setTheme(e.target.value as Theme)}
-              className="rounded-lg border border-bg-border bg-bg px-3 py-1.5 text-sm text-text-primary"
+              className="input  px-3 py-1.5 text-sm text-text-primary"
               aria-label="Theme selection"
             >
               <option value="dark">{t('settings.appearance.dark')}</option>
@@ -425,7 +425,7 @@ export function Settings() {
             <select
               value={i18n.language.split('-')[0]}
               onChange={(e) => i18n.changeLanguage(e.target.value)}
-              className="rounded-lg border border-bg-border bg-bg px-3 py-1.5 text-sm text-text-primary"
+              className="input  px-3 py-1.5 text-sm text-text-primary"
               aria-label="Language selection"
             >
               <option value="en">English</option>
@@ -441,7 +441,7 @@ export function Settings() {
             <select
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(e.target.value)}
-              className="rounded-lg border border-bg-border bg-bg px-3 py-1.5 text-sm text-text-primary"
+              className="input  px-3 py-1.5 text-sm text-text-primary"
             >
               <option value="10">{t('settings.appearance.every10s')}</option>
               <option value="30">{t('settings.appearance.every30s')}</option>
@@ -453,13 +453,13 @@ export function Settings() {
       </div>
 
       {/* Keyboard Shortcuts */}
-      <div className="rounded-xl border border-bg-border bg-bg-card p-6">
+      <div className="panel p-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-            <Key className="h-5 w-5 text-accent" />
+          <div className="flex h-9 w-9 items-center justify-center border border-rule bg-[var(--field)]">
+            <Key className="h-5 w-5 text-[var(--service)]" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">{t('settings.keyboardShortcuts.title')}</h2>
+            <h2 className="panel-head p-0 text-[15px]">{t('settings.keyboardShortcuts.title')}</h2>
             <p className="text-xs text-text-secondary">{t('settings.keyboardShortcuts.subtitle')}</p>
           </div>
         </div>
@@ -480,7 +480,7 @@ export function Settings() {
                 {shortcut.keys.map((key, j) => (
                   <kbd
                     key={j}
-                    className="rounded border border-bg-border bg-bg px-2 py-0.5 text-xs font-mono text-text-primary"
+                    className="rounded border border-rule bg-bg px-2 py-0.5 text-xs font-mono text-text-primary"
                   >
                     {key}
                   </kbd>
@@ -492,21 +492,21 @@ export function Settings() {
       </div>
 
       {/* API Keys Section */}
-      <div className="rounded-xl border border-bg-border bg-bg-card p-6">
+      <div className="panel p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
-              <Key className="h-5 w-5 text-accent" />
+            <div className="flex h-9 w-9 items-center justify-center border border-rule bg-[var(--field)]">
+              <Key className="h-5 w-5 text-[var(--service)]" />
             </div>
             <div>
-              <h2 className="text-sm font-medium text-text-primary">{t('settings.api.keysTitle')}</h2>
+              <h2 className="panel-head p-0 text-[15px]">{t('settings.api.keysTitle')}</h2>
               <p className="text-xs text-text-secondary">{t('settings.api.keysSubtitle')}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setShowKeyForm(!showKeyForm)}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-dark"
+            className="btn-primary"
           >
             <Plus className="h-3.5 w-3.5" />
             {t('settings.api.newKey')}
@@ -514,10 +514,10 @@ export function Settings() {
         </div>
 
         {createdKey && (
-          <div className="mt-4 rounded-lg border border-status-online/30 bg-status-online/10 p-3">
+          <div className="mt-4 border border-[var(--online)] bg-[var(--field)] p-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-status-online">{t('settings.api.keyCreated')}</p>
+                <p className="text-xs font-medium text-[var(--online)]">{t('settings.api.keyCreated')}</p>
                 <p className="text-xs text-text-muted">{t('settings.api.keyCreatedDesc')}</p>
               </div>
               <button
@@ -529,13 +529,13 @@ export function Settings() {
               </button>
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <code className="flex-1 rounded bg-bg px-3 py-2 text-xs font-mono text-text-primary">
+              <code className="ow-num flex-1 border border-rule bg-[var(--field)] px-3 py-2 text-[12px] text-text-primary">
                 {createdKey.key ?? 'owk_••••••••'}
               </code>
               <button
                 type="button"
                 onClick={() => navigator.clipboard.writeText(createdKey.key ?? '')}
-                className="rounded bg-bg-secondary px-3 py-2 text-xs text-text-primary transition-colors hover:bg-bg"
+                className="btn px-3 py-2 text-xs"
               >
                 {t('settings.api.copy')}
               </button>
@@ -544,8 +544,8 @@ export function Settings() {
         )}
 
         {showKeyForm && (
-          <div className="mt-4 rounded-lg border border-bg-border bg-bg p-4">
-            <h3 className="text-sm font-medium text-text-primary">{t('settings.api.createKeyTitle')}</h3>
+          <div className="input mt-4  p-4">
+            <h3 className="panel-head p-0 text-[15px]">{t('settings.api.createKeyTitle')}</h3>
             <div className="mt-3 space-y-3">
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-text-secondary">{t('common.name')}</label>
@@ -554,7 +554,7 @@ export function Settings() {
                   value={newKeyName}
                   onChange={(e) => setNewKeyName(e.target.value)}
                   placeholder={t('settings.api.namePlaceholder')}
-                  className="w-full rounded-lg border border-bg-border bg-bg-card px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none"
+                  className="w-full panel px-3 py-2 text-sm text-text-primary"
                 />
               </div>
               <div className="flex items-center gap-4">
@@ -573,7 +573,7 @@ export function Settings() {
                               setNewKeyScopes(newKeyScopes.filter((s) => s !== scope));
                             }
                           }}
-                          className="rounded border-bg-border"
+                          className="rounded border-rule"
                         />
                         {scope}
                       </label>
@@ -585,7 +585,7 @@ export function Settings() {
                   <select
                     value={newKeyExpires}
                     onChange={(e) => setNewKeyExpires(e.target.value)}
-                    className="rounded-lg border border-bg-border bg-bg-card px-3 py-1.5 text-xs text-text-primary"
+                    className="btn px-3 py-1.5 text-xs text-text-primary"
                   >
                     <option value="never">{t('settings.api.never')}</option>
                     <option value="1h">{t('settings.api.oneHour')}</option>
@@ -600,7 +600,7 @@ export function Settings() {
                 <button
                   type="button"
                   onClick={handleCreateKey}
-                  className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-dark"
+                  className="btn-primary"
                 >
                   <Key className="h-3.5 w-3.5" />
                   {t('settings.api.createKey')}
@@ -608,7 +608,7 @@ export function Settings() {
                 <button
                   type="button"
                   onClick={() => setShowKeyForm(false)}
-                  className="rounded-lg bg-bg-secondary px-4 py-2 text-xs text-text-primary transition-colors hover:bg-bg"
+                  className="btn"
                 >
                   {t('common.cancel')}
                 </button>
@@ -622,7 +622,7 @@ export function Settings() {
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
           </div>
         ) : apiKeys.length === 0 ? (
-          <div className="mt-4 rounded-lg border border-dashed border-bg-border p-8 text-center">
+          <div className="mt-4 border border-rule bg-[var(--field)] p-8 text-center">
             <Key className="mx-auto h-8 w-8 text-text-muted" />
             <p className="mt-2 text-sm text-text-secondary">{t('settings.api.noKeys')}</p>
             <p className="text-xs text-text-muted">{t('settings.api.noKeysDesc')}</p>
@@ -630,9 +630,9 @@ export function Settings() {
         ) : (
           <div className="mt-4 space-y-2">
             {apiKeys.map((key) => (
-              <div key={key.id} className="flex items-center justify-between rounded-lg border border-bg-border bg-bg p-3">
+              <div key={key.id} className="input flex items-center justify-between  p-3">
                 <div className="flex items-center gap-3">
-                  <Key className="h-4 w-4 text-accent" />
+                  <Key className="h-4 w-4 text-[var(--service)]" />
                   <div>
                     <p className="text-sm font-medium text-text-primary">{key.name}</p>
                     <p className="text-xs text-text-muted">
@@ -644,7 +644,7 @@ export function Settings() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] text-accent">
+                  <span className="border border-[var(--service)] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.09em] text-[var(--service)]">
                     {parseScopes(key.scopes)}
                   </span>
                   {key.expires_at && (
@@ -665,7 +665,7 @@ export function Settings() {
                       type="button"
                       onClick={() => handleRevokeKey(key.id)}
                       title={t('settings.api.revokeKey')}
-                      className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-status-warning"
+                      className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-[var(--due)]"
                     >
                       <XCircle className="h-3.5 w-3.5" />
                     </button>
@@ -674,7 +674,7 @@ export function Settings() {
                     type="button"
                     onClick={() => handleDeleteKey(key.id)}
                     title={t('settings.api.deleteKey')}
-                    className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-status-error"
+                    className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-[var(--error)]"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -686,23 +686,23 @@ export function Settings() {
       </div>
 
       {/* Danger Zone */}
-      <div className="rounded-xl border border-status-error/30 bg-bg-card p-6">
+      <div className="border border-[var(--stamp)] bg-[var(--field)] p-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-status-error/10">
-            <Trash2 className="h-5 w-5 text-status-error" />
+          <div className="flex h-9 w-9 items-center justify-center border border-rule bg-[var(--field)]">
+            <Trash2 className="h-5 w-5 text-[var(--error)]" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-text-primary">{t('settings.dangerZone.title')}</h2>
+            <h2 className="panel-head p-0 text-[15px] text-[var(--stamp)]">{t('settings.dangerZone.title')}</h2>
             <p className="text-xs text-text-secondary">{t('settings.dangerZone.subtitle')}</p>
           </div>
         </div>
 
         <div className="mt-4 space-y-3">
           {dangerError && (
-            <p className="text-xs text-status-error">{dangerError}</p>
+            <p className="text-xs text-[var(--error)]">{dangerError}</p>
           )}
           {hasRole('admin') && (
-            <div className="flex items-center justify-between rounded-lg border border-bg-border p-3">
+            <div className="flex items-center justify-between border border-rule bg-[var(--field)] p-3">
               <div>
                 <p className="text-sm font-medium text-text-primary">{t('settings.dangerZone.clearData')}</p>
                 <p className="text-xs text-text-muted">{t('settings.dangerZone.clearDataDesc')}</p>
@@ -711,14 +711,14 @@ export function Settings() {
                 type="button"
                 onClick={handleClearData}
                 disabled={clearingData}
-                className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-bg hover:text-status-error disabled:opacity-50"
+                className="btn text-[var(--error)] disabled:opacity-50"
               >
                 <Database className="h-3.5 w-3.5" />
                 {clearingData ? t('settings.dangerZone.clearing') : t('settings.dangerZone.clearDataButton')}
               </button>
             </div>
           )}
-          <div className="flex items-center justify-between rounded-lg border border-bg-border p-3">
+          <div className="flex items-center justify-between border border-rule bg-[var(--field)] p-3">
             <div>
               <p className="text-sm font-medium text-text-primary">{t('settings.dangerZone.deleteAccount')}</p>
               <p className="text-xs text-text-muted">{t('settings.dangerZone.deleteAccountDesc')}</p>
@@ -727,7 +727,7 @@ export function Settings() {
               type="button"
               onClick={handleDeleteAccount}
               disabled={deletingAccount}
-              className="flex items-center gap-1.5 rounded-lg bg-status-error px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-status-error/80 disabled:opacity-50"
+              className="btn bg-[var(--stamp)] text-[var(--stamp-ink)] hover:opacity-90 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
               {deletingAccount ? t('settings.dangerZone.deleting') : t('settings.dangerZone.deleteAccountButton')}

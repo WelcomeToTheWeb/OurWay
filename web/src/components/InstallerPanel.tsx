@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Apple, Download, Loader2, Monitor, Plus, Server } from 'lucide-react';
+import { Apple, Download, Loader2, Monitor, Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CopyButton } from './CopyButton';
 import {
@@ -36,8 +36,6 @@ function archLabel(arch: string): string {
   return arch;
 }
 
-// platformLabel derives a concise label like "Windows x64" or "macOS ARM64"
-// from the API's os/arch fields.
 function platformLabel(installer: Installer): string {
   if (installer.kind === 'viewer') return `${osName(installer.os, installer.name) ?? ''} Viewer`.trim();
   const os = osName(installer.os, installer.name);
@@ -57,29 +55,21 @@ function buildCommands(origin: string, installers: Installer[]): Command[] {
   const commands: Command[] = [];
   const has = (os: string) => installers.some((i) => osName(i.os, i.name) === os);
   if (has('Linux') || has('macOS')) {
-    commands.push({
-      id: 'shell',
-      icon: Server,
-      label: 'Linux / macOS',
-      command: shellInstallCommand(origin),
-    });
+    commands.push({ id: 'shell', icon: Server, label: 'Linux / macOS', command: shellInstallCommand(origin) });
   }
   if (has('Windows')) {
-    commands.push({
-      id: 'powershell',
-      icon: Monitor,
-      label: 'Windows (PowerShell)',
-      command: powershellInstallCommand(origin),
-    });
+    commands.push({ id: 'powershell', icon: Monitor, label: 'Windows (PowerShell)', command: powershellInstallCommand(origin) });
   }
   return commands;
 }
 
+/** Enrol a unit: the one command, or the binary for the machine type. */
 export function InstallerPanel() {
   const { t } = useTranslation();
   const [installers, setInstallers] = useState<Installer[] | null>(null);
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const origin = serverOrigin();
 
   const load = useCallback(async () => {
@@ -110,86 +100,94 @@ export function InstallerPanel() {
   const commands = installers ? buildCommands(origin, installers) : [];
 
   return (
-    <div className="rounded-xl border border-bg-border bg-bg-card p-5">
-      <div className="flex items-center gap-2">
-        <Plus className="h-4 w-4 text-accent" />
-        <h2 className="text-sm font-semibold text-text-primary">{t('devices.addDevice')}</h2>
+    <section className="panel overflow-hidden" aria-label={t('devices.addDevice')}>
+      <div className="panel-head">
+        <div className="flex items-baseline gap-3">
+          <h2 className="cap cap-lg text-text-primary">{t('devices.addDevice')}</h2>
+          <p className="hidden text-[12px] text-text-secondary md:block">{t('devices.installerDesc')}</p>
+        </div>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="cap-sm cap text-[var(--service)] hover:underline"
+          aria-expanded={open}
+        >
+          {open ? 'Hide' : 'Show'} install
+        </button>
       </div>
-      <p className="mt-1 text-sm text-text-secondary">{t('devices.installerDesc')}</p>
-      {error && (
-        <div className="mt-3 flex items-center gap-3">
-          <p className="text-sm text-status-error">{error}</p>
-          <button
-            onClick={() => void load()}
-            className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-bg"
-          >
-            {t('common.refresh')}
-          </button>
-        </div>
-      )}
-      {!error && installers === null ? (
-        <div className="mt-3 flex items-center gap-2 text-sm text-text-secondary">
-          <Loader2 className="h-4 w-4 animate-spin text-accent" />
-          {t('common.loading')}
-        </div>
-      ) : !error && installers && installers.length === 0 ? (
-        <p className="mt-3 text-sm text-text-muted">{t('devices.installerNone')}</p>
-      ) : (
-        <>
-          {commands.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                {t('devices.installerOneCommand')}
-              </p>
-              {commands.map((cmd) => {
-                const CmdIcon = cmd.icon;
-                return (
-                  <div
-                    key={cmd.id}
-                    className="flex items-center gap-2 rounded-lg border border-bg-border bg-bg px-3 py-2"
-                  >
-                    <CmdIcon className="h-4 w-4 shrink-0 text-accent" />
-                    <code className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary">
-                      {cmd.command}
-                    </code>
-                    <CopyButton text={cmd.command} className="shrink-0" />
-                  </div>
-                );
-              })}
+
+      {open && (
+        <div className="space-y-4 px-3 py-3">
+          {error && (
+            <div className="flex items-center gap-3">
+              <p className="text-[13px] text-[var(--error)]">{error}</p>
+              <button onClick={() => void load()} className="btn px-2 py-1 text-[11px]">
+                {t('common.refresh')}
+              </button>
             </div>
           )}
-          <div className="mt-4">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">
-              {t('devices.installerManual')}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {installers!.filter((i) => i.kind !== 'remote').map((installer) => {
-                const Icon = osIcons[installer.os.toLowerCase()] || Monitor;
-                const isDownloading = downloading === installer.url;
-                return (
-                  <button
-                    key={installer.url}
-                    onClick={() => void handleDownload(installer)}
-                    disabled={isDownloading}
-                    title={installer.name}
-                    className="flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-text-primary transition-colors hover:bg-bg disabled:opacity-50"
-                  >
-                    {isDownloading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <>
-                        <Icon className="h-4 w-4" />
-                        <Download className="h-4 w-4" />
-                      </>
-                    )}
-                    {platformLabel(installer)}
-                  </button>
-                );
-              })}
+
+          {!error && installers === null ? (
+            <div className="flex items-center gap-2 text-[13px] text-text-secondary">
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--service)]" aria-hidden="true" />
+              {t('common.loading')}
             </div>
-          </div>
-        </>
+          ) : !error && installers && installers.length === 0 ? (
+            <p className="text-[13px] text-text-muted">{t('devices.installerNone')}</p>
+          ) : (
+            <>
+              {commands.length > 0 && (
+                <div className="space-y-2">
+                  <p className="field-label">{t('devices.installerOneCommand')}</p>
+                  {commands.map((cmd) => {
+                    const CmdIcon = cmd.icon;
+                    return (
+                      <div key={cmd.id} className="field flex items-center gap-2">
+                        <CmdIcon className="h-4 w-4 shrink-0 text-[var(--service)]" aria-hidden="true" />
+                        <span className="min-w-0 flex-1">
+                          <span className="cap-sm cap block text-text-muted">{cmd.label}</span>
+                          <code className="block truncate font-mono text-[11.5px] text-text-primary">
+                            {cmd.command}
+                          </code>
+                        </span>
+                        <CopyButton text={cmd.command} className="shrink-0" />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div>
+                <p className="field-label mb-2">{t('devices.installerManual')}</p>
+                <div className="flex flex-wrap gap-2">
+                  {installers!.filter((i) => i.kind !== 'remote').map((installer) => {
+                    const Icon = osIcons[installer.os.toLowerCase()] || Monitor;
+                    const isDownloading = downloading === installer.url;
+                    return (
+                      <button
+                        key={installer.url}
+                        onClick={() => void handleDownload(installer)}
+                        disabled={isDownloading}
+                        title={installer.name}
+                        className="btn px-2.5 py-1.5 text-[12px]"
+                      >
+                        {isDownloading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <>
+                            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                          </>
+                        )}
+                        {platformLabel(installer)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       )}
-    </div>
+    </section>
   );
 }

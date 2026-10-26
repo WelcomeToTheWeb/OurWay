@@ -11,7 +11,12 @@ vi.mock('../auth/context', () => ({
 }));
 vi.mock('../api/devices', () => ({ getDevices: vi.fn() }));
 vi.mock('../api/tags', () => ({ bulkTags: vi.fn(), setDeviceTags: vi.fn(), listTags: vi.fn() }));
-vi.mock('../api/patching', () => ({ scanDevices: vi.fn(), deployNow: vi.fn() }));
+vi.mock('../api/patching', () => ({
+  scanDevices: vi.fn(),
+  deployNow: vi.fn(),
+  getPatchOverview: vi.fn(() => Promise.resolve(null)),
+  listPolicies: vi.fn(() => Promise.resolve([])),
+}));
 
 import { getDevices } from '../api/devices';
 import { bulkTags } from '../api/tags';
@@ -33,19 +38,21 @@ describe('Devices page', () => {
 
   it('filters by OS and tag', async () => {
     render(<MemoryRouter><Devices /></MemoryRouter>);
-    await screen.findByText('db-1');
+    // The ledger head prints the guide words (first/last unit in view), so a
+    // visible unit name appears twice: head + row.
+    await screen.findAllByText('db-1');
     fireEvent.change(screen.getByLabelText('Filter by OS'), { target: { value: 'windows' } });
     expect(screen.queryByText('web-1')).toBeNull();
-    expect(screen.getByText('db-1')).toBeTruthy();
+    expect(screen.getAllByText('db-1').length).toBeGreaterThanOrEqual(1);
     fireEvent.click(screen.getByText('Clear filters'));
     fireEvent.change(screen.getByLabelText('Filter by tag'), { target: { value: 'prod' } });
-    expect(screen.getByText('web-1')).toBeTruthy();
+    expect(screen.getAllByText('web-1').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('web-2')).toBeNull();
   });
 
   it('bulk-tags and scans only the selected devices', async () => {
     render(<MemoryRouter><Devices /></MemoryRouter>);
-    await screen.findByText('web-2');
+    await screen.findAllByText('web-2');
     fireEvent.click(screen.getByLabelText('Select web-1'));
     fireEvent.click(screen.getByLabelText('Select web-2'));
     expect(screen.getByText('2 selected')).toBeTruthy();
@@ -60,7 +67,7 @@ describe('Devices page', () => {
 
   it('does not act on selected devices hidden by a filter', async () => {
     render(<MemoryRouter><Devices /></MemoryRouter>);
-    await screen.findByText('web-2');
+    await screen.findAllByText('web-2');
     fireEvent.click(screen.getByLabelText('Select web-1'));
     fireEvent.change(screen.getByLabelText('Filter by OS'), { target: { value: 'windows' } });
     expect(screen.queryByRole('toolbar', { name: 'Bulk actions' })).toBeNull();

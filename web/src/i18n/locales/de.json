@@ -408,5 +408,34 @@
     "closeMenu": "Navigationsmenü schließen",
     "toggle": "Umschalten",
     "select": "Auswählen"
+  },
+  "record": {
+    "lastSeen": "Zuletzt gesehen",
+    "nextDue": "Nächster Termin",
+    "interval": "Intervall",
+    "noPolicy": "Keine Richtlinie"
+  },
+  "sheet": {
+    "needsAttention": "Handlungsbedarf",
+    "alertCentre": "Alarmzentrum",
+    "dueNow": "Jetzt fällig",
+    "rebootPending": "Neustart ausstehend",
+    "liveSessions": "Aktive Sitzungen",
+    "systems": "Systeme",
+    "inView": "in Ansicht",
+    "flagged": "markiert",
+    "installAgent": "Agent installieren",
+    "reload": "Neu laden",
+    "allUnits": "Alle {{count}} Geräte →",
+    "sessionsTitle": "Sitzungen",
+    "patchManagement": "Patch-Verwaltung",
+    "fleetSheet": "Flottenbogen",
+    "byUnit": "Nach Gerät",
+    "rateLimited": "Ratenbegrenzung erreicht",
+    "rateLimitedHelp": "Der Server erlaubt 100 Anfragen pro Minute und Benutzer. Anfragen ruhen {{seconds}} s und der Bogen füllt sich selbst wieder.",
+    "consoleUnavailable": "Konsolendaten nicht verfügbar"
+  },
+  "layout": {
+    "versionTitle": "Server {{server}} (Commit {{commit}}) · Konsolen-Build {{console}}"
   }
 }

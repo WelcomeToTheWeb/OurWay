@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Server, RefreshCw, LayoutGrid, List, X, RotateCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDevices } from '../hooks/useDevices';
@@ -7,11 +7,24 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../auth/context';
 import { DeviceCard } from '../components/DeviceCard';
 import { InstallerPanel } from '../components/InstallerPanel';
-import { StatusBadge } from '../components/StatusBadge';
+import { Stamp } from '../components/Stamp';
+import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import { Grid } from 'react-window';
 import { applyDeviceFilters, collectTags, defaultFilters, type DeviceFilters, type SortKey } from '../utils/deviceList';
 import { bulkTags } from '../api/tags';
-import { deployNow, scanDevices } from '../api/patching';
+import { deployNow, getPatchOverview, listPolicies, scanDevices } from '../api/patching';
+import type { DeviceCompliance, PatchOverview, PatchPolicy } from '../types/patch';
+
+/** Ledger time: 24-hour and unambiguous, with the ISO date beyond a day. */
+function seenLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'never';
+  const mins = Math.round((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h ago`;
+  return `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`;
+}
 
 type View = 'cards' | 'table';
 
@@ -23,9 +36,10 @@ function readView(): View {
   }
 }
 
-const selectCls =
-  'rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary focus:border-accent focus:outline-none';
-
+/**
+ * The fleet sheet: every unit as a decal with its record, plus the ledger
+ * view for working a thousand units in one column.
+ */
 export function Devices() {
   const { t } = useTranslation();
   const { devices, loading, error, refresh } = useDevices();
@@ -33,18 +47,63 @@ export function Devices() {
   const canAct = hasAnyRole(['admin', 'manager', 'technician']);
   const canDeploy = hasAnyRole(['admin', 'manager']);
   // Realtime presence: WS status/heartbeat frames update the shared device
-  // store, so the grid reflects online/offline changes without a refresh.
+  // store, so the sheet reflects online/offline changes without a refresh.
   useWebSocket(accessToken);
 
-  const [filters, setFilters] = useState<DeviceFilters>(defaultFilters);
+  const [params, setParams] = useSearchParams();
+  const [filters, setFilters] = useState<DeviceFilters>({ ...defaultFilters, search: params.get('q') ?? '' });
   const [sort, setSort] = useState<SortKey>('name');
   const [desc, setDesc] = useState(false);
-  const [view, setView] = useState<View>(readView);
+  // The view is URL state, not just a preference: a sheet opened from a
+  // dashboard link, a bookmark, or a browser back must come back the same
+  // shape. localStorage only supplies the initial default.
+  const [view, setViewState] = useState<View>(() => {
+    const fromUrl = params.get('view');
+    if (fromUrl === 'table' || fromUrl === 'cards') return fromUrl;
+    return readView();
+  });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  function setView(next: View) {
+    setViewState(next);
+    try {
+      localStorage.setItem('devices.view', next);
+    } catch {
+      // Private mode: the URL still carries it.
+    }
+    const nextParams = new URLSearchParams(params);
+    if (next === 'table') nextParams.set('view', 'table');
+    else nextParams.delete('view');
+    setParams(nextParams, { replace: true });
+  }
+
   const [tagDraft, setTagDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [overview, setOverview] = useState<PatchOverview | null>(null);
+  const [policies, setPolicies] = useState<PatchPolicy[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      getPatchOverview().catch(() => null),
+      listPolicies().catch(() => [] as PatchPolicy[]),
+    ])
+      .then(([o, p]) => {
+        if (cancelled) return;
+        setOverview(o);
+        setPolicies(p);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const complianceById = useMemo(
+    () => new Map((overview?.devices ?? []).map((d) => [d.device_id, d]) as [string, DeviceCompliance][]),
+    [overview],
+  );
 
   useEffect(() => {
     try {
@@ -57,6 +116,7 @@ export function Devices() {
   const filtered = useMemo(() => applyDeviceFilters(devices, filters, sort, desc), [devices, filters, sort, desc]);
   const allTags = useMemo(() => collectTags(devices), [devices]);
   const filtersActive = JSON.stringify(filters) !== JSON.stringify(defaultFilters);
+  const guide = useGuideWords(filtered.length);
 
   // Drop selections that are no longer visible so a bulk action never
   // touches devices the user can't see.
@@ -90,62 +150,80 @@ export function Devices() {
   const tagInput = tagDraft.trim().toLowerCase();
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">{t('devices.title')}</h1>
-          <p className="text-sm text-text-secondary">
+          <h1 className="text-[26px]">{t('devices.title')}</h1>
+          <p className="cap cap-sm mt-1 text-text-muted">
             {filtersActive
-              ? `${filtered.length} of ${devices.length} devices`
+              ? `${filtered.length} of ${devices.length} units in view`
               : t('devices.count', { count: devices.length })}
           </p>
         </div>
-        <button
-          onClick={refresh}
-          className="flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-text-primary transition-colors hover:bg-bg"
-        >
-          <RefreshCw className="h-4 w-4" />
+        <button onClick={refresh} className="btn">
+          <RefreshCw className="h-3.5 w-3.5" />
           {t('common.refresh')}
         </button>
       </div>
 
       <InstallerPanel />
 
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Filter band */}
+      <div className="panel flex flex-wrap items-center gap-2 px-3 py-2.5">
         <div className="relative min-w-[14rem] flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
           <input
             type="text"
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
             placeholder={t('devices.searchDevices')}
             aria-label="Search devices"
-            className="w-full rounded-lg border border-bg-border bg-bg py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+            className="input w-full pl-9"
           />
         </div>
-        <select aria-label="Filter by status" className={selectCls} value={filters.status}
-          onChange={(e) => setFilters({ ...filters, status: e.target.value as DeviceFilters['status'] })}>
+        <select
+          aria-label="Filter by status"
+          className="select"
+          value={filters.status}
+          onChange={(e) => setFilters({ ...filters, status: e.target.value as DeviceFilters['status'] })}
+        >
           <option value="all">All statuses</option>
           <option value="online">Online</option>
           <option value="offline">Offline</option>
           <option value="alert">Alert</option>
         </select>
-        <select aria-label="Filter by OS" className={selectCls} value={filters.os}
-          onChange={(e) => setFilters({ ...filters, os: e.target.value as DeviceFilters['os'] })}>
+        <select
+          aria-label="Filter by OS"
+          className="select"
+          value={filters.os}
+          onChange={(e) => setFilters({ ...filters, os: e.target.value as DeviceFilters['os'] })}
+        >
           <option value="all">All systems</option>
           <option value="windows">Windows</option>
           <option value="linux">Linux</option>
           <option value="darwin">macOS</option>
         </select>
         {allTags.length > 0 && (
-          <select aria-label="Filter by tag" className={selectCls} value={filters.tag}
-            onChange={(e) => setFilters({ ...filters, tag: e.target.value })}>
+          <select
+            aria-label="Filter by tag"
+            className="select"
+            value={filters.tag}
+            onChange={(e) => setFilters({ ...filters, tag: e.target.value })}
+          >
             <option value="">All tags</option>
-            {allTags.map((tg) => <option key={tg} value={tg}>{tg}</option>)}
+            {allTags.map((tg) => (
+              <option key={tg} value={tg}>
+                {tg}
+              </option>
+            ))}
           </select>
         )}
-        <select aria-label="Sort devices" className={selectCls} value={sort}
-          onChange={(e) => setSort(e.target.value as SortKey)}>
+        <select
+          aria-label="Sort devices"
+          className="select"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+        >
           <option value="name">Sort: name</option>
           <option value="status">Sort: status</option>
           <option value="last_seen">Sort: last seen</option>
@@ -155,23 +233,28 @@ export function Devices() {
           onClick={() => setDesc((d) => !d)}
           aria-label={desc ? 'Descending order' : 'Ascending order'}
           aria-pressed={desc}
-          className={`${selectCls} hover:bg-bg-secondary`}
+          className="btn px-2.5 py-[9px]"
         >
-          {desc ? '↓' : '↑'}
+          <span className="ow-num">{desc ? '↓' : '↑'}</span>
         </button>
         {filtersActive && (
-          <button onClick={() => setFilters(defaultFilters)} className="text-sm text-accent hover:underline">
+          <button onClick={() => setFilters(defaultFilters)} className="cap-sm cap text-[var(--service)] hover:underline">
             Clear filters
           </button>
         )}
-        <div role="group" aria-label="View" className="ml-auto flex overflow-hidden rounded-lg border border-bg-border">
+        <div role="group" aria-label="View" className="ml-auto flex">
           {([['cards', LayoutGrid, 'Card view'], ['table', List, 'Table view']] as const).map(([v, Icon, label]) => (
             <button
               key={v}
               onClick={() => setView(v)}
               aria-label={label}
               aria-pressed={view === v}
-              className={`px-3 py-2 ${view === v ? 'bg-accent text-white' : 'bg-bg text-text-secondary hover:bg-bg-secondary'}`}
+              className="btn border-rule-strong px-2.5 py-[9px]"
+              style={{
+                marginLeft: v === 'table' ? -1 : 0,
+                background: view === v ? 'var(--ink)' : 'var(--bg-card)',
+                color: view === v ? 'var(--bg-card)' : 'var(--text-secondary)',
+              }}
             >
               <Icon className="h-4 w-4" />
             </button>
@@ -179,34 +262,91 @@ export function Devices() {
         </div>
       </div>
 
-      {actionError && <div role="alert" className="rounded-lg border border-status-error/40 bg-status-error/10 px-4 py-3 text-sm text-status-error">{actionError}</div>}
-      {notice && <div role="status" className="rounded-lg border border-status-online/30 bg-status-online/10 px-4 py-3 text-sm text-status-online">{notice}</div>}
+      {actionError && (
+        <div role="alert" className="panel border-[var(--error)] px-3 py-2.5 text-[13px] text-[var(--error)]">
+          {actionError}
+        </div>
+      )}
+      {notice && (
+        <div role="status" className="panel border-[var(--online)] px-3 py-2.5 text-[13px] text-[var(--online)]">
+          {notice}
+        </div>
+      )}
 
       {canAct && selectedVisible.length > 0 && (
-        <div role="toolbar" aria-label="Bulk actions" className="flex flex-wrap items-center gap-3 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3">
-          <span className="text-sm font-medium text-text-primary">{selectedVisible.length} selected</span>
-          <button disabled={busy} onClick={() => bulk(async () => `Scan requested on ${(await scanDevices(selectedVisible)).scans_sent} online device(s)`)}
-            className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg disabled:opacity-50">
+        <div
+          role="toolbar"
+          aria-label="Bulk actions"
+          className="flex flex-wrap items-center gap-2 border border-rule-strong bg-[var(--field-alt)] px-3 py-2"
+        >
+          <span className="cap cap-sm text-text-primary">{selectedVisible.length} selected</span>
+          <button
+            disabled={busy}
+            onClick={() =>
+              bulk(async () => `Scan requested on ${(await scanDevices(selectedVisible)).scans_sent} online device(s)`)
+            }
+            className="btn px-2.5 py-1.5 text-[11px]"
+          >
             Scan for updates
           </button>
           {canDeploy && (
-            <button disabled={busy} onClick={() => bulk(async () => { await deployNow(selectedVisible); return 'Deployment started'; })}
-              className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg disabled:opacity-50">
+            <button
+              disabled={busy}
+              onClick={() =>
+                bulk(async () => {
+                  await deployNow(selectedVisible);
+                  return 'Deployment started';
+                })
+              }
+              className="btn px-2.5 py-1.5 text-[11px]"
+            >
               Deploy approved
             </button>
           )}
-          <input value={tagDraft} onChange={(e) => setTagDraft(e.target.value)} list="bulk-tag-suggestions" placeholder="tag" aria-label="Tag to add or remove" maxLength={32}
-            className="w-28 rounded-lg border border-bg-border bg-bg px-2 py-1.5 text-xs text-text-primary" />
-          <datalist id="bulk-tag-suggestions">{allTags.map((tg) => <option key={tg} value={tg} />)}</datalist>
-          <button disabled={busy || !tagInput} onClick={() => bulk(async () => { const r = await bulkTags(selectedVisible, [tagInput], []); await refresh(); return `Tagged ${r.updated} device(s)`; })}
-            className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg disabled:opacity-50">
+          <input
+            value={tagDraft}
+            onChange={(e) => setTagDraft(e.target.value)}
+            list="bulk-tag-suggestions"
+            placeholder="tag"
+            aria-label="Tag to add or remove"
+            maxLength={32}
+            className="input w-28 px-2 py-1.5 text-[11px]"
+          />
+          <datalist id="bulk-tag-suggestions">
+            {allTags.map((tg) => (
+              <option key={tg} value={tg} />
+            ))}
+          </datalist>
+          <button
+            disabled={busy || !tagInput}
+            onClick={() =>
+              bulk(async () => {
+                const r = await bulkTags(selectedVisible, [tagInput], []);
+                await refresh();
+                return `Tagged ${r.updated} device(s)`;
+              })
+            }
+            className="btn px-2.5 py-1.5 text-[11px]"
+          >
             Add tag
           </button>
-          <button disabled={busy || !tagInput} onClick={() => bulk(async () => { const r = await bulkTags(selectedVisible, [], [tagInput]); await refresh(); return `Updated ${r.updated} device(s)`; })}
-            className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg disabled:opacity-50">
+          <button
+            disabled={busy || !tagInput}
+            onClick={() =>
+              bulk(async () => {
+                const r = await bulkTags(selectedVisible, [], [tagInput]);
+                await refresh();
+                return `Updated ${r.updated} device(s)`;
+              })
+            }
+            className="btn px-2.5 py-1.5 text-[11px]"
+          >
             Remove tag
           </button>
-          <button onClick={() => setSelected(new Set())} className="ml-auto flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary">
+          <button
+            onClick={() => setSelected(new Set())}
+            className="cap-sm cap ml-auto flex items-center gap-1 text-text-secondary hover:text-text-primary"
+          >
             <X className="h-3.5 w-3.5" /> Clear
           </button>
         </div>
@@ -214,64 +354,118 @@ export function Devices() {
 
       {loading ? (
         <div className="flex h-64 items-center justify-center">
-          <Server className="h-8 w-8 animate-spin text-accent" />
+          <RefreshCw className="h-6 w-6 animate-spin text-[var(--service)]" aria-hidden="true" />
         </div>
       ) : error ? (
-        <p className="text-status-error">{error}</p>
+        <p role="alert" className="text-[13px] text-[var(--error)]">
+          {error}
+        </p>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-16 text-text-secondary">
-          <Server className="h-10 w-10 text-text-muted" />
-          <p className="mt-3 text-sm">{filtersActive ? t('devices.noMatch') : t('devices.none')}</p>
+        <div className="panel flex flex-col items-center gap-3 px-6 py-16 text-center text-text-secondary">
+          <Server className="h-8 w-8 text-text-muted" aria-hidden="true" />
+          <p className="text-sm">{filtersActive ? t('devices.noMatch') : t('devices.none')}</p>
+          {filtersActive && (
+            <button onClick={() => setFilters(defaultFilters)} className="btn">
+              Clear filters
+            </button>
+          )}
         </div>
       ) : view === 'table' ? (
-        <div className="overflow-x-auto rounded-xl border border-bg-border bg-bg-card">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-bg-border text-xs uppercase tracking-wide text-text-muted">
-              <tr>
-                {canAct && (
-                  <th className="w-10 px-4 py-3">
-                    <input type="checkbox" aria-label="Select all devices" checked={allSelected}
-                      onChange={() => setSelected(allSelected ? new Set() : new Set(filtered.map((d) => d.id)))} />
-                  </th>
-                )}
-                <th className="px-4 py-3">Device</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">System</th>
-                <th className="px-4 py-3">Tags</th>
-                <th className="px-4 py-3">Last seen</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-bg-border">
-              {filtered.map((d) => (
-                <tr key={d.id} className="hover:bg-bg/50">
+        <div className="panel overflow-hidden">
+          <GuideWordsHead
+            total={filtered.length}
+            unit={t('sheet.inView')}
+            first={filtered[guide.first]?.name}
+            last={filtered[guide.last]?.name}
+          />
+          <div ref={guide.ref} className="max-h-[36rem] overflow-y-auto">
+            <table className="ledger">
+              <thead>
+                <tr>
                   {canAct && (
-                    <td className="px-4 py-3">
-                      <input type="checkbox" aria-label={`Select ${d.name}`} checked={selected.has(d.id)} onChange={() => toggle(d.id)} />
-                    </td>
+                    <th className="w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all devices"
+                        checked={allSelected}
+                        onChange={() => setSelected(allSelected ? new Set() : new Set(filtered.map((d) => d.id)))}
+                      />
+                    </th>
                   )}
-                  <td className="px-4 py-3">
-                    <Link to={`/devices/${d.id}`} className="font-medium text-accent hover:underline">{d.name}</Link>
-                    <p className="text-xs text-text-muted">{d.hostname}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={d.status} />
-                    {d.reboot_pending && <RotateCw className="ml-2 inline h-3.5 w-3.5 text-status-warning" aria-label="Reboot pending" />}
-                  </td>
-                  <td className="px-4 py-3 text-text-secondary">{d.os} · {d.arch}</td>
-                  <td className="px-4 py-3 text-xs text-text-secondary">{(d.tags ?? []).join(', ') || '—'}</td>
-                  <td className="px-4 py-3 text-xs text-text-muted">{new Date(d.last_seen).toLocaleString()}</td>
+                  <th>Unit</th>
+                  <th>State</th>
+                  <th>System</th>
+                  <th>Record</th>
+                  <th>Tags</th>
+                  <th className="text-right">Last seen</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map((d) => {
+                  const compliance = complianceById.get(d.id);
+                  return (
+                    <tr key={d.id} data-guide className="text-[13px]">
+                      {canAct && (
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${d.name}`}
+                            checked={selected.has(d.id)}
+                            onChange={() => toggle(d.id)}
+                          />
+                        </td>
+                      )}
+                      <td>
+                        <Link
+                          to={`/devices/${d.id}`}
+                          className="font-semibold text-[var(--service)] hover:underline"
+                        >
+                          {d.name}
+                        </Link>
+                        <p className="cap-sm cap text-text-muted">{d.hostname}</p>
+                      </td>
+                      <td>
+                        <Stamp tone={d.status === 'alert' ? 'alert' : d.status === 'offline' ? 'offline' : 'online'}>
+                          {d.status}
+                        </Stamp>
+                        {d.reboot_pending && (
+                          <RotateCw className="ml-2 inline h-3.5 w-3.5 text-[var(--due)]" aria-label="Reboot pending" />
+                        )}
+                      </td>
+                      <td className="text-text-secondary">
+                        {d.os} · <span className="ow-num text-[11px]">{d.arch}</span>
+                      </td>
+                      <td className="text-[11px] text-text-secondary">
+                        {compliance ? (
+                          compliance.critical > 0 ? (
+                            <span className="text-[var(--error)]">{compliance.critical} critical</span>
+                          ) : compliance.detected > 0 ? (
+                            <span className="text-[var(--due)]">{compliance.detected} outstanding</span>
+                          ) : (
+                            <span className="text-[var(--online)]">clear</span>
+                          )
+                        ) : (
+                          'not scanned'
+                        )}
+                      </td>
+                      <td className="text-[11px] text-text-secondary">{(d.tags ?? []).join(', ') || '—'}</td>
+                      <td className="ow-num text-right text-[11px] text-text-muted">
+                        {seenLabel(d.last_seen)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : filtered.length > 20 ? (
-        <div className="rounded-xl border border-bg-border bg-bg-card">
+        <div className="panel overflow-hidden">
           <Grid
-            className="overflow-y-auto"
-            style={{ height: 600, width: '100%' }}
-            rowHeight={140}
-            columnWidth={280}
+            className="overflow-y-auto outline-none"
+            style={{ height: 640, width: '100%' }}
+            rowHeight={152}
+            columnWidth={300}
             rowCount={Math.ceil(filtered.length / 4)}
             columnCount={4}
             overscanCount={10}
@@ -281,17 +475,26 @@ export function Devices() {
               const device = filtered[index];
               if (!device) return null;
               return (
-                <div style={{ ...props.style, padding: '8px' }}>
-                  <DeviceCard device={device} />
+                <div style={{ ...props.style, padding: '6px' }}>
+                  <DeviceCard
+                    device={device}
+                    compliance={complianceById.get(device.id)}
+                    policies={policies}
+                  />
                 </div>
               );
             }}
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {filtered.map((device) => (
-            <DeviceCard key={device.id} device={device} />
+            <DeviceCard
+              key={device.id}
+              device={device}
+              compliance={complianceById.get(device.id)}
+              policies={policies}
+            />
           ))}
         </div>
       )}

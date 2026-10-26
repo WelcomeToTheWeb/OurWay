@@ -1,7 +1,11 @@
 import { Link } from 'react-router-dom';
-import { Monitor, Apple, Server } from 'lucide-react';
+import { Monitor, Apple, Server, RotateCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { Device } from '../types/device';
-import { StatusBadge } from './StatusBadge';
+import type { DeviceCompliance, PatchPolicy } from '../types/patch';
+import { StatusStamp } from './Stamp';
+import { ServiceRecord } from './ServiceRecord';
+import { deviceRecord, policyForDevice } from '../utils/policyScope';
 
 const osIcons: Record<string, typeof Monitor> = {
   linux: Server,
@@ -9,7 +13,7 @@ const osIcons: Record<string, typeof Monitor> = {
   darwin: Apple,
 };
 
-function osLabel(os: string): string {
+export function osLabel(os: string): string {
   switch (os) {
     case 'linux':
       return 'Linux';
@@ -22,62 +26,76 @@ function osLabel(os: string): string {
   }
 }
 
-function lastSeenLabel(lastSeen: string): string {
-  try {
-    const d = new Date(lastSeen);
-    if (isNaN(d.getTime())) return 'Unknown';
-    const diff = Date.now() - d.getTime();
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return d.toLocaleDateString();
-  } catch {
-    return 'Unknown';
-  }
-}
-
-export function DeviceCard({ device }: { device: Device }) {
+/**
+ * A device decal: the unit's identity, its state stamp, and its service
+ * record — last seen, next due, interval — printed in one ruled block.
+ */
+export function DeviceCard({
+  device,
+  compliance,
+  policies = [],
+}: {
+  device: Device;
+  compliance?: DeviceCompliance;
+  policies?: PatchPolicy[];
+}) {
   const Icon = osIcons[device.os] || Monitor;
+  const { t } = useTranslation();
+  const record = deviceRecord(device, compliance, policyForDevice(policies, device), {
+    lastSeen: t('record.lastSeen'),
+    nextDue: t('record.nextDue'),
+    interval: t('record.interval'),
+    noPolicy: t('record.noPolicy'),
+  });
+  const tags = device.tags ?? [];
 
   return (
     <Link
       to={`/devices/${device.id}`}
-      className="group flex h-full flex-col gap-4 rounded-xl border border-bg-border bg-bg-card p-4 transition-colors hover:border-accent"
+      className="decal group flex h-full flex-col no-underline"
+      aria-label={`${device.name} — ${device.status}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-bg">
-            <Icon className="h-5 w-5 text-accent" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-text-primary group-hover:text-accent">
+      <div className="flex items-start justify-between gap-2 px-3 pt-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span
+            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center border border-rule"
+            aria-hidden="true"
+          >
+            <Icon className="h-4 w-4 text-text-secondary" />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[14px] font-semibold text-text-primary group-hover:text-[var(--service)]">
               {device.name}
-            </p>
-            <p className="text-xs text-text-secondary">{device.hostname}</p>
-          </div>
+            </span>
+            <span className="cap-sm cap block truncate text-text-muted">
+              {osLabel(device.os)} · {device.arch} · {device.hostname}
+            </span>
+          </span>
         </div>
-        <StatusBadge status={device.status} />
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <StatusStamp status={device.status} />
+          {device.reboot_pending && (
+            <span className="flex items-center gap-1 text-[10px] text-[var(--due)]" title="Reboot pending">
+              <RotateCw className="h-3 w-3" aria-hidden="true" />
+              <span className="cap-sm cap">Reboot</span>
+            </span>
+          )}
+        </span>
       </div>
 
-      {(device.tags?.length ?? 0) > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {device.tags!.slice(0, 3).map((t) => (
-            <span key={t} className="rounded-full border border-bg-border bg-bg px-2 py-0.5 text-[11px] text-text-secondary">
-              {t}
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 px-3 pt-2">
+          {tags.slice(0, 4).map((tag) => (
+            <span key={tag} className="cap-sm cap border border-rule px-1.5 py-0.5 text-text-secondary">
+              {tag}
             </span>
           ))}
-          {device.tags!.length > 3 && (
-            <span className="text-[11px] text-text-muted">+{device.tags!.length - 3}</span>
-          )}
+          {tags.length > 4 && <span className="cap-sm cap text-text-muted">+{tags.length - 4}</span>}
         </div>
       )}
 
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-text-secondary">{osLabel(device.os)}</span>
-        <span className="text-text-muted">
-          Last seen: {lastSeenLabel(device.last_seen)}
-        </span>
-      </div>
+      <div className="mt-2 flex-1" />
+      <ServiceRecord {...record} />
     </Link>
   );
 }

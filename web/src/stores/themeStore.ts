@@ -11,7 +11,7 @@ interface ThemeState {
 }
 
 function getSystemTheme(): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'light';
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
@@ -56,7 +56,7 @@ export const useThemeStore = create<ThemeState>()(
 );
 
 // Listen for system theme changes
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     useThemeStore.getState().resolveTheme();
   });

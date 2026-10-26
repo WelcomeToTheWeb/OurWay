@@ -1,5 +1,6 @@
 import client from './client';
 import type { Device, Metrics } from '../types/device';
+import type { MetricsRow } from '../stores/metrics';
 import type { Alert as AlertType } from '../types/alert';
 
 export const getDevices = () =>
@@ -11,6 +12,14 @@ export const getDevice = (id: string) =>
   client
     .get<{ device: Device; metrics?: Metrics }>(`/devices/${id}`)
     .then((r) => r.data.device);
+
+/** Recorded metric history for a device, oldest first. */
+export const getMetricsHistory = (id: string, from?: string, to?: string) =>
+  client
+    .get<{ metrics: MetricsRow[] }>(`/devices/${id}/metrics/history`, {
+      params: from ? { from, ...(to ? { to } : {}) } : undefined,
+    })
+    .then((r) => r.data.metrics);
 
 export const deleteDevice = (id: string) =>
   client.delete(`/devices/${id}`).then((r) => r.data);

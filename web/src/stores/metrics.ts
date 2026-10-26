@@ -15,7 +15,22 @@ interface DeviceHistory {
 interface MetricsStore {
   history: Record<string, DeviceHistory>;
   addMetric: (deviceId: string, metrics: Metrics) => void;
+  seedHistory: (deviceId: string, rows: MetricsRow[]) => void;
   clearHistory: (deviceId: string) => void;
+}
+
+/**
+ * One server history row. A page opened on a device shows that day's
+ * recorded shape, not just the samples that arrive while the tab is open,
+ * so the store accepts the server's rows directly.
+ */
+export interface MetricsRow {
+  timestamp: string;
+  cpu: number;
+  ram: number;
+  disk_usage: number;
+  net_in: number;
+  net_out: number;
 }
 
 function emptyHistory(): DeviceHistory {
@@ -63,6 +78,39 @@ export const useMetricsStore = create<MetricsStore>((set) => ({
         history: {
           ...state.history,
           [deviceId]: { cpu, ram, disk, netIn, netOut, timestamps },
+        },
+      };
+    });
+  },
+
+  seedHistory: (deviceId, rows) => {
+    set((state) => {
+      const cpu: number[] = [];
+      const ram: number[] = [];
+      const disk: number[] = [];
+      const netIn: number[] = [];
+      const netOut: number[] = [];
+      const timestamps: string[] = [];
+      for (const row of rows) {
+        cpu.push(row.cpu);
+        ram.push(row.ram);
+        disk.push(row.disk_usage);
+        netIn.push(row.net_in);
+        netOut.push(row.net_out);
+        timestamps.push(new Date(row.timestamp).toISOString().slice(11, 16));
+      }
+      const from = Math.max(0, cpu.length - MAX_POINTS);
+      return {
+        history: {
+          ...state.history,
+          [deviceId]: {
+            cpu: cpu.slice(from),
+            ram: ram.slice(from),
+            disk: disk.slice(from),
+            netIn: netIn.slice(from),
+            netOut: netOut.slice(from),
+            timestamps: timestamps.slice(from),
+          },
         },
       };
     });

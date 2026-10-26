@@ -3,11 +3,7 @@ import {
   Search,
   RefreshCw,
   Check,
-  X,
-  Clock,
-  Download,
   Package,
-  Activity,
   Play,
 } from 'lucide-react';
 import {
@@ -18,42 +14,12 @@ import {
 } from '../api/patching';
 import { getDevices } from '../api/devices';
 import { useTranslation } from 'react-i18next';
+import { Stamp } from '../components/Stamp';
+import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import type { Device } from '../types/device';
 import type { SoftwareUpdate } from '../types/patch';
+import { isRateLimited } from '../api/client';
 
-const statusConfig: Record<
-  SoftwareUpdate['status'],
-  { className: string; icon: typeof Check }
-> = {
-  detected: {
-    className: 'bg-status-warning/15 text-status-warning ring-1 ring-inset ring-status-warning/30',
-    icon: Clock,
-  },
-  approved: {
-    className: 'bg-accent/15 text-accent ring-1 ring-inset ring-accent/30',
-    icon: Check,
-  },
-  downloading: {
-    className: 'bg-accent/15 text-accent ring-1 ring-inset ring-accent/30',
-    icon: Download,
-  },
-  installing: {
-    className: 'bg-accent/15 text-accent ring-1 ring-inset ring-accent/30',
-    icon: Activity,
-  },
-  installed: {
-    className: 'bg-status-online/15 text-status-online ring-1 ring-inset ring-status-online/30',
-    icon: Check,
-  },
-  failed: {
-    className: 'bg-status-error/15 text-status-error ring-1 ring-inset ring-status-error/30',
-    icon: X,
-  },
-  skipped: {
-    className: 'bg-bg text-text-secondary ring-1 ring-inset ring-bg-border',
-    icon: Clock,
-  },
-};
 
 function formatSize(bytes: number): string {
   if (!bytes || bytes < 0) return '—';
@@ -115,7 +81,9 @@ export function Patches() {
     }
 
     loadUpdates();
-    const interval = setInterval(loadUpdates, 30000);
+    const interval = setInterval(() => {
+      if (!isRateLimited()) void loadUpdates();
+    }, 30000);
 
     return () => {
       cancelled = true;
@@ -173,68 +141,60 @@ export function Patches() {
   const failedCount = updates.filter((u) => u.status === 'failed').length;
 
   const selectedDeviceName = devices.find((d) => d.id === selectedDevice)?.hostname || '';
+  const guide = useGuideWords(filtered.length);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">{t('patches.managementTitle')}</h1>
-          <p className="text-sm text-text-secondary">
+          <h1 className="text-[26px]">{t('patches.managementTitle')}</h1>
+          <p className="cap cap-sm mt-1 text-text-muted">
             {t('patches.subtitle', { detected: detectedCount, failed: failedCount })}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleScan}
-            disabled={scanning || !selectedDevice}
-            className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary transition-colors hover:bg-bg disabled:opacity-50"
-          >
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2">
+            <span className="cap cap-sm text-text-muted">{t('patches.device')}</span>
+            <select
+              value={selectedDevice}
+              onChange={(e) => setSelectedDevice(e.target.value)}
+              className="select"
+              aria-label={t('patches.device')}
+            >
+              <option value="">—</option>
+              {devices.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} · {d.hostname}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button onClick={handleScan} disabled={scanning || !selectedDevice} className="btn">
             <RefreshCw className={`h-3.5 w-3.5 ${scanning ? 'animate-spin' : ''}`} />
             {t('patches.scanShort')}
           </button>
-          <button
-            onClick={handleDeploy}
-            disabled={deploying || !selectedDevice}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
-          >
+          <button onClick={handleDeploy} disabled={deploying || !selectedDevice} className="btn-primary">
             <Play className={`h-3.5 w-3.5 ${deploying ? 'animate-spin' : ''}`} />
             {t('patches.deployNow')}
           </button>
         </div>
       </div>
 
-      {/* Device selector */}
-      <div className="flex items-center gap-4">
-        <label className="text-sm text-text-secondary">{t('patches.device')}:</label>
-        <select
-          value={selectedDevice}
-          onChange={(e) => setSelectedDevice(e.target.value)}
-          className="rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
-        >
-          {devices.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.hostname}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-4">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary" />
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="relative block min-w-[16rem] flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" aria-hidden="true" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('patches.searchUpdates')}
-            className="w-full rounded-lg border border-bg-border bg-bg py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+            className="input w-full pl-8"
           />
-        </div>
+        </label>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+          className="select"
           aria-label="Filter by status"
         >
           <option value="all">{t('patches.allStatuses')}</option>
@@ -248,81 +208,111 @@ export function Patches() {
         </select>
       </div>
 
-      {/* Updates list */}
       {loading ? (
-        <div className="flex h-64 items-center justify-center">
-          <Activity className="h-8 w-8 animate-spin text-accent" />
+        <div className="flex h-40 items-center justify-center">
+          <RefreshCw className="h-6 w-6 animate-spin text-[var(--service)]" aria-hidden="true" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-16 text-text-secondary">
-          <div className="h-20 w-20 rounded-full bg-bg border border-bg-border flex items-center justify-center">
-            <Package className="h-8 w-8 text-text-muted" />
-          </div>
-          <p className="mt-4 text-sm font-medium text-text-primary">
+        <div className="panel px-4 py-8 text-center">
+          <Package className="mx-auto h-5 w-5 text-text-muted" aria-hidden="true" />
+          <p className="cap cap-sm mt-2 text-text-secondary">
             {selectedDeviceName ? t('patches.noUpdates') : t('patches.selectDevice')}
           </p>
-          <p className="mt-1 text-xs text-text-muted">
-            {selectedDeviceName
-              ? t('patches.upToDate')
-              : t('patches.chooseDevice')}
+          <p className="mt-1 text-sm text-text-muted">
+            {selectedDeviceName ? t('patches.upToDate') : t('patches.chooseDevice')}
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map((update) => {
-            const cfg = statusConfig[update.status];
-            const Icon = cfg.icon;
-            return (
-              <div
-                key={update.id}
-                className="flex items-center justify-between rounded-xl border border-bg-border bg-bg-card p-4 transition-colors hover:border-accent/50"
-              >
-                <div className="flex items-center gap-4">
-                  <div
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${cfg.className}`}
-                  >
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-text-primary">{update.title}</p>
-                    <div className="mt-0.5 flex items-center gap-3 text-xs text-text-secondary">
-                      <span>{update.source}</span>
-                      {update.version && <span>v{update.version}</span>}
-                      <span>{formatSize(update.size_bytes)}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {update.status === 'detected' && (
-                    <button
-                      onClick={() => handleApprove(update.id)}
-                      className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-accent/80"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                      {t('patches.approve')}
-                    </button>
-                  )}
-                  {update.status === 'installing' && (
-                    <span className="flex items-center gap-1.5 text-xs text-accent">
-                      <Activity className="h-3.5 w-3.5 animate-spin" />
-                      {t('patches.installing')}
-                    </span>
-                  )}
-                  {update.status === 'failed' && update.error_message && (
-                    <span className="max-w-xs truncate text-xs text-status-error" title={update.error_message}>
-                      {update.error_message}
-                    </span>
-                  )}
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${cfg.className}`}
-                  >
-                    {t(`patches.statuses.${update.status}`)}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <section className="panel overflow-hidden">
+          <GuideWordsHead
+            total={filtered.length}
+            unit={t('sheet.inView')}
+            first={filtered[guide.first]?.title}
+            last={filtered[guide.last]?.title}
+          />
+          <div ref={guide.ref} className="max-h-[32rem] overflow-y-auto">
+            <table className="ledger">
+              <thead>
+                <tr>
+                  <th>{t('patches.managementTitle')}</th>
+                  <th className="w-28">Severity</th>
+                  <th className="w-24">Size</th>
+                  <th className="w-28">State</th>
+                  <th className="w-32 text-right"> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((update) => (
+                  <tr key={update.id} data-guide title={update.title}>
+                    <td>
+                      <span className="cap cap-sm text-text-primary">{update.title}</span>
+                      <span className="cap cap-sm block truncate text-text-muted">
+                        {update.source}
+                        {update.version && ` · v${update.version}`}
+                        {update.kb && ` · ${update.kb}`}
+                      </span>
+                      {update.status === 'failed' && update.error_message && (
+                        <span className="cap cap-sm block truncate text-[var(--error)]" title={update.error_message}>
+                          {update.error_message}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {update.severity ? (
+                        <Stamp
+                          tone={
+                            update.severity === 'critical'
+                              ? 'alert'
+                              : update.severity === 'important'
+                                ? 'due'
+                                : 'neutral'
+                          }
+                        >
+                          {update.severity}
+                        </Stamp>
+                      ) : (
+                        <span className="cap cap-sm text-text-muted">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className="ow-num text-[12px]">{formatSize(update.size_bytes)}</span>
+                    </td>
+                    <td>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Stamp
+                          tone={
+                            update.status === 'installed'
+                              ? 'online'
+                              : update.status === 'failed'
+                                ? 'alert'
+                                : update.status === 'approved'
+                                  ? 'service'
+                                  : update.status === 'detected'
+                                    ? 'due'
+                                    : 'neutral'
+                          }
+                        >
+                          {t(`patches.statuses.${update.status}`)}
+                        </Stamp>
+                        {update.status === 'installing' && (
+                          <RefreshCw className="h-3 w-3 animate-spin text-[var(--service)]" aria-hidden="true" />
+                        )}
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      {update.status === 'detected' && (
+                        <button onClick={() => handleApprove(update.id)} className="btn-primary">
+                          <Check className="h-3.5 w-3.5" />
+                          {t('patches.approve')}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </div>
   );

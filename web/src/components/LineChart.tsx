@@ -3,10 +3,9 @@ import {
   Line,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   ReferenceLine,
+  ResponsiveContainer,
 } from 'recharts';
 
 interface YKey {
@@ -35,18 +34,15 @@ function CustomTooltip({
   label?: string;
 }) {
   if (!active || !payload || payload.length === 0) return null;
-
   return (
-    <div className="rounded-lg border border-bg-border bg-bg-secondary p-3 shadow-lg">
-      <p className="mb-2 text-xs font-medium text-text-secondary">{label}</p>
+    <div className="border border-rule bg-bg-card px-2.5 py-2 text-[11px]">
+      <p className="cap-sm cap mb-1 text-text-muted">{label}</p>
       {payload.map((entry) => (
-        <div key={entry.name} className="flex items-center gap-2">
-          <span
-            className="inline-block h-2 w-2 rounded-full"
-            style={{ backgroundColor: entry.color }}
-          />
-          <span className="text-xs text-text-primary">
-            {entry.name}: {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
+        <div key={entry.name} className="flex items-baseline gap-2">
+          <span className="inline-block h-2 w-2" style={{ backgroundColor: entry.color }} />
+          <span className="text-text-primary">
+            {entry.name}:{' '}
+            <span className="ow-num font-semibold">{typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}</span>
           </span>
         </div>
       ))}
@@ -54,6 +50,10 @@ function CustomTooltip({
   );
 }
 
+/**
+ * A measured trace: hairline rules on the value axis only, tabular numerals
+ * on the ticks, and the threshold as a dashed rule labelled in the state ink.
+ */
 export function LineChart({
   data,
   xKey,
@@ -66,36 +66,28 @@ export function LineChart({
   if (!data || data.length === 0) {
     return (
       <div
-        className="flex items-center justify-center rounded-lg bg-bg/50 text-sm text-text-muted"
+        className="flex items-center justify-center border border-dashed border-rule text-[12px] text-text-muted"
         style={{ height }}
       >
-        Waiting for data...
+        Waiting for the next reporting interval
       </div>
     );
   }
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <RechartsLineChart
-        data={data}
-        margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
-      >
-        <CartesianGrid
-          stroke="var(--bg-border)"
-          vertical={false}
-          strokeDasharray="3 3"
-        />
+      <RechartsLineChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 4 }}>
         <XAxis
           dataKey={xKey}
-          tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
+          tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
           tickLine={false}
-          axisLine={{ stroke: 'var(--bg-border)' }}
+          axisLine={{ stroke: 'var(--rule-strong)' }}
           interval="preserveStartEnd"
         />
         <YAxis
-          tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
+          tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
           tickLine={false}
-          axisLine={{ stroke: 'var(--bg-border)' }}
+          axisLine={{ stroke: 'var(--rule-strong)' }}
           domain={yDomain}
           label={
             yLabel
@@ -103,25 +95,22 @@ export function LineChart({
                   value: yLabel,
                   angle: -90,
                   position: 'left',
-                  fill: 'var(--text-secondary)',
+                  fill: 'var(--text-muted)',
                   fontSize: 10,
                 }
               : undefined
           }
         />
-        <Tooltip
-          content={<CustomTooltip />}
-          wrapperStyle={{ outline: 'none' }}
-        />
+        <Tooltip content={<CustomTooltip />} wrapperStyle={{ outline: 'none' }} />
         {referenceLine && (
           <ReferenceLine
             y={referenceLine.y}
-            stroke={referenceLine.color || '#ef4444'}
+            stroke={referenceLine.color || 'var(--error)'}
             strokeDasharray="4 4"
             label={{
               value: referenceLine.label,
               position: 'right',
-              fill: referenceLine.color || '#ef4444',
+              fill: referenceLine.color || 'var(--error)',
               fontSize: 10,
             }}
           />
@@ -132,9 +121,9 @@ export function LineChart({
             type="monotone"
             dataKey={yk.key}
             stroke={yk.color}
-            strokeWidth={2}
+            strokeWidth={1.5}
             dot={false}
-            activeDot={{ r: 4, fill: yk.color }}
+            activeDot={{ r: 3, fill: yk.color }}
             name={yk.name}
             isAnimationActive={false}
           />

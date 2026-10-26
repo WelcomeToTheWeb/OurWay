@@ -10,3 +10,6 @@ web/dist/
 
 # Frontend dependencies
 web/node_modules/
+
+# Impeccable design workspace: briefs, screenshots, detector scratch
+.impeccable/

@@ -1,40 +1,50 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Trash2,
-  Clock,
-  Activity,
-  Server,
   Wifi,
-  ArrowUpRight,
-  ArrowDownRight,
+  Server,
+  Key,
   Cpu,
-  HardDrive,
   MemoryStick,
+  HardDrive,
+  Network,
   Radio,
   Monitor,
   Apple,
-  Calendar,
-  Network,
-  ExternalLink,
   MousePointer2,
+  ExternalLink,
   RefreshCw,
-  Key,
+  Download,
 } from 'lucide-react';
-import { getDevice, deleteDevice, rebootDevice, startDeviceStream, stopDeviceStream } from '../api/devices';
+import { useTranslation } from 'react-i18next';
+import {
+  getDevice,
+  deleteDevice,
+  rebootDevice,
+  startDeviceStream,
+  stopDeviceStream,
+  getMetricsHistory,
+} from '../api/devices';
 import { startSession } from '../api/sessions';
 import { downloadInstaller, fetchInstallers } from '../api/installers';
+import { listPolicies, getPatchOverview } from '../api/patching';
+import type { PatchOverview } from '../types/patch';
 import type { Session } from '../api/sessions';
+import type { PatchPolicy } from '../types/patch';
 import { Gauge } from '../components/Gauge';
 import { LineChart } from '../components/LineChart';
 import { InfoRow } from '../components/InfoRow';
 import { TagEditor } from '../components/TagEditor';
 import { CopyButton } from '../components/CopyButton';
-import { StatusBadge } from '../components/StatusBadge';
+import { ServiceRecord } from '../components/ServiceRecord';
+import { Stamp } from '../components/Stamp';
 import { SessionView } from '../components/SessionView';
 import { useMetricsStore } from '../stores/metrics';
 import { useAuth } from '../auth/context';
+import { deviceRecord, policyForDevice } from '../utils/policyScope';
+import { isRateLimited } from '../api/client';
 import type { Device, Metrics } from '../types/device';
 
 const osIcons: Record<string, typeof Monitor> = {
@@ -44,7 +54,7 @@ const osIcons: Record<string, typeof Monitor> = {
 };
 
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
+  if (!bytes) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
@@ -59,7 +69,22 @@ function osLabel(os: string): string {
   }
 }
 
+/** Record-stamp time: ISO date, 24-hour, with the zone it is stated in. */
+function utcStamp(iso: string, withClock = true): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const date = d.toISOString().slice(0, 10);
+  return withClock ? `${date} ${d.toISOString().slice(11, 16)} UTC` : date;
+}
+
+/**
+ * One unit's record: the header is the decal (name, state, identity,
+ * actions), the ruled fields below are what the sheet knows about it, and
+ * the charts carry the day's recorded shape — not just whatever arrives
+ * while the tab happens to be open.
+ */
 export function DeviceDetail() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { accessToken, hasAnyRole } = useAuth();
@@ -73,56 +98,50 @@ export function DeviceDetail() {
   const [viewerLaunched, setViewerLaunched] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [policies, setPolicies] = useState<PatchPolicy[]>([]);
+  const [overview, setOverview] = useState<PatchOverview | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const history = useMetricsStore((s) => (id ? s.history[id] : null));
   const addMetric = useMetricsStore((s) => s.addMetric);
+  const seedHistory = useMetricsStore((s) => s.seedHistory);
 
-  // Ensure id is always defined (it comes from URL params)
   const deviceId = id!;
+  const canSeePatches = hasAnyRole(['admin', 'manager', 'technician']);
 
-  // Load device data
+  const load = useCallback(async () => {
+    try {
+      const data = await getDevice(deviceId);
+      setDevice(data);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [deviceId]);
+
   useEffect(() => {
     if (!id) return;
-    let cancelled = false;
+    void load();
+    listPolicies().then(setPolicies).catch(() => setPolicies([]));
+    if (canSeePatches) getPatchOverview().then(setOverview).catch(() => setOverview(null));
 
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await getDevice(deviceId);
-        if (!cancelled) {
-          setDevice(data);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError((err as Error).message);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
+    // Recorded history first: a page opened on a unit shows its day, and
+    // the live stream then extends it.
+    const from = new Date(Date.now() - 24 * 3600_000).toISOString();
+    getMetricsHistory(deviceId, from)
+      .then((rows) => seedHistory(deviceId, rows))
+      .catch(() => {});
 
-    load();
-
-    // Poll for device status updates every 15s
-    const interval = setInterval(async () => {
-      try {
-        const data = await getDevice(deviceId);
-        setDevice(data);
-      } catch {
-        // ignore
-      }
+    const interval = setInterval(() => {
+      if (isRateLimited()) return;
+      void load();
     }, 15000);
 
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [id]);
+    return () => clearInterval(interval);
+  }, [id, load, seedHistory, deviceId, canSeePatches]);
 
   // WebSocket connection for real-time metrics
   useEffect(() => {
@@ -170,7 +189,7 @@ export function DeviceDetail() {
       wsRef.current?.close();
       if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
     };
-  }, [id, accessToken]);
+  }, [id, accessToken, addMetric]);
 
   // H5: while the detail page is open, switch the device to 2 s
   // streaming metrics; revert to the normal interval when leaving.
@@ -242,8 +261,8 @@ export function DeviceDetail() {
     if (!device) return;
     setStartingSession(true);
     try {
-      const { session } = await startSession(device.id);
-      setSession(session);
+      const { session: started } = await startSession(device.id);
+      setSession(started);
     } catch (err) {
       setError(`Failed to start session: ${(err as Error).message}`);
     } finally {
@@ -282,22 +301,20 @@ export function DeviceDetail() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Activity className="h-8 w-8 animate-spin text-accent" />
+      <div className="flex h-64 flex-col items-center justify-center gap-3">
+        <RefreshCw className="h-6 w-6 animate-spin text-[var(--service)]" aria-hidden="true" />
+        <p className="cap cap-sm text-text-muted">{t('common.loading')}</p>
       </div>
     );
   }
 
   if (error || !device) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <p className="text-status-error">{error || 'Device not found'}</p>
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm text-white transition-colors hover:bg-accent-dark"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Go Back
+      <div role="alert" className="panel border-[var(--error)] p-4">
+        <p className="cap cap-sm text-[var(--error)]">Unit record unavailable</p>
+        <p className="mt-1 text-sm text-text-secondary">{error || 'No device matches this record.'}</p>
+        <button onClick={() => navigate('/devices')} className="btn mt-3">
+          <ArrowLeft className="h-3.5 w-3.5" /> {t('common.back')}
         </button>
       </div>
     );
@@ -305,137 +322,97 @@ export function DeviceDetail() {
 
   const OsIcon = osIcons[device.os] || Monitor;
   const hasData = chartData.length > 0;
+  const compliance = overview?.devices.find((d) => d.device_id === device.id);
+  const record = deviceRecord(device, compliance, policyForDevice(policies, device), {
+    lastSeen: t('record.lastSeen'),
+    nextDue: t('record.nextDue'),
+    interval: t('record.interval'),
+    noPolicy: t('record.noPolicy'),
+  });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {actionError && (
-        <div className="flex items-center justify-between rounded-lg border border-status-error/40 bg-status-error/10 px-4 py-3">
-          <p className="text-sm text-status-error">{actionError}</p>
-          <button
-            onClick={() => setActionError(null)}
-            className="text-sm text-text-secondary hover:text-text-primary"
-          >
-            Dismiss
+        <div className="flex flex-wrap items-center justify-between gap-3 panel border-[var(--error)] px-4 py-3">
+          <p className="text-sm text-[var(--error)]">{actionError}</p>
+          <button onClick={() => setActionError(null)} className="btn-quiet btn">
+            {t('common.dismiss')}
           </button>
         </div>
       )}
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-bg hover:text-text-primary"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
+
+      {/* Header: the decal */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <button onClick={() => navigate(-1)} className="btn mt-1">
+            <ArrowLeft className="h-3.5 w-3.5" /> {t('common.back')}
           </button>
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-bg-card border border-bg-border">
-              <OsIcon className="h-6 w-6 text-accent" />
+          <div className="flex h-11 w-11 items-center justify-center border border-rule bg-[var(--field)]">
+            <OsIcon className="h-5 w-5 text-text-secondary" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-[26px]">{device.name}</h1>
+              <Stamp tone={device.status === 'online' ? 'online' : device.status === 'alert' ? 'alert' : 'offline'}>
+                {device.status}
+              </Stamp>
+              {connected && hasData && <Stamp tone="service">streaming 2s</Stamp>}
             </div>
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-semibold text-text-primary">{device.name}</h1>
-                <StatusBadge status={device.status} />
-                {connected && hasData && (
-                  <span className="flex items-center gap-1.5 rounded-full bg-status-online/10 px-2 py-0.5 text-xs text-status-online">
-                    <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-online opacity-75" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-status-online" />
-                    </span>
-                    Streaming
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-text-secondary">
-                {device.hostname} • {osLabel(device.os)} • {device.arch}
-                {device.agent_version && ` • v${device.agent_version}`}
+            <p className="cap cap-sm mt-1 text-text-muted">
+              {device.hostname} · {osLabel(device.os)} · {device.arch}
+              {device.agent_version && ` · v${device.agent_version}`} · {device.public_ip}
+            </p>
+            <div className="mt-2">
+              <TagEditor
+                deviceId={device.id}
+                tags={device.tags ?? []}
+                readOnly={!canEditTags}
+                onChange={(tags) => setDevice((d) => (d ? { ...d, tags } : d))}
+              />
+            </div>
+            {device.reboot_pending && (
+              <p className="cap cap-sm mt-2 text-[var(--due)]">
+                Reboot pending — updates installed, restart required
               </p>
-              <div className="mt-1.5">
-                <TagEditor
-                  deviceId={device.id}
-                  tags={device.tags ?? []}
-                  readOnly={!canEditTags}
-                  onChange={(tags) => setDevice((d) => (d ? { ...d, tags } : d))}
-                />
-              </div>
-              {device.reboot_pending && (
-                <p className="mt-1.5 text-xs text-status-warning">Reboot pending — updates installed, restart required.</p>
-              )}
-            </div>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleStartSession}
             disabled={startingSession}
-            className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-white transition-colors hover:bg-accent-dark disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
-            <MousePointer2 className="h-4 w-4" />
-            {startingSession ? 'Connecting...' : 'Remote Session'}
+            <MousePointer2 className="h-3.5 w-3.5" />
+            {startingSession ? 'Connecting…' : 'Remote session'}
           </button>
           <button
             onClick={handleOpenInViewer}
             disabled={startingSession}
             title="Open in the OurWay Viewer app (Ctrl+Alt+Del, multiple monitors, clipboard)"
-            className="flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-text-primary transition-colors hover:bg-bg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn"
           >
-            <ExternalLink className="h-4 w-4" />
-            Open in Viewer
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open in viewer
           </button>
-          <button
-            onClick={handleReboot}
-            disabled={rebooting}
-            className="flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-text-primary transition-colors hover:bg-bg hover:text-text-primary disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${rebooting ? 'animate-spin' : ''}`} />
-            Reboot
+          <button onClick={handleReboot} disabled={rebooting} className="btn">
+            <RefreshCw className={`h-3.5 w-3.5 ${rebooting ? 'animate-spin' : ''}`} />
+            {t('devices.reboot', 'Reboot')}
           </button>
-          <button
-            onClick={handleDelete}
-            className="flex items-center gap-2 rounded-lg bg-status-error px-3 py-2 text-sm text-text-primary transition-colors hover:bg-status-error/80"
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete
+          <button onClick={handleDelete} className="btn text-[var(--stamp)]">
+            <Trash2 className="h-3.5 w-3.5" />
+            {t('common.delete')}
           </button>
         </div>
       </div>
 
-      {viewerLaunched && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-bg-border bg-bg-card px-4 py-3 text-sm text-text-secondary">
-          <span>
-            Launching the OurWay Viewer… If nothing opened, the viewer is not installed on this computer.
-          </span>
-          <button
-            onClick={() => void handleDownloadViewer()}
-            className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white transition-colors hover:bg-accent-dark"
-          >
-            Download viewer (Windows)
-          </button>
-          <button
-            onClick={() => setViewerLaunched(false)}
-            className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-bg"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
+      <ServiceRecord {...record} />
 
-      {/* Remote Session View */}
-      {session && (
-        <SessionView
-          session={session}
-          onClose={() => setSession(null)}
-        />
-      )}
-
-      {/* Info Grid */}
+      {/* Ruled record fields */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {/* Network Info */}
-        <div className="min-w-0 rounded-xl border border-bg-border bg-bg-card p-4">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
-            <Wifi className="h-4 w-4" />
-            Network
+        <div className="min-w-0 panel p-4">
+          <h2 className="panel-head">
+            <Wifi className="h-3.5 w-3.5" aria-hidden="true" /> Network
           </h2>
           <InfoRow
             label="Public IP"
@@ -466,28 +443,19 @@ export function DeviceDetail() {
           />
         </div>
 
-        {/* System Info */}
-        <div className="min-w-0 rounded-xl border border-bg-border bg-bg-card p-4">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
-            <Server className="h-4 w-4" />
-            System
+        <div className="min-w-0 panel p-4">
+          <h2 className="panel-head">
+            <Server className="h-3.5 w-3.5" aria-hidden="true" /> System
           </h2>
-          <InfoRow
-            label="Agent Version"
-            icon={Activity}
-            value={device.agent_version || '—'}
-          />
-          <InfoRow
-            label="Architecture"
-            value={device.arch}
-          />
+          <InfoRow label="Agent version" icon={Cpu} value={device.agent_version || '—'} />
+          <InfoRow label="Architecture" value={device.arch} />
           {device.device_key && (
             <InfoRow
-              label="Device Key"
+              label="Device key"
               icon={Key}
               value={
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-mono text-xs" title={device.device_key}>
+                  <span className="ow-num truncate text-[12px]" title={device.device_key}>
                     {device.device_key}
                   </span>
                   <CopyButton text={device.device_key} />
@@ -497,172 +465,163 @@ export function DeviceDetail() {
           )}
         </div>
 
-        {/* Timestamps */}
-        <div className="min-w-0 rounded-xl border border-bg-border bg-bg-card p-4">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
-            <Clock className="h-4 w-4" />
-            Timestamps
+        <div className="min-w-0 panel p-4">
+          <h2 className="panel-head">
+            <Radio className="h-3.5 w-3.5" aria-hidden="true" /> Stated times
           </h2>
+          <InfoRow label="Last seen" value={utcStamp(device.last_seen)} />
+          <InfoRow label="Enrolled" value={utcStamp(device.created_at, false)} />
           <InfoRow
-            label="Last Seen"
-            icon={Clock}
-            value={new Date(device.last_seen).toLocaleString()}
-          />
-          <InfoRow
-            label="Created"
-            icon={Calendar}
-            value={new Date(device.created_at).toLocaleDateString()}
+            label="Metric samples"
+            value={
+              <span className="inline-flex items-center gap-2">
+                <span className="ow-num">{chartData.length}</span>
+                <span className="cap cap-sm text-text-muted">last 24 h</span>
+              </span>
+            }
           />
         </div>
       </div>
 
-      {/* Live Metrics Gauges */}
-      <div className="rounded-xl border border-bg-border bg-bg-card p-6">
-        <h2 className="mb-6 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
-          <Radio className="h-4 w-4" />
-          Live Metrics
-          {!hasData && <span className="text-text-muted">(waiting for data...)</span>}
+      {/* Ruled measures */}
+      <section className="panel p-4">
+        <h2 className="panel-head">
+          <Radio className="h-3.5 w-3.5" aria-hidden="true" /> Measured now
+          <span className="cap-sm cap ml-auto font-normal normal-case tracking-normal text-text-muted">
+            {hasData
+              ? connected
+                ? 'live · 2 s stream'
+                : 'last recorded sample'
+              : 'no sample recorded yet'}
+          </span>
         </h2>
-        <div className="flex flex-wrap justify-around gap-6">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Gauge
             value={latestMetrics?.cpu ?? 0}
-            label="CPU Usage"
+            label="CPU usage"
             unit="%"
-            size={140}
+            history={history?.cpu.slice(-40)}
           />
           <Gauge
             value={latestMetrics?.ram ?? 0}
             label="Memory"
             unit="%"
-            size={140}
+            history={history?.ram.slice(-40)}
           />
           <Gauge
             value={latestMetrics?.disk_usage ?? 0}
             label="Disk"
             unit="%"
-            size={140}
+            history={history?.disk.slice(-40)}
           />
         </div>
-      </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="field">
+            <span className="field-label">Network in</span>
+            <span className="ow-num mt-1 block text-[17px] font-semibold">
+              {hasData ? `${formatBytes(latestMetrics!.net_in)}/s` : '—'}
+            </span>
+            <span className="cap cap-sm mt-0.5 block text-text-muted">since last sample</span>
+          </div>
+          <div className="field">
+            <span className="field-label">Network out</span>
+            <span className="ow-num mt-1 block text-[17px] font-semibold">
+              {hasData ? `${formatBytes(latestMetrics!.net_out)}/s` : '—'}
+            </span>
+            <span className="cap cap-sm mt-0.5 block text-text-muted">since last sample</span>
+          </div>
+          <div className="field">
+            <span className="field-label">Samples in view</span>
+            <span className="ow-num mt-1 block text-[17px] font-semibold">{chartData.length}</span>
+            <span className="cap cap-sm mt-0.5 block text-text-muted">
+              {hasData ? `${chartData[0].time} → ${chartData[chartData.length - 1].time} UTC` : 'nothing recorded'}
+            </span>
+          </div>
+          <div className="field">
+            <span className="field-label">Live link</span>
+            <span className="mt-1 block">
+              <Stamp tone={connected ? 'online' : 'offline'}>{connected ? 'open' : 'closed'}</Stamp>
+            </span>
+            <span className="cap cap-sm mt-0.5 block text-text-muted">
+              {connected ? 'metrics arriving' : 'recording stopped — showing the last day'}
+            </span>
+          </div>
+        </div>
+      </section>
 
-      {/* Additional Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <InfoCard
-          icon={ArrowDownRight}
-          label="Network In"
-          value={hasData ? `${formatBytes(latestMetrics!.net_in)}/s` : '—'}
-          sublabel="current rate"
-        />
-        <InfoCard
-          icon={ArrowUpRight}
-          label="Network Out"
-          value={hasData ? `${formatBytes(latestMetrics!.net_out)}/s` : '—'}
-          sublabel="current rate"
-        />
-        <InfoCard
-          icon={Activity}
-          label="Data Points"
-          value={String(chartData.length)}
-          sublabel="collected so far"
-        />
-        <InfoCard
-          icon={Radio}
-          label="Connection"
-          value={connected ? 'Connected' : 'Connecting...'}
-          sublabel={connected ? 'WebSocket active' : 'waiting...'}
-        />
-      </div>
-
-      {/* Charts */}
-      <div className="space-y-4">
-        {/* CPU Chart */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-4">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
-            <Cpu className="h-4 w-4" />
-            CPU Usage Over Time
+      {/* Recorded day */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="panel p-4">
+          <h2 className="panel-head">
+            <Cpu className="h-3.5 w-3.5" aria-hidden="true" /> CPU %
           </h2>
           <LineChart
             data={chartData}
             xKey="time"
-            yKeys={[{ key: 'cpu', name: 'CPU %', color: '#3b82f6' }]}
-            height={200}
+            yKeys={[{ key: 'cpu', name: 'CPU %', color: 'var(--service)' }]}
+            height={190}
             yDomain={[0, 100]}
           />
         </div>
-
-        {/* RAM Chart */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-4">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
-            <MemoryStick className="h-4 w-4" />
-            Memory Usage Over Time
+        <div className="panel p-4">
+          <h2 className="panel-head">
+            <MemoryStick className="h-3.5 w-3.5" aria-hidden="true" /> Memory %
           </h2>
           <LineChart
             data={chartData}
             xKey="time"
-            yKeys={[{ key: 'ram', name: 'RAM %', color: '#22c55e' }]}
-            height={200}
+            yKeys={[{ key: 'ram', name: 'RAM %', color: 'var(--online)' }]}
+            height={190}
             yDomain={[0, 100]}
           />
         </div>
-
-        {/* Disk Chart */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-4">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
-            <HardDrive className="h-4 w-4" />
-            Disk Usage Over Time
+        <div className="panel p-4">
+          <h2 className="panel-head">
+            <HardDrive className="h-3.5 w-3.5" aria-hidden="true" /> Disk %
           </h2>
           <LineChart
             data={chartData}
             xKey="time"
-            yKeys={[{ key: 'disk', name: 'Disk %', color: '#eab308' }]}
-            height={200}
+            yKeys={[{ key: 'disk', name: 'Disk %', color: 'var(--due)' }]}
+            height={190}
             yDomain={[0, 100]}
           />
         </div>
-
-        {/* Network Chart */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-4">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-text-secondary uppercase tracking-wider">
-            <Network className="h-4 w-4" />
-            Network Traffic Over Time
+        <div className="panel p-4">
+          <h2 className="panel-head">
+            <Network className="h-3.5 w-3.5" aria-hidden="true" /> Network bytes / s
           </h2>
           <LineChart
             data={chartData}
             xKey="time"
             yKeys={[
-              { key: 'netIn', name: 'Download', color: '#3b82f6' },
-              { key: 'netOut', name: 'Upload', color: '#a855f7' },
+              { key: 'netIn', name: 'In', color: 'var(--service)' },
+              { key: 'netOut', name: 'Out', color: 'var(--stamp)' },
             ]}
-            height={200}
+            height={190}
             yLabel="bytes/s"
           />
         </div>
       </div>
-    </div>
-  );
-}
 
-function InfoCard({
-  icon: Icon,
-  label,
-  value,
-  sublabel,
-}: {
-  icon: typeof Clock;
-  label: string;
-  value: string;
-  sublabel?: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-bg-border bg-bg-card p-4">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-bg">
-        <Icon className="h-5 w-5 text-text-secondary" />
-      </div>
-      <div>
-        <p className="text-xs text-text-secondary">{label}</p>
-        <p className="text-sm font-medium text-text-primary">{value}</p>
-        {sublabel && <p className="text-[10px] text-text-muted">{sublabel}</p>}
-      </div>
+      {viewerLaunched && (
+        <div className="flex flex-wrap items-center justify-between gap-3 panel px-4 py-3">
+          <p className="text-sm text-text-secondary">
+            Launching the OurWay Viewer… If nothing opened, the viewer is not installed on this computer.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => void handleDownloadViewer()} className="btn-primary">
+              <Download className="h-3.5 w-3.5" /> Download viewer (Windows)
+            </button>
+            <button onClick={() => setViewerLaunched(false)} className="btn">
+              {t('common.dismiss')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Remote Session View */}
+      {session && <SessionView session={session} onClose={() => setSession(null)} />}
     </div>
   );
 }

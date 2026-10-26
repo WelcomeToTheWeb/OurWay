@@ -5,18 +5,18 @@ import {
   FolderUp,
   FolderDown,
   Search,
-  Activity,
-  Check,
-  X,
-  Clock,
   File,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { listTransfers, pushFile, pullFile, uploadFile, downloadFile } from '../api/files';
 import { getDevices } from '../api/devices';
 import { useTranslation } from 'react-i18next';
 import type { Device } from '../types/device';
 import type { FileTransfer } from '../types/file';
+import { isRateLimited } from '../api/client';
+import { Stamp } from '../components/Stamp';
+import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 
 function formatSize(bytes: number): string {
   if (!bytes || bytes < 0) return '—';
@@ -34,7 +34,7 @@ function timeAgo(dateStr: string): string {
     if (diff < 60000) return 'Just now';
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return d.toLocaleDateString();
+    return d.toISOString().slice(0, 10);
   } catch {
     return 'Unknown';
   }
@@ -111,7 +111,9 @@ export function FileTransfer() {
     }
 
     loadTransfers();
-    const interval = setInterval(loadTransfers, 10000);
+    const interval = setInterval(() => {
+      if (!isRateLimited()) void loadTransfers();
+    }, 10000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -172,6 +174,8 @@ export function FileTransfer() {
     }
   }, [selectedDevice, pullPath]);
 
+  const guide = useGuideWords(transfers.length);
+
   const filtered = transfers.filter((t) => {
     if (search) {
       const q = search.toLowerCase();
@@ -181,55 +185,43 @@ export function FileTransfer() {
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">{t('fileTransfer.title')}</h1>
-          <p className="text-sm text-text-secondary">
-            {t('fileTransfer.totalTransfers', { count: transfers.length })}
+          <h1 className="text-[26px]">{t('fileTransfer.title')}</h1>
+          <p className="cap cap-sm mt-1 text-text-muted">
+            {t('fileTransfer.totalTransfers', { count: transfers.length })} ·{' '}
+            {isRateLimited() ? 'polling rests — rate limit' : 'polling every 10 s'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 rounded-full bg-status-online/10 px-2 py-0.5 text-xs text-status-online">
-            <span className="h-2 w-2 rounded-full bg-status-online animate-pulse" />
-            {t('fileTransfer.autoRefreshing')}
-          </span>
-        </div>
+        <label className="flex items-center gap-2">
+          <span className="cap cap-sm text-text-muted">{t('fileTransfer.device')}</span>
+          <select
+            value={selectedDevice}
+            onChange={(e) => setSelectedDevice(e.target.value)}
+            className="select"
+          >
+            <option value="">—</option>
+            {devices.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} · {d.hostname}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      {/* Device selector */}
-      <div className="flex items-center gap-4">
-        <label className="text-sm text-text-secondary">{t('fileTransfer.device')}:</label>
-        <select
-          value={selectedDevice}
-          onChange={(e) => setSelectedDevice(e.target.value)}
-          className="rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
-        >
-          {devices.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.hostname}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Push / Pull tabs */}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2">
         {/* Push */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent">
-              <FolderUp className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-text-primary">{t('fileTransfer.pushTitle')}</h3>
-              <p className="text-xs text-text-secondary">{t('fileTransfer.pushDesc')}</p>
-            </div>
-          </div>
+        <section className="panel p-4">
+          <h2 className="panel-head">
+            <FolderUp className="h-3.5 w-3.5" aria-hidden="true" /> {t('fileTransfer.pushTitle')}
+          </h2>
+          <p className="cap cap-sm mt-1 text-text-muted">{t('fileTransfer.pushDesc')}</p>
 
           <div
-            className={`mt-4 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
-              dragOver ? 'border-accent bg-accent/5' : 'border-bg-border'
+            className={`mt-3 border bg-[var(--field)] px-4 py-6 text-center transition-colors ${
+              dragOver ? 'border-[var(--service)] bg-bg-secondary' : 'border-rule'
             }`}
             onDragOver={(e) => {
               e.preventDefault();
@@ -238,199 +230,194 @@ export function FileTransfer() {
             onDragLeave={() => setDragOver(false)}
             onDrop={handleFileDrop}
           >
-            <Upload className="mx-auto h-8 w-8 text-text-secondary" />
-            <p className="mt-2 text-sm text-text-primary">
-              {t('fileTransfer.dropHere')}
-            </p>
-            <input
-              type="file"
-              onChange={handleFileInput}
-              className="hidden"
-              id="push-file"
-            />
-            <label
-              htmlFor="push-file"
-              className="mt-2 inline-block cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80"
-            >
+            <Upload className="mx-auto h-5 w-5 text-text-secondary" aria-hidden="true" />
+            <p className="cap cap-sm mt-2 text-text-primary">{t('fileTransfer.dropHere')}</p>
+            <input type="file" onChange={handleFileInput} className="hidden" id="push-file" />
+            <label htmlFor="push-file" className="btn btn-primary mt-2 inline-block">
               {t('fileTransfer.browse')}
             </label>
           </div>
 
           {uploadedFile && (
-            <div className="mt-3 flex items-center gap-2 rounded-lg bg-bg p-3">
-              <File className="h-4 w-4 text-accent" />
-              <div className="flex-1">
-                <p className="text-xs font-medium text-text-primary">{uploadedFile.name}</p>
-                <p className="text-xs text-text-secondary">{formatSize(uploadedFile.size)}</p>
-              </div>
+            <div className="mt-3 flex items-center justify-between gap-3 border border-rule bg-[var(--field)] px-3 py-2">
+              <span className="cap cap-sm truncate text-text-primary">{uploadedFile.name}</span>
+              <span className="ow-num text-[12px] text-text-secondary">{formatSize(uploadedFile.size)}</span>
             </div>
           )}
 
-          <div className="mt-4">
-            <label className="block text-xs text-text-secondary">
-              {t('fileTransfer.destinationLabel')}
-            </label>
+          <label className="mt-3 block">
+            <span className="field-label">{t('fileTransfer.destinationLabel')}</span>
             <input
               type="text"
               value={pushDestination}
               onChange={(e) => setPushDestination(e.target.value)}
               placeholder="/home/user/Desktop"
-              className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+              className="input mt-1 w-full"
             />
-          </div>
+          </label>
 
           {pushing && (
-            <div className="mt-3 flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-accent" />
-              <span className="text-xs text-accent">{t('fileTransfer.uploading')}</span>
-            </div>
+            <p className="cap cap-sm mt-2 inline-flex items-center gap-2 text-[var(--service)]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> {t('fileTransfer.uploading')}
+            </p>
           )}
-        </div>
+        </section>
 
         {/* Pull */}
-        <div className="rounded-xl border border-bg-border bg-bg-card p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-status-online/15 text-status-online">
-              <FolderDown className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-text-primary">{t('fileTransfer.pullTitle')}</h3>
-              <p className="text-xs text-text-secondary">{t('fileTransfer.pullDesc')}</p>
-            </div>
-          </div>
+        <section className="panel p-4">
+          <h2 className="panel-head">
+            <FolderDown className="h-3.5 w-3.5" aria-hidden="true" /> {t('fileTransfer.pullTitle')}
+          </h2>
+          <p className="cap cap-sm mt-1 text-text-muted">{t('fileTransfer.pullDesc')}</p>
 
-          <div className="mt-4 space-y-3">
-            <div>
-              <label className="block text-xs text-text-secondary">
-                {t('fileTransfer.pullPathLabel')}
-              </label>
-              <input
-                type="text"
-                value={pullPath}
-                onChange={(e) => setPullPath(e.target.value)}
-                placeholder="/etc/hosts or C:\\Windows\\System32\\drivers\\etc\\hosts"
-                className="mt-1 w-full rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-              />
-            </div>
-            <button
-              onClick={handlePull}
-              disabled={pulling || !pullPath}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-status-online px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-status-online/80 disabled:opacity-50"
-            >
-              {pulling ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              {t('fileTransfer.pullTitle')}
-            </button>
-          </div>
-        </div>
+          <label className="mt-3 block">
+            <span className="field-label">{t('fileTransfer.pullPathLabel')}</span>
+            <input
+              type="text"
+              value={pullPath}
+              onChange={(e) => setPullPath(e.target.value)}
+              placeholder="/etc/hosts"
+              className="input mt-1 w-full"
+            />
+          </label>
+
+          <button
+            onClick={handlePull}
+            disabled={pulling || !pullPath || !selectedDevice}
+            className="btn-primary mt-3 w-full justify-center"
+          >
+            {pulling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {t('fileTransfer.pullTitle')}
+          </button>
+          {!selectedDevice && (
+            <p className="cap cap-sm mt-2 text-text-muted">Pick a unit first — a pull needs a machine to pull from.</p>
+          )}
+        </section>
       </div>
 
-      {/* Transfer history */}
-      <div>
-        {downloadError && (
-          <p className="mb-2 text-sm text-status-error">{downloadError}</p>
-        )}
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-text-primary">{t('fileTransfer.history')}</h2>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary" />
+      {/* Transfer ledger */}
+      <section className="panel overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
+          <h2 className="panel-head border-0 bg-transparent p-0">
+            <File className="h-3.5 w-3.5" aria-hidden="true" /> {t('fileTransfer.history')}
+          </h2>
+          <label className="relative block">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" aria-hidden="true" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('fileTransfer.searchFiles')}
-              className="w-64 rounded-lg border border-bg-border bg-bg py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+              className="input w-64 pl-8"
             />
-          </div>
+          </label>
         </div>
+        <GuideWordsHead
+          total={filtered.length}
+          unit={t('sheet.inView')}
+          first={filtered[guide.first]?.filename}
+          last={filtered[guide.last]?.filename}
+        />
+
+        {downloadError && <p className="cap cap-sm px-3 text-[var(--error)]">{downloadError}</p>}
 
         {loading ? (
-          <div className="mt-4 flex h-32 items-center justify-center">
-            <Activity className="h-8 w-8 animate-spin text-accent" />
+          <div className="flex h-32 items-center justify-center">
+            <RefreshCw className="h-6 w-6 animate-spin text-[var(--service)]" aria-hidden="true" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="mt-4 flex flex-col items-center justify-center rounded-xl border border-bg-border bg-bg-card py-12 text-text-secondary">
-            <File className="h-10 w-10 text-text-muted" />
-            <p className="mt-3 text-sm font-medium text-text-primary">
-              {t('fileTransfer.noTransfers')}
-            </p>
-            <p className="mt-1 text-xs text-text-muted">
-              {t('fileTransfer.noTransfersDesc')}
-            </p>
+          <div className="px-4 py-8 text-center">
+            <p className="cap cap-sm text-text-secondary">{t('fileTransfer.noTransfers')}</p>
+            <p className="mt-1 text-sm text-text-muted">{t('fileTransfer.noTransfersDesc')}</p>
           </div>
         ) : (
-          <div className="mt-4 space-y-3">
-            {filtered.map((tr) => {
-              const isPush = tr.direction === 'push';
-              const Icon = tr.status === 'completed' ? Check : tr.status === 'failed' ? X : Clock;
-              const statusColor =
-                tr.status === 'completed'
-                  ? 'bg-status-online/15 text-status-online'
-                  : tr.status === 'failed'
-                    ? 'bg-status-error/15 text-status-error'
-                    : 'bg-accent/15 text-accent';
-
-              return (
-                <div
-                  key={tr.id}
-                  className="flex items-center justify-between rounded-xl border border-bg-border bg-bg-card p-4 transition-colors hover:border-accent/50"
-                >
-                  <div className="flex items-center gap-4">
-                    <div
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-                        isPush ? 'bg-accent/15 text-accent' : 'bg-status-online/15 text-status-online'
-                      }`}
-                    >
-                      {isPush ? <Upload className="h-5 w-5" /> : <Download className="h-5 w-5" />}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-text-primary">{tr.filename}</p>
-                      <p className="text-xs text-text-secondary">
-                        {tr.size_bytes > 0 ? formatSize(tr.size_bytes) : t('fileTransfer.unknownSize')}
-                        {tr.destination && ` • ${t('fileTransfer.to')}: ${tr.destination}`}
-                        {tr.source_path && ` • ${t('fileTransfer.from')}: ${tr.source_path}`}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {tr.status !== 'completed' && tr.status !== 'failed' && (
-                      <span className="flex items-center gap-1.5 text-xs text-accent">
-                        <Activity className="h-3.5 w-3.5 animate-spin" />
-                        {tr.progress}%
-                      </span>
-                    )}
-                    {tr.status === 'failed' && tr.error_message && (
-                      <span className="max-w-xs truncate text-xs text-status-error" title={tr.error_message}>
-                        {tr.error_message}
-                      </span>
-                    )}
-                    {tr.status === 'completed' && (
-                      <button
-                        onClick={() => handleDownload(tr)}
-                        disabled={downloadingId === tr.id}
-                        className="text-sm text-accent hover:text-accent-dark transition-colors disabled:opacity-50"
-                        title={t('fileTransfer.downloadFile')}
-                      >
-                        {downloadingId === tr.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                      </button>
-                    )}
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${statusColor}`}
-                    >
-                      <Icon className="h-3 w-3" />
-                      {tr.status}
-                    </span>
-                    <span className="text-xs text-text-muted">{timeAgo(tr.created_at)}</span>
-                  </div>
-                </div>
-              );
-            })}
+          <div ref={guide.ref} className="max-h-[28rem] overflow-y-auto">
+            <table className="ledger">
+              <thead>
+                <tr>
+                  <th>{t('fileTransfer.history')}</th>
+                  <th className="w-16">Dir</th>
+                  <th className="w-24">Size</th>
+                  <th className="w-40">Path</th>
+                  <th className="w-24">State</th>
+                  <th className="w-20">Stated</th>
+                  <th className="w-14 text-right"> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((tr) => {
+                  const isPush = tr.direction === 'push';
+                  return (
+                    <tr key={tr.id} data-guide title={tr.filename}>
+                      <td>
+                        <span className="cap cap-sm text-text-primary">{tr.filename}</span>
+                        {tr.status === 'failed' && tr.error_message && (
+                          <span className="cap cap-sm block truncate text-[var(--error)]" title={tr.error_message}>
+                            {tr.error_message}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <Stamp tone={isPush ? 'service' : 'neutral'}>{isPush ? 'push' : 'pull'}</Stamp>
+                      </td>
+                      <td>
+                        <span className="ow-num text-[12px]">
+                          {tr.size_bytes > 0 ? formatSize(tr.size_bytes) : t('fileTransfer.unknownSize')}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className="ow-num block truncate text-[11.5px] text-text-secondary"
+                          title={tr.destination || tr.source_path || ''}
+                        >
+                          {tr.destination || tr.source_path || '—'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Stamp
+                            tone={
+                              tr.status === 'completed'
+                                ? 'online'
+                                : tr.status === 'failed'
+                                  ? 'alert'
+                                  : 'due'
+                            }
+                          >
+                            {tr.status}
+                          </Stamp>
+                          {tr.status !== 'completed' && tr.status !== 'failed' && (
+                            <span className="ow-num text-[11px] text-text-secondary">{tr.progress}%</span>
+                          )}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="ow-num text-[11.5px] text-text-secondary">{timeAgo(tr.created_at)}</span>
+                      </td>
+                      <td className="text-right">
+                        {tr.status === 'completed' && (
+                          <button
+                            onClick={() => handleDownload(tr)}
+                            disabled={downloadingId === tr.id}
+                            className="btn-quiet btn"
+                            title={t('fileTransfer.downloadFile')}
+                          >
+                            {downloadingId === tr.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

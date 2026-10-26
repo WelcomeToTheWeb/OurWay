@@ -10,37 +10,24 @@ import {
   scanDevices,
 } from '../api/patching';
 import { useAuth } from '../auth/context';
+import { useWebSocket } from '../hooks/useWebSocket';
 import type { FleetUpdate, PatchOverview, Severity } from '../types/patch';
+import { Stamp, type StampTone } from '../components/Stamp';
+import { FieldBox } from '../components/FieldBox';
 
-const severityStyle: Record<Severity, string> = {
-  critical: 'bg-status-error/15 text-status-error ring-status-error/30',
-  important: 'bg-status-warning/15 text-status-warning ring-status-warning/30',
-  moderate: 'bg-accent/15 text-accent ring-accent/30',
-  low: 'bg-bg text-text-secondary ring-bg-border',
-  unspecified: 'bg-bg text-text-muted ring-bg-border',
+const severityTone: Record<Severity, StampTone> = {
+  critical: 'alert',
+  important: 'due',
+  moderate: 'service',
+  low: 'neutral',
+  unspecified: 'neutral',
 };
 
-function SeverityBadge({ severity }: { severity: Severity }) {
-  return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ring-inset ${severityStyle[severity]}`}>
-      {severity}
-    </span>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
-  return (
-    <div className="rounded-xl border border-bg-border bg-bg-card p-4">
-      <p className={`text-2xl font-semibold ${tone ?? 'text-text-primary'}`}>{value}</p>
-      <p className="text-xs text-text-secondary">{label}</p>
-    </div>
-  );
-}
-
 export function FleetPatches() {
-  const { hasAnyRole } = useAuth();
+  const { hasAnyRole, accessToken } = useAuth();
   const canApprove = hasAnyRole(['admin', 'manager']);
   const canScan = hasAnyRole(['admin', 'manager', 'technician']);
+  useWebSocket(accessToken);
 
   const [overview, setOverview] = useState<PatchOverview | null>(null);
   const [updates, setUpdates] = useState<FleetUpdate[]>([]);
@@ -93,8 +80,7 @@ export function FleetPatches() {
     }
   }
 
-  const idsFor = (keys: Set<string>) =>
-    updates.filter((u) => keys.has(u.key)).flatMap((u) => u.detected_ids);
+  const idsFor = (keys: Set<string>) => updates.filter((u) => keys.has(u.key)).flatMap((u) => u.detected_ids);
 
   const toggle = (key: string) =>
     setSelected((s) => {
@@ -104,49 +90,84 @@ export function FleetPatches() {
       return n;
     });
 
-  if (loading) return <p className="text-sm text-text-secondary">Loading…</p>;
+  if (loading) {
+    return (
+      <div className="flex h-32 items-center justify-center">
+        <RefreshCw className="h-6 w-6 animate-spin text-[var(--service)]" aria-hidden="true" />
+      </div>
+    );
+  }
 
   const totals = overview?.totals;
   const pct = totals && totals.devices > 0 ? Math.round((totals.compliant / totals.devices) * 100) : 100;
   const approvedWaiting = overview?.devices.reduce((n, d) => n + d.approved, 0) ?? 0;
+  const nonCompliant = (overview?.devices ?? []).filter((d) => !d.compliant || d.reboot_pending);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {error && (
-        <div role="alert" className="flex items-center justify-between rounded-lg border border-status-error/40 bg-status-error/10 px-4 py-3 text-sm text-status-error">
+        <div role="alert" className="panel border-[var(--error)] flex items-center justify-between gap-3 px-3 py-2.5 text-[13px] text-[var(--error)]">
           {error}
-          <button onClick={() => setError(null)} className="text-text-secondary hover:text-text-primary">Dismiss</button>
+          <button onClick={() => setError(null)} className="btn btn-quiet px-2 py-1 text-[11px]">
+            Dismiss
+          </button>
         </div>
       )}
-      {notice && <div role="status" className="rounded-lg border border-status-online/30 bg-status-online/10 px-4 py-3 text-sm text-status-online">{notice}</div>}
+      {notice && (
+        <div role="status" className="panel border-[var(--online)] px-3 py-2.5 text-[13px] text-[var(--online)]">
+          {notice}
+        </div>
+      )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label={`Compliant (${totals?.compliant ?? 0} of ${totals?.devices ?? 0} devices)`} value={`${pct}%`} tone={pct === 100 ? 'text-status-online' : pct >= 80 ? 'text-status-warning' : 'text-status-error'} />
-        <Stat label="Outstanding updates" value={totals?.pending ?? 0} />
-        <Stat label="Critical" value={totals?.critical ?? 0} tone={(totals?.critical ?? 0) > 0 ? 'text-status-error' : undefined} />
-        <Stat label="Reboot pending" value={totals?.reboot_pending ?? 0} tone={(totals?.reboot_pending ?? 0) > 0 ? 'text-status-warning' : undefined} />
-      </div>
+      <section aria-label="Compliance" className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <FieldBox
+          label={`Compliant (${totals?.compliant ?? 0} of ${totals?.devices ?? 0})`}
+          value={<span className="ow-num">{pct}%</span>}
+          tone={pct === 100 ? 'ok' : pct >= 80 ? 'due' : 'alert'}
+          hint={`${totals?.devices ?? 0} units in scope`}
+        />
+        <FieldBox
+          label="Outstanding updates"
+          value={<span className="ow-num">{totals?.pending ?? 0}</span>}
+          tone={(totals?.pending ?? 0) > 0 ? 'due' : 'ok'}
+          hint={`${approvedWaiting} approved, waiting for a window`}
+        />
+        <FieldBox
+          label="Critical"
+          value={<span className="ow-num">{totals?.critical ?? 0}</span>}
+          tone={(totals?.critical ?? 0) > 0 ? 'alert' : 'ok'}
+          hint="install now, not at the next window"
+        />
+        <FieldBox
+          label="Reboot pending"
+          value={<span className="ow-num">{totals?.reboot_pending ?? 0}</span>}
+          tone={(totals?.reboot_pending ?? 0) > 0 ? 'due' : 'ok'}
+          hint="installed, unit not yet restarted"
+        />
+      </section>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="panel flex flex-wrap items-center gap-2 px-3 py-2.5">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search title or KB"
             aria-label="Search updates"
-            className="rounded-lg border border-bg-border bg-bg py-2 pl-9 pr-3 text-sm text-text-primary placeholder:text-text-muted"
+            className="input w-64 pl-9"
           />
         </div>
         <select
           value={severity}
           onChange={(e) => setSeverity(e.target.value as 'all' | Severity)}
           aria-label="Filter by severity"
-          className="rounded-lg border border-bg-border bg-bg px-3 py-2 text-sm text-text-primary"
+          className="select"
         >
           <option value="all">All severities</option>
           {(['critical', 'important', 'moderate', 'low', 'unspecified'] as Severity[]).map((s) => (
-            <option key={s} value={s} className="capitalize">{s}</option>
+            <option key={s} value={s} className="capitalize">
+              {s}
+            </option>
           ))}
         </select>
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -154,9 +175,9 @@ export function FleetPatches() {
             <button
               disabled={busy}
               onClick={() => act(async () => `Scan requested on ${(await scanDevices()).scans_sent} online device(s)`)}
-              className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg disabled:opacity-50"
+              className="btn px-2.5 py-1.5 text-[11px]"
             >
-              <RefreshCw className="h-3.5 w-3.5" /> Scan all
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Scan all
             </button>
           )}
           {canApprove && (
@@ -164,45 +185,60 @@ export function FleetPatches() {
               <button
                 disabled={busy || selected.size === 0}
                 onClick={() => act(async () => `Approved ${(await bulkApproveUpdates(idsFor(selected))).changed} update(s)`)}
-                className="flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-bg disabled:opacity-50"
+                className="btn px-2.5 py-1.5 text-[11px]"
               >
-                <Check className="h-3.5 w-3.5" /> Approve selected ({selected.size})
+                <Check className="h-3.5 w-3.5" aria-hidden="true" /> Approve selected ({selected.size})
               </button>
               <button
                 disabled={busy || approvedWaiting === 0}
-                onClick={() => act(async () => { await deployNow(); return 'Deployment started'; })}
-                className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/80 disabled:opacity-50"
+                onClick={() =>
+                  act(async () => {
+                    await deployNow();
+                    return 'Deployment started';
+                  })
+                }
+                className="btn btn-primary px-2.5 py-1.5 text-[11px]"
               >
-                <Play className="h-3.5 w-3.5" /> Deploy approved ({approvedWaiting})
+                <Play className="h-3.5 w-3.5" aria-hidden="true" /> Deploy approved ({approvedWaiting})
               </button>
             </>
           )}
         </div>
       </div>
 
-      <section aria-label="Outstanding updates" className="overflow-hidden rounded-xl border border-bg-border bg-bg-card">
+      <section className="panel overflow-hidden" aria-label="Outstanding updates">
+        <div className="panel-head">
+          <h2 className="cap cap-lg text-text-muted">Outstanding updates</h2>
+          <span className="cap cap-sm ml-auto text-text-muted">{visible.length} of {updates.length}</span>
+        </div>
         {visible.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-12 text-text-secondary">
-            <ShieldCheck className="h-8 w-8 text-status-online" />
-            <p className="text-sm">{updates.length === 0 ? 'Nothing outstanding — the fleet is up to date.' : 'No updates match the filters.'}</p>
+          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+            <ShieldCheck className="h-7 w-7 text-[var(--online)]" aria-hidden="true" />
+            <p className="text-[13px] text-text-secondary">
+              {updates.length === 0 ? 'Nothing outstanding — every unit is up to date.' : 'No updates match the filters.'}
+            </p>
           </div>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-bg-border text-xs uppercase tracking-wide text-text-muted">
+          <table className="ledger">
+            <thead>
               <tr>
-                {canApprove && <th className="w-10 px-4 py-3"><span className="sr-only">Select</span></th>}
-                <th className="px-4 py-3">Update</th>
-                <th className="px-4 py-3">Severity</th>
-                <th className="px-4 py-3">Devices</th>
-                <th className="px-4 py-3">State</th>
-                {canApprove && <th className="px-4 py-3 text-right">Actions</th>}
+                {canApprove && (
+                  <th className="w-10">
+                    <span className="sr-only">Select</span>
+                  </th>
+                )}
+                <th>Update</th>
+                <th>Severity</th>
+                <th>Units</th>
+                <th>State</th>
+                {canApprove && <th className="text-right">Actions</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-bg-border">
+            <tbody>
               {visible.map((u) => (
-                <tr key={u.key} className="hover:bg-bg/50">
+                <tr key={u.key} className="text-[13px]">
                   {canApprove && (
-                    <td className="px-4 py-3">
+                    <td>
                       <input
                         type="checkbox"
                         aria-label={`Select ${u.title}`}
@@ -212,31 +248,39 @@ export function FleetPatches() {
                       />
                     </td>
                   )}
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-text-primary">{u.title}</p>
-                    <p className="text-xs text-text-muted">{[u.kb && `KB${u.kb}`, u.category, u.source].filter(Boolean).join(' · ')}</p>
+                  <td>
+                    <p className="font-semibold text-text-primary">{u.title}</p>
+                    <p className="cap-sm cap text-text-muted">
+                      {[u.kb && `KB${u.kb}`, u.category, u.source].filter(Boolean).join(' · ')}
+                    </p>
                   </td>
-                  <td className="px-4 py-3"><SeverityBadge severity={u.severity} /></td>
-                  <td className="px-4 py-3 text-text-secondary">{u.devices}</td>
-                  <td className="px-4 py-3 text-xs text-text-secondary">
-                    {Object.entries(u.statuses).map(([k, v]) => `${v} ${k}`).join(', ')}
+                  <td>
+                    <Stamp tone={severityTone[u.severity]}>{u.severity}</Stamp>
+                  </td>
+                  <td className="ow-num text-text-secondary">{u.devices}</td>
+                  <td className="text-[11px] text-text-secondary">
+                    {Object.entries(u.statuses)
+                      .map(([k, v]) => `${v} ${k}`)
+                      .join(', ')}
                   </td>
                   {canApprove && (
-                    <td className="px-4 py-3 text-right">
+                    <td className="text-right">
                       <button
                         disabled={busy || u.detected_ids.length === 0}
-                        onClick={() => act(async () => `Approved on ${(await bulkApproveUpdates(u.detected_ids)).changed} device(s)`)}
-                        className="rounded-md px-2 py-1 text-xs text-accent hover:bg-accent/10 disabled:opacity-40"
+                        onClick={() =>
+                          act(async () => `Approved on ${(await bulkApproveUpdates(u.detected_ids)).changed} device(s)`)
+                        }
+                        className="btn btn-quiet px-2 py-1 text-[11px]"
                       >
                         Approve on all
                       </button>
                       <button
                         disabled={busy || u.detected_ids.length === 0}
                         onClick={() => act(async () => `Skipped on ${(await bulkSkipUpdates(u.detected_ids)).changed} device(s)`)}
-                        className="ml-1 rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-bg disabled:opacity-40"
+                        className="btn btn-quiet ml-1 px-2 py-1 text-[11px]"
                         aria-label={`Skip ${u.title}`}
                       >
-                        <EyeOff className="inline h-3.5 w-3.5" /> Skip
+                        <EyeOff className="h-3.5 w-3.5" aria-hidden="true" /> Skip
                       </button>
                     </td>
                   )}
@@ -247,43 +291,69 @@ export function FleetPatches() {
         )}
       </section>
 
-      <section aria-label="Device compliance">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-text-muted">Devices needing attention</h2>
-        <div className="overflow-hidden rounded-xl border border-bg-border bg-bg-card">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-bg-border text-xs uppercase tracking-wide text-text-muted">
+      <section className="panel overflow-hidden" aria-label="Device compliance">
+        <div className="panel-head">
+          <h2 className="cap cap-lg text-text-muted">Units not clear</h2>
+          <Link to="/patch-policies" className="cap cap-sm ml-auto text-[var(--service)] hover:underline">
+            Policies & windows
+          </Link>
+        </div>
+        {nonCompliant.length === 0 ? (
+          <div className="flex items-center gap-2 px-3 py-6">
+            <ShieldCheck className="h-5 w-5 text-[var(--online)]" aria-hidden="true" />
+            <p className="text-[13px] text-text-secondary">Every unit is compliant.</p>
+          </div>
+        ) : (
+          <table className="ledger">
+            <thead>
               <tr>
-                <th className="px-4 py-3">Device</th>
-                <th className="px-4 py-3">Detected</th>
-                <th className="px-4 py-3">Approved</th>
-                <th className="px-4 py-3">Failed</th>
-                <th className="px-4 py-3">Critical</th>
-                <th className="px-4 py-3">Status</th>
+                <th>Unit</th>
+                <th>Detected</th>
+                <th>Approved</th>
+                <th>Failed</th>
+                <th>Critical</th>
+                <th>State</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-bg-border">
-              {(overview?.devices ?? []).filter((d) => !d.compliant || d.reboot_pending).slice(0, 25).map((d) => (
-                <tr key={d.device_id} className="hover:bg-bg/50">
-                  <td className="px-4 py-3">
-                    <Link to={`/devices/${d.device_id}`} className="font-medium text-accent hover:underline">{d.name}</Link>
-                    <span className="ml-2 text-xs text-text-muted">{d.os}</span>
+            <tbody>
+              {nonCompliant.slice(0, 40).map((d) => (
+                <tr key={d.device_id} className="text-[13px]">
+                  <td>
+                    <Link to={`/devices/${d.device_id}`} className="font-semibold text-[var(--service)] hover:underline">
+                      {d.name}
+                    </Link>
+                    <span className="cap-sm cap ml-2 text-text-muted">{d.os}</span>
                   </td>
-                  <td className="px-4 py-3 text-text-secondary">{d.detected}</td>
-                  <td className="px-4 py-3 text-text-secondary">{d.approved}</td>
-                  <td className="px-4 py-3 text-text-secondary">{d.failed}</td>
-                  <td className="px-4 py-3">{d.critical > 0 ? <span className="inline-flex items-center gap-1 text-status-error"><ShieldAlert className="h-3.5 w-3.5" />{d.critical}</span> : <span className="text-text-muted">0</span>}</td>
-                  <td className="px-4 py-3 text-xs">
-                    {d.reboot_pending && <span className="inline-flex items-center gap-1 text-status-warning"><RotateCw className="h-3.5 w-3.5" /> Reboot pending</span>}
-                    {d.failed > 0 && <span className="inline-flex items-center gap-1 text-status-error"><AlertTriangle className="h-3.5 w-3.5" /> Failed installs</span>}
+                  <td className="ow-num text-text-secondary">{d.detected}</td>
+                  <td className="ow-num text-text-secondary">{d.approved}</td>
+                  <td className="ow-num text-text-secondary">{d.failed}</td>
+                  <td>
+                    {d.critical > 0 ? (
+                      <span className="flex items-center gap-1 text-[var(--error)]">
+                        <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span className="ow-num">{d.critical}</span>
+                      </span>
+                    ) : (
+                      <span className="ow-num text-text-muted">0</span>
+                    )}
+                  </td>
+                  <td className="text-[11px]">
+                    {d.reboot_pending && (
+                      <span className="flex items-center gap-1 text-[var(--due)]">
+                        <RotateCw className="h-3.5 w-3.5" aria-hidden="true" /> Reboot pending
+                      </span>
+                    )}
+                    {d.failed > 0 && (
+                      <span className="flex items-center gap-1 text-[var(--error)]">
+                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> Failed installs
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
-              {(overview?.devices ?? []).every((d) => d.compliant && !d.reboot_pending) && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-text-secondary">Every device is compliant.</td></tr>
-              )}
             </tbody>
           </table>
-        </div>
+        )}
       </section>
     </div>
   );

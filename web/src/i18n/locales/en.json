@@ -410,5 +410,34 @@
     "closeMenu": "Close navigation menu",
     "toggle": "Toggle",
     "select": "Select"
+  },
+  "record": {
+    "lastSeen": "Last seen",
+    "nextDue": "Next due",
+    "interval": "Interval",
+    "noPolicy": "No policy"
+  },
+  "sheet": {
+    "needsAttention": "Needs attention",
+    "alertCentre": "Alert centre",
+    "dueNow": "Due now",
+    "rebootPending": "Reboot pending",
+    "liveSessions": "Live sessions",
+    "systems": "Systems",
+    "inView": "in view",
+    "flagged": "flagged",
+    "installAgent": "Install the agent",
+    "reload": "Reload",
+    "allUnits": "All {{count}} units →",
+    "sessionsTitle": "Sessions",
+    "patchManagement": "Patch management",
+    "fleetSheet": "Fleet sheet",
+    "byUnit": "By unit",
+    "rateLimited": "Rate limit reached",
+    "rateLimitedHelp": "The server allows 100 requests per minute per user. Polls rest for {{seconds}}s and the sheet refills itself.",
+    "consoleUnavailable": "Console data unavailable"
+  },
+  "layout": {
+    "versionTitle": "Server {{server}} (commit {{commit}}) · console build {{console}}"
   }
 }

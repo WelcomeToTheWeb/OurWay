@@ -408,5 +408,34 @@
     "closeMenu": "Fermer le menu de navigation",
     "toggle": "Basculer",
     "select": "Sélectionner"
+  },
+  "record": {
+    "lastSeen": "Dernière vue",
+    "nextDue": "Prochaine échéance",
+    "interval": "Intervalle",
+    "noPolicy": "Aucune stratégie"
+  },
+  "sheet": {
+    "needsAttention": "À traiter",
+    "alertCentre": "Centre d’alertes",
+    "dueNow": "À traiter maintenant",
+    "rebootPending": "Redémarrage en attente",
+    "liveSessions": "Sessions en cours",
+    "systems": "Systèmes",
+    "inView": "en vue",
+    "flagged": "signalés",
+    "installAgent": "Installer l’agent",
+    "reload": "Recharger",
+    "allUnits": "Tous les {{count}} appareils →",
+    "sessionsTitle": "Sessions",
+    "patchManagement": "Gestion des correctifs",
+    "fleetSheet": "Fiche flotte",
+    "byUnit": "Par appareil",
+    "rateLimited": "Limite de débit atteinte",
+    "rateLimitedHelp": "Le serveur autorise 100 requêtes par minute et par utilisateur. Les sondes se mettent en pause {{seconds}} s et la fiche se recharge seule.",
+    "consoleUnavailable": "Données de console indisponibles"
+  },
+  "layout": {
+    "versionTitle": "Serveur {{server}} (commit {{commit}}) · build console {{console}}"
   }
 }

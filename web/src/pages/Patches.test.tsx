@@ -73,8 +73,8 @@ describe('Patches page', () => {
     ]);
     render(<Patches />);
 
-    expect(await screen.findByText('openssl security update')).toBeInTheDocument();
-    expect(screen.getByText('kernel update')).toBeInTheDocument();
+    expect((await screen.findAllByText('openssl security update')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('kernel update').length).toBeGreaterThan(0);
     expect(mockedGetUpdates).toHaveBeenCalledWith('d1');
   });
 
@@ -114,7 +114,7 @@ describe('Patches page', () => {
     mockedDeploy.mockResolvedValue({ deployment_id: 'dep1', status: 'pending' });
     render(<Patches />);
 
-    await screen.findByText('openssl security update');
+    await screen.findAllByText('openssl security update');
     const deployBtn = screen.getByRole('button', { name: /deploy now/i });
     fireEvent.click(deployBtn);
     await waitFor(() => expect(mockedDeploy).toHaveBeenCalledWith(['d1']));
@@ -127,10 +127,12 @@ describe('Patches page', () => {
     ]);
     render(<Patches />);
 
-    await screen.findByText('openssl security update');
+    await screen.findAllByText('openssl security update');
     fireEvent.change(screen.getByLabelText(/filter by status/i), { target: { value: 'installed' } });
-    expect(screen.queryByText('openssl security update')).not.toBeInTheDocument();
-    expect(screen.getByText('installed pkg')).toBeInTheDocument();
+    // The guide-words head prints the visible range, so a filtered-out title
+    // must be absent from the rows and the head alike.
+    expect(screen.queryAllByText('openssl security update')).toHaveLength(0);
+    expect(screen.getAllByText('installed pkg').length).toBeGreaterThan(0);
   });
 
   it('filters updates by search text', async () => {
@@ -140,9 +142,9 @@ describe('Patches page', () => {
     ]);
     render(<Patches />);
 
-    await screen.findByText('openssl security update');
+    await screen.findAllByText('openssl security update');
     fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'vim' } });
-    expect(screen.queryByText('openssl security update')).not.toBeInTheDocument();
-    expect(screen.getByText('vim editor')).toBeInTheDocument();
+    expect(screen.queryAllByText('openssl security update')).toHaveLength(0);
+    expect(screen.getAllByText('vim editor').length).toBeGreaterThan(0);
   });
 });
