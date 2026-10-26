@@ -23,7 +23,7 @@ Complete reference for the OurWay REST API and WebSocket endpoint.
 - [File Transfer Endpoints](#file-transfer-endpoints)
 - [Webhook Endpoints (API v2)](#webhook-endpoints-api-v2)
 - [API Key Endpoints (API v2)](#api-key-endpoints-api-v2)
-- [Health Endpoint](#health-endpoint)
+- [Health, Readiness and Version](#health-readiness-and-version)
 - [WebSocket Endpoint](#websocket-endpoint)
 - [Rate Limiting](#rate-limiting)
 - [Webhook Payload Format](#webhook-payload-format)
@@ -1215,7 +1215,7 @@ X-Device-Key: <device-key>
 
 ---
 
-## Health Endpoint
+## Health, Readiness and Version
 
 ### GET /health
 
@@ -1234,6 +1234,44 @@ This endpoint is used for:
 - Docker health checks
 - Load balancer health checks
 - Uptime monitoring
+
+### GET /ready
+
+Dependencies are reachable. No authentication required.
+
+**Response (200 OK):**
+
+```json
+{
+  "status": "ok",
+  "db": "ok",
+  "redis": "ok"
+}
+```
+
+For Kubernetes readiness probes and load balancers. `redis` reports
+`"not_configured"` when Redis is disabled.
+
+### GET /api/agent/version
+
+The stamped build, and the request budget. No authentication required.
+
+**Response (200 OK):**
+
+```json
+{
+  "version": "2.1.0",
+  "git_commit": "5f03d77",
+  "rate_limit_per_minute": 100,
+  "rate_limit_burst": 10
+}
+```
+
+Agents poll it for self-update (`docs/agent.md`); the console prints the version
+and the budget from this one answer. The rate fields are
+`RATE_LIMIT_PER_MINUTE` / `RATE_LIMIT_BURST` (`configuration.md`) — the *effective*
+values, so a burst configured as `0` ("derive it") is reported as the derived
+number.
 
 ---
 
@@ -1482,8 +1520,10 @@ All error responses follow this format:
 
 All protected (authenticated) endpoints are rate limited:
 
-- **Limit:** 100 requests per minute per user, sustained (token bucket with a
-  burst allowance of 10 requests)
+- **Limit:** `RATE_LIMIT_PER_MINUTE` requests per minute per user, sustained
+  (default 100) — a token bucket with a burst allowance of `RATE_LIMIT_BURST`
+  (default: a tenth of the limit). `GET /api/agent/version` reports both effective
+  values, and the console prints the budget in its shift bar.
 - **Scope:** Per user (identified by JWT) with a fallback to the client IP
 - **Backend:** In-memory by default; Redis-backed when `REDIS_ENABLED=true`
 - **Response:** `429 Too Many Requests` with `{"error": "rate limit exceeded"}`

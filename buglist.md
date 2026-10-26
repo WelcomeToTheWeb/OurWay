@@ -148,6 +148,65 @@ section so the claims in H8 / M17 are stated rather than discovered.
 
 **Fix:** 2.3.0 (tenancy + audit log), 2.4.0 (thresholds), 2.5.0 (patch parity).
 
+### 🟠 H9. Every browser WebSocket on a `localhost` install was refused
+**Status:** ✅ Fixed 2026-10-26 — `server/ws/hub.go`, regression test `TestHubBrowserOriginHandshake`
+**Files:** `server/ws/hub.go`, found by the 2.2-0 end-to-end harness
+
+The hub checks origins itself (`originAllowed`: `WS_ORIGINS`, same-host, local dev,
+`WEB_URL`) and then called `websocket.Accept` with `OriginPatterns:
+[]string{".*"}`, documented as "a pass through so the handshake succeeds". The
+library matches `OriginPatterns` with `filepath.Match`, where `.` is a **literal
+dot** — so an origin with no dot, i.e. `localhost:3000`, matched nothing and the
+handshake failed with 403 on every browser connection, however `WS_ORIGINS` was
+written. Agents (no `Origin` header) were unaffected, and the existing tests
+called `originAllowed` directly, so nothing exercised the handshake: the console
+worked on a dotted host name and was dead on `localhost`, which is how every
+developer and single-host install runs it.
+
+**Fix:** `AcceptOptions.InsecureSkipVerify: true` — the library's duplicate origin
+check is switched off because `originAllowed` is the policy — plus a test that
+dials the real handshake with a browser `Origin` and requires both the allowed
+origin and the refusal of an origin outside the allow-list.
+
+### 🟡 M18. `POST /api/users` answers 500 for a duplicate username or e-mail
+**Status:** ⚠️ Open
+**Files:** `server/api/users.go`, found by the 2.2-0 harness (`e2e/fixtures.ts`)
+
+L5 gave `Register` and `UpdateProfile` 409s for collision, but the admin route that
+creates a user reports the same collision as `500 failed to create user`. A client
+cannot tell "this user already exists" from "the server is broken", so an idempotent
+operation (seed a viewer, re-run an integration) looks like a server failure. The
+harness works around it by listing users first.
+
+**Fix:** look up username/e-mail before insert in `CreateUser` and return 409 with
+the named field, matching L5's wording.
+
+### 🟡 M19. Ten destructive actions still confirm with a browser dialog
+**Status:** ⚠️ Open — proposed as `2.2-9` in `docs/phase2.2-tasks.md`
+**Files:** `web/src/pages/{Sessions,Settings,Users,Webhooks,SSO,DeviceDetail,PatchPolicies}.tsx`
+
+`DESIGN.md` states the rule outright — "Confirmation is a state of the control,
+not a browser dialog… `window.confirm()` is banned" — and 2.1.0 shipped
+`ConfirmSheet` for exactly this. Ten call sites still use the native dialog
+(`confirm(` / `window.confirm(`), including "End session", "Delete ALL metrics
+history and alerts", and "Permanently delete your account". Native dialogs are
+unthemeable, unlocalised (English-only strings built by string concatenation), and
+are auto-dismissed by automation — the harness has to accept the dialog to end a
+session at all.
+
+**Fix:** finish the `ConfirmSheet` migration in 2.2, with the confirmation copy in
+`en`/`de`/`fr` like every other string.
+
+### 🟢 L13. `TestViewerSessionRelay` can fail under container load
+**Status:** ⚠️ Observed once (not reproduced in 4 later runs)
+**Files:** `server/ws/viewer_test.go`
+
+It failed once with `context deadline exceeded` inside a 5 s read deadline while
+the package ran next to the whole `-race` suite on a loaded container; it passed
+3/3 in isolation and the full `./ws/` suite passed afterwards. The test's fixed
+5 s deadlines are tight for a CI runner under load — worth widening before the
+e2e job makes CI noisier.
+
 ---
 
 ## 🔴 Critical

@@ -47,6 +47,44 @@ npm run build --prefix web
 The same gate runs in CI (`.github/workflows/build.yml`, `tests` job) and
 Docker images are only pushed when it passes.
 
+## End-to-end suite (2.2-0)
+
+The e2e suite drives the **production bundle against a real server and
+PostgreSQL** — no mocks, no dev-server behaviour — so it is the layer that can
+fail a release. It lives in `web/e2e/` and runs in CI
+(`.github/workflows/e2e.yml`).
+
+```sh
+# 1. infrastructure the suite asserts against:
+#    PostgreSQL (and Redis if you use it), then the server against it
+DATABASE_URL=postgresql://ourway:ourway@localhost:5432/ourway?sslmode=disable go -C server run
+# 2. the built console, proxied to that server (vite.config.ts preview.proxy)
+npm run build --prefix web
+npm run preview --prefix web            # :3000, proxies /api and /ws
+# 3. the suite
+npm run test:e2e:install --prefix web   # once, installs Chromium
+npm run test:e2e --prefix web
+```
+
+`OURWAY_E2E_BASE_URL` / `OURWAY_E2E_API_URL` name the console and API origins
+(`http://localhost:3000` and `http://localhost:9090` by default), and the preview
+proxy target follows `OURWAY_PROXY_TARGET`. `vite.config.ts` shares the proxy
+config between `server` and `preview`, and Vitest stays scoped to
+`src/**/*.test.{ts,tsx}` so it never collects Playwright specs.
+
+Three constraints that are easy to get wrong in this suite:
+
+- **Seeding is registration, not SQL** (`e2e/fixtures.ts`), so re-running against
+  a database that already holds a fleet hits the C4 re-registration guard. Point
+  `OURWAY_E2E_API_URL` at a fresh database (what CI does), or set
+  `OURWAY_E2E_RUN_ID=2` to seed a run-scoped fleet — host names and private
+  addresses move with the run, so the units enroll cleanly.
+- **Do not `waitForLoadState('networkidle')`.** The console holds a WebSocket open
+  for the whole session, so that event never settles.
+- **Destructive actions are gated by `window.confirm` today** (`buglist.md` M19,
+  task 2.2-9): Playwright dismisses dialogs by default, so a test that ends a
+  session must accept one. That is the smell, not the design.
+
 ## Conventions
 
 - **Commit messages** use conventional-commit prefixes: `fix:`, `feat:`,

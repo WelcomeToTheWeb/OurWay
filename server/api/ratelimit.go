@@ -29,9 +29,19 @@ type tokenBucket struct {
 }
 
 // NewRateLimiter creates a new rate limiter allowing maxCount requests
-// per window on a sustained basis, with a bounded instantaneous burst.
+// per window on a sustained basis, with a bounded instantaneous burst
+// (one tenth of the budget, the historical default).
 func NewRateLimiter(window time.Duration, maxCount int) *RateLimiter {
-	burst := maxCount / 10
+	return NewRateLimiterWithBurst(window, maxCount, 0)
+}
+
+// NewRateLimiterWithBurst is NewRateLimiter with the burst chosen
+// explicitly. burst <= 0 keeps the default (maxCount/10), so callers that
+// pass an unset configuration keep the historical behaviour exactly.
+func NewRateLimiterWithBurst(window time.Duration, maxCount, burst int) *RateLimiter {
+	if burst < 1 {
+		burst = maxCount / 10
+	}
 	if burst < 1 {
 		burst = 1
 	}

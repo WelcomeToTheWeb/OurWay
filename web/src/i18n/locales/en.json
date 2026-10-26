@@ -438,6 +438,7 @@
     "consoleUnavailable": "Console data unavailable"
   },
   "layout": {
-    "versionTitle": "Server {{server}} (commit {{commit}}) · console build {{console}}"
+    "versionTitle": "Server {{server}} (commit {{commit}}) · console build {{console}}",
+    "rateBudgetTitle": "Per-user request budget: {{perMinute}} reads per minute, instantaneous burst {{burst}}. Polling rests when it is spent."
   }
 }

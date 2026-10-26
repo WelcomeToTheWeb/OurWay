@@ -13,3 +13,11 @@ web/node_modules/
 
 # Impeccable design workspace: briefs, screenshots, detector scratch
 .impeccable/
+
+# Playwright e2e artifacts (2.2-0): HTML report, traces/videos, and the
+# generated seed manifest. The manifest holds the seeded fleet's device keys,
+# so it must never be committed.
+web/playwright-report/
+web/test-results/
+web/e2e/.seed-manifest.json
+web/e2e/.fake-agent.pid

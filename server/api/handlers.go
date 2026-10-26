@@ -25,17 +25,28 @@ import (
 // SetupRouter configures and returns the Gin router with all routes.
 // ctx scopes the router's background jobs (webhook retry loop, scheduled
 // update scan); cancelling it stops them (M9).
-func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine *alerts.Engine, webURL, enrollSecret string) *gin.Engine {
+func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth, hub *ws.Hub, engine *alerts.Engine, webURL, enrollSecret string, ratePerMinute, rateBurst int) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
-	// Rate limiter: 100 requests per minute per user
-	// Use Redis-backed limiter if Redis is available, otherwise in-memory
+	// Rate limiter: the per-user budget the console is designed to live
+	// inside (RATE_LIMIT_PER_MINUTE, default 100; burst defaults to a tenth
+	// of it). Redis-backed when Redis is available, in-memory otherwise.
+	if ratePerMinute < 1 {
+		ratePerMinute = 100
+	}
+	effectiveBurst := rateBurst
+	if effectiveBurst < 1 {
+		effectiveBurst = ratePerMinute / 10
+	}
+	if effectiveBurst < 1 {
+		effectiveBurst = 1
+	}
 	var rateLimitMiddleware gin.HandlerFunc
 	if store.Cache != nil {
-		rateLimitMiddleware = NewRedisRateLimiter(store.Cache, time.Minute, 100).Middleware()
+		rateLimitMiddleware = NewRedisRateLimiterWithBurst(store.Cache, time.Minute, ratePerMinute, effectiveBurst).Middleware()
 	} else {
-		rateLimitMiddleware = NewRateLimiter(time.Minute, 100).Middleware()
+		rateLimitMiddleware = NewRateLimiterWithBurst(time.Minute, ratePerMinute, effectiveBurst).Middleware()
 	}
 
 	authHandler := NewAuthHandler(store, jwtAuth)
@@ -286,9 +297,16 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 	// Server version (no auth): agents poll it to detect that a newer
-	// build is available and self-update (fully automatic updates).
+	// build is available and self-update (fully automatic updates). The
+	// request budget travels with it so the console can state the ceiling the
+	// operator is working under, not just the code behind a 429.
 	r.GET("/api/agent/version", func(c *gin.Context) {
-		c.JSON(200, gin.H{"version": config.Version, "git_commit": config.GitCommit})
+		c.JSON(200, gin.H{
+			"version":                 config.Version,
+			"git_commit":              config.GitCommit,
+			"rate_limit_per_minute":   ratePerMinute,
+			"rate_limit_burst":        effectiveBurst,
+		})
 	})
 
 	// Readiness (no auth): dependencies are reachable. Intended for

@@ -35,6 +35,11 @@ type Config struct {
 	// WSOrigins is the comma-separated list of allowed WebSocket origins
 	// (C5). Empty falls back to WebURL (self-serve single-host installs).
 	WSOrigins string
+	// RateLimitPerMinute is the sustained per-user request budget the console
+	// is designed to live inside. RateLimitBurst caps the instantaneous burst;
+	// 0 means one tenth of the budget (the historical default).
+	RateLimitPerMinute int
+	RateLimitBurst     int
 }
 
 // Load reads configuration from environment variables, applying defaults.
@@ -67,6 +72,8 @@ func Load() *Config {
 		MetricRetentionDays: getEnvInt("METRIC_RETENTION_DAYS", 365),
 		EnrollSecret:        getEnv("ENROLLMENT_SECRET", ""),
 		WSOrigins:           getEnv("WS_ORIGINS", ""),
+		RateLimitPerMinute:  getEnvInt("RATE_LIMIT_PER_MINUTE", 100),
+		RateLimitBurst:      getEnvInt("RATE_LIMIT_BURST", 0),
 	}
 }
 

@@ -45,7 +45,7 @@ func newTestServerWithHub(t *testing.T) (*httptest.Server, *store.Store, *ws.Hub
 	go hub.Run()
 	engine := alerts.NewEngine(st.Alerts)
 
-	router := SetupRouter(context.Background(), st, jwtAuth, hub, engine, "http://localhost:3000", "")
+	router := SetupRouter(context.Background(), st, jwtAuth, hub, engine, "http://localhost:3000", "", 100, 0)
 	// main.go wires the WS upgrade outside SetupRouter; mirror it here.
 	router.GET("/ws", func(c *gin.Context) { hub.ServeHTTP(c, st, jwtAuth) })
 	ts := httptest.NewServer(router)

@@ -48,7 +48,8 @@ and the console stops throttling itself.
 |---|---|
 | macOS remote input | Implement `synthesizeKey`/`synthesizeMouse` on darwin via CGEvent (`CGEventCreateKeyboardEvent`, `CGEventCreateMouseEvent`), including the Accessibility-permission prompt path and its status surface in the console. |
 | Shared fleet store | One fleet read model shared by Dashboard, Devices, and DeviceDetail. Today every page polls independently; the finish review measured a shared store as roughly halving request pressure (`.impeccable/review/verdict.md`, debt #1). |
-| Rate-limit headroom | With the shared store in place, re-measure the 100 req/min user budget (`server/api/ratelimit.go`, burst 10) and make the budget configurable, documented, and correct in `configuration.md`. |
+| Rate-limit headroom | With the shared store in place, re-measure the 100 req/min user budget (`server/api/ratelimit.go`, burst 10) and make the budget configurable, documented, and correct in `configuration.md`. **Delivered 2026-10-26** as `RATE_LIMIT_PER_MINUTE`/`RATE_LIMIT_BURST`, printed in the shift bar; the re-measurement against the shared store is still open. |
+| Confirm-sheet finish | Ten destructive actions still confirm with `window.confirm` (`buglist.md` M19) — `DESIGN.md` bans browser dialogs and 2.1.0 shipped `ConfirmSheet`. Finish the migration with the copy in all three locales. |
 | Alert count reconciliation | `GET /devices` carries alert state, so the dashboard's flagged count can disagree with the alert ledger's open count. One source of truth for "what needs me". |
 | i18n lockstep finish | Admin surfaces still carry hardcoded English (verdict debt #3). Finish `en`/`de`/`fr` in lockstep across `Settings`, `PatchPolicies` help copy, and the new fleet-store strings. |
 | Empty-state copy | History micro-fields at <3 samples render an empty ruled slot with no "no samples yet" (verdict debt #4). |

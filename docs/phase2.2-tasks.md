@@ -23,23 +23,34 @@ is no end-to-end layer to write them into, and Phase 4.3 of the 2.0 roadmap is t
 unfinished phase.
 
 **Do**
-- [ ] Playwright project under `web/e2e/`, run in CI (`tests` job) against the
-      built bundle + a real server + PostgreSQL.
-- [ ] Seed fixtures (devices, alerts, updates) for the suite — review-scaffolding
-      style, kept out of the shipped bundle, and never presented as product data.
-- [ ] Smoke flows, in this order: login → device list renders rows → open device
-      detail → alert acknowledge → patch approve.
+- [x] Playwright project under `web/e2e/`, run in CI (`.github/workflows/e2e.yml`)
+      against the built bundle (`vite preview`) + a real server + PostgreSQL +
+      Redis. 13 tests, ~13 s per run.
+- [x] Seed fixtures (devices, alerts, updates) for the suite — review-scaffolding
+      style, kept out of the shipped bundle, and never presented as product data
+      (`e2e/fixtures.ts`, `e2e/global-setup.ts`): data arrives through the
+      agent-facing API (`/api/agent/register|heartbeat|metrics|updates`), the admin
+      is bootstrapped through first-run registration, and a real WS client
+      (`e2e/support/fake-agent.mjs`) holds device connections for the run.
+- [x] Smoke flows, in this order: login → device list renders rows → open device
+      detail → alert acknowledge → patch approve → start and end a remote session.
 - [ ] Re-measure coverage for `server/` and `agent/` and commit the number; add a
       CI step that fails if coverage drops below the recorded baseline (ratchet).
 - [ ] Agent smoke test per OS in CI (Linux + Windows + macOS runners): install as
       service, heartbeat lands, metrics land, session capture starts.
-- [ ] `go mod tidy -C agent` — prune the transitive requires left in `go.sum` by
-      the WebRTC dead-code removal (2026-10-26, `buglist.md` M15).
+- [x] `go mod tidy -C agent` — prune the transitive requires left in `go.sum` by
+      the WebRTC dead-code removal (2026-10-26, `buglist.md` M15). 127 lines gone.
+
+**Delivered by the harness, not by the plan** — each recorded in `buglist.md`: the
+`localhost` WebSocket 403 (H9, fixed with the harness), `POST /api/users` answering
+500 for a duplicate e-mail (M18), and the surviving `window.confirm` call sites
+(M19 → 2.2-9 below). The harness also proved it needs 2.2-3: it is one user making
+many reads, so it starves on the old 100/min constant.
 
 **Acceptance criteria**
-- A red e2e smoke flow blocks the merge; the suite runs in under 6 minutes.
-- Coverage baseline recorded in the repo, with the ratchet failing on a decrease.
-- No test asserts on fixture data outside the suite's own seed.
+- [x] A red e2e smoke flow blocks the merge; the suite runs in under 6 minutes.
+- [ ] Coverage baseline recorded in the repo, with the ratchet failing on a decrease.
+- [x] No test asserts on fixture data outside the suite's own seed.
 
 ---
 
@@ -120,21 +131,27 @@ and `server/api/ratelimit.go` derives burst as `maxCount/10` = 10. It is documen
 as the console's design budget, with nothing to tune.
 
 **Do**
-- [ ] `RATE_LIMIT_PER_MINUTE` (default 100) and `RATE_LIMIT_BURST` (default
+- [x] `RATE_LIMIT_PER_MINUTE` (default 100) and `RATE_LIMIT_BURST` (default
       `maxCount/10`) in `server/config/config.go`, used by the limiter
-      constructor. Keep Redis-backed limiting behaviour identical.
-- [ ] Document both in `docs/configuration.md` and `.env.example`, including the
+      constructors (`NewRateLimiterWithBurst`, `NewRedisRateLimiterWithBurst`; the
+      Redis-backed path is behaviourally identical). `SetupRouter` takes the budget
+      from `main.go`, so no literal remains in the route table.
+- [x] Document both in `docs/configuration.md` and `.env.example`, including the
       "raising it is a server-side option for big shifts, not a requirement" note
       from the finish review.
-- [ ] The console's shift bar prints the configured budget, so an operator knows
-      the ceiling they are operating under.
+- [x] The console's shift bar prints the configured budget: `GET
+      /api/agent/version` carries it, `Layout.tsx` renders `budget N/min`, and the
+      suite asserts it.
 
 **Acceptance criteria**
-- Setting `RATE_LIMIT_PER_MINUTE=500` changes the observed ceiling; a test in
-  `server/api/` proves the limiter reads config, not a literal.
-- `docs/configuration.md` and `.env.example` both list it; the console prints it.
-- The rate-limit state machine (429 → named console state → 60 s back-off → polls
-  rest) is unchanged and still tested.
+- [x] Setting `RATE_LIMIT_PER_MINUTE=500` changes the observed ceiling; a test in
+      `server/api/` proves the limiter reads config, not a literal —
+      `ratelimit_test.go` (explicit burst honoured, default burst is a tenth,
+      per-user isolation, refill after the window) and
+      `server/config/config_test.go` (env defaults).
+- [x] `docs/configuration.md` and `.env.example` both list it; the console prints it.
+- [x] The rate-limit state machine (429 → named console state → 60 s back-off →
+      polls rest) is unchanged and still tested.
 
 ---
 
@@ -250,6 +267,42 @@ been documented**.
 - Control survives the self-update (the TCC/codesign case from 2.2-1) or the
   console states the loss plainly.
 - README's "Known gaps" section loses the macOS input line and gains nothing new.
+
+---
+
+## 2.2-9 · Finish the confirm-sheet migration (browser dialogs are banned)
+
+**Finding:** `buglist.md` M19. `DESIGN.md` — "Confirmation is a state of the
+control, not a browser dialog… `window.confirm()` is banned", and 2.1.0 shipped
+`ConfirmSheet`. Ten call sites still use the native dialog: End session
+(`Sessions.tsx:33`), Delete device (`DeviceDetail.tsx:251`), delete user
+(`Users.tsx:85`), delete webhook (`Webhooks.tsx:85`), delete SSO binding
+(`SSO.tsx:74`), delete policy (`PatchPolicies.tsx:124`), purge metrics history and
+delete account (`Settings.tsx:64,80`), delete and revoke API key
+(`Settings.tsx:136,146`).
+
+Native dialogs are unthemeable, unlocalisable (the copy is string concatenation in
+English, so `de`/`fr` users get English on the one control that asks them to destroy
+data), and they are auto-dismissed by automation — the e2e suite has to accept a
+dialog to end a session at all.
+
+**Do**
+- [ ] Route every remaining destructive action through `ConfirmSheet` with the
+      named target in the title ("End session `a1b2c3d4`?"), the consequence in the
+      body, and the verb on the confirm button.
+- [ ] Move the copy into `en`/`de`/`fr` (interpolated target, not concatenation) so
+      the 2.2-5 parity check covers it.
+- [ ] Add one e2e assertion that an inline confirmation is required before the
+      write happens (the suite currently has to accept a dialog, which is the smell
+      that proves the point).
+
+**Acceptance criteria**
+- `grep -rn "confirm(" web/src --include=*.tsx` finds no `window.confirm` and no
+  bare `confirm(` in a page component.
+- The destructive copy exists in all three locale files and the parity check fails
+  a removal.
+- `web/e2e/sessions.spec.ts` no longer registers a dialog handler: ending a session
+  clicks the control and confirms in the page.
 
 ---
 
