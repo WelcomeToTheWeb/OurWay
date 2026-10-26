@@ -469,6 +469,20 @@ it.
 
 ---
 
+### 🟡 M21. `sc.exe create` was given its options as separate arguments
+**Status:** ✅ Fixed 2026-10-26 — `agent/install/sc_args.go`, test `TestSCCreateArgsQuoting`
+**Files:** `agent/install/windows.go`
+
+`sc.exe` includes the equal sign in each option name, and a value containing a
+space is only read as that option's value when it travels **with** the option, in
+one argument. The installer passed `binPath=` and the quoted path as two
+arguments, and `display=` and `OurWay Agent` as two more, so `sc.exe` printed its
+usage and exited 1639 (`ERROR_INVALID_NAME`). The Windows agent smoke job found
+it at the last assertion — six checks after the agent had proven it enrolls,
+connects, heartbeats, reports metrics and ships remote-control frames — which is
+the wrong order for a user: the service install is the first thing an install
+does.
+
 ## 🟡 Medium
 
 | # | Title | Location | Detail | Status |

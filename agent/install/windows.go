@@ -26,11 +26,8 @@ func Install(cfg *config.Config) error {
 		return fmt.Errorf("get executable path: %w", err)
 	}
 
-	// Create the service
-	if err := runCommand("sc.exe", "create", ServiceName,
-		"binPath=", fmt.Sprintf(`"%s" --server %s --key %s`, exe, cfg.ServerURL, cfg.DeviceKey),
-		"start=", "auto",
-		"display=", "OurWay Agent"); err != nil {
+	// Create the service.
+	if err := runCommand("sc.exe", scCreateArgs(ServiceName, exe, cfg)...); err != nil {
 		return fmt.Errorf("create service: %w", err)
 	}
 	fmt.Println("Service created")
