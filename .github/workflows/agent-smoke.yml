@@ -61,8 +61,20 @@ jobs:
         # and the steps that run them live at the root — the first run of this
         # job found that as a missing-file error three steps later.
         run: |
-          ( cd server && go build -o ../ourway-server . )
-          ( cd agent && go build -o ../ourway-agent . )
+          # Windows services need an executable *name*: sc.exe rejects a
+          # binPath without an extension (1639), and a Windows binary named
+          # `ourway-agent` is not what the installer installs anyway — the
+          # installer writes `ourway-agent.exe`. Build the name the service can
+          # use.
+          server_out=ourway-server
+          agent_out=ourway-agent
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            server_out=ourway-server.exe
+            agent_out=ourway-agent.exe
+          fi
+          ( cd server && go build -o "../$server_out" . )
+          ( cd agent && go build -o "../$agent_out" . )
+          echo "AGENT_BIN=$agent_out" >> "$GITHUB_ENV"
         shell: bash
 
       # ── PostgreSQL, per platform ───────────────────────────────────────────
@@ -143,7 +155,7 @@ jobs:
         run: |
           chmod +x scripts/agent-smoke.sh
           args=(--server http://localhost:9090 --ws ws://localhost:9090
-                --agent ./ourway-agent --secret "$ENROLLMENT_SECRET" --expect-service)
+                --agent "./${AGENT_BIN:-ourway-agent}" --secret "$ENROLLMENT_SECRET" --expect-service)
           # macOS capture needs a Screen Recording (TCC) grant that cannot be
           # granted non-interactively; the script prints that it skipped frames
           # rather than passing them off as a green result.

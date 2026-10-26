@@ -28,6 +28,9 @@ func Install(cfg *config.Config) error {
 	}
 
 	// Create the service.
+	if err := validateServiceBinary(exe); err != nil {
+		return err
+	}
 	args := scCreateArgs(ServiceName, exe, cfg)
 	if err := runCommand("sc.exe", args...); err != nil {
 		// sc.exe reports 1639 for a dozen shapes of bad argument and prints

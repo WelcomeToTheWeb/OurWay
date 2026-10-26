@@ -42,3 +42,18 @@ func TestSCCreateArgsQuoting(t *testing.T) {
 		}
 	}
 }
+
+// TestValidateServiceBinary: sc.exe reads a binPath with no extension as an
+// invalid service name and fails 1639, so the installer says so first.
+func TestValidateServiceBinary(t *testing.T) {
+	if err := validateServiceBinary(`C:\Program Files\OurWay\ourway-agent.exe`); err != nil {
+		t.Errorf("a normal install path must be accepted, got: %v", err)
+	}
+	err := validateServiceBinary(`D:\a\OurWay\OurWay\ourway-agent`)
+	if err == nil {
+		t.Fatal("a binary with no .exe extension must be refused: sc.exe fails it with 1639")
+	}
+	if !strings.Contains(err.Error(), ".exe") {
+		t.Errorf("the message must name the fix, got: %v", err)
+	}
+}
