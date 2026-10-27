@@ -4,6 +4,12 @@
  * This is the suite's floor: if login or the shell breaks, every other surface
  * is unreachable. The role gate is asserted because 2.3 (tenancy) and 2.4
  * (identity linking) both depend on "viewer means read-only" being true.
+ *
+ * 2.3-1 added the other axis: scope decides *which* fleet a readable account
+ * can read. The viewer here holds no client grants, so its fleet is empty —
+ * asserted below, because an empty fleet is the answer tenancy owes an
+ * ungranted account, and a console that quietly showed the fleet to it would
+ * pass every role-gate test in this file.
  */
 import { test, expect } from '@playwright/test';
 import { ADMIN_USER, ADMIN_PASSWORD, VIEWER_USER, VIEWER_PASSWORD, apiBase, ensureViewer, manifest, uiLogin } from './fixtures.js';
@@ -50,7 +56,7 @@ test('an unauthenticated visit to a console surface is bounced to login', async 
   await expect(page.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
 });
 
-test('a viewer may read the fleet and is not offered destructive controls', async ({ page, request }, testInfo) => {
+test('a viewer reads the fleet their scope names and is not offered destructive controls', async ({ page, request }, testInfo) => {
   // The viewer account exists through the API a console operator would use.
   const admin = await request.post(`${apiBase()}/api/auth/login`, {
     data: { username: ADMIN_USER, password: ADMIN_PASSWORD },
@@ -62,10 +68,18 @@ test('a viewer may read the fleet and is not offered destructive controls', asyn
 
   await page.goto('/devices');
   await expect(page.getByRole('searchbox').first()).toBeVisible();
-  const seeded = manifest().units[0];
-  await expect(page.getByText(seeded.hostname).first()).toBeVisible();
 
-  // A viewer sees the fleet but is not offered the controls that change it.
+  // 2.3-1: a caller's fleet is their clients' devices, and a console account
+  // with no client grants has **no** fleet — "no rows granted" must never read
+  // as "sees everything". The seeded units belong to no client, so the viewer
+  // is answered with the empty state, not with the fleet and not with an error.
+  // This is the half of tenancy the role gate cannot express: viewer means
+  // read-only, and scope means which fleet is readable.
+  const seeded = manifest().units[0];
+  await expect(page.getByText(seeded.hostname)).toHaveCount(0);
+  await expect(page.getByText('No devices found')).toBeVisible();
+
+  // A viewer is not offered the controls that change the fleet.
   await expect(page.getByRole('button', { name: /scan/i })).toHaveCount(0);
   void testInfo;
 });
