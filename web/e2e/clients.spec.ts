@@ -87,6 +87,19 @@ test('the Clients ledger creates a tenant, assigns a unit, and grants it', async
   await access.click();
 
   // The technician signs in from scratch: a new session, a new scope.
+  //
+  // The swap has to park the page somewhere inert **before** dropping the
+  // tokens. `client.ts` answers a 401 with `window.location.replace('/login')`,
+  // and a console page has polls in flight: clear the tokens while the console
+  // is mounted and the next poll 401s, the interceptor navigates, and the
+  // spec's own `goto('/login')` dies with "Navigation ... is interrupted by
+  // another navigation". It shows up on a loaded runner (the Redis-shaped stack
+  // adds enough latency to lose the race) and passes locally, which is the
+  // shape of a harness bug, not a product bug.
+  // The login page is the inert place: same origin (so `localStorage` is
+  // readable — `about:blank` is not), and it mounts no pollers, so clearing the
+  // tokens there cannot make a poll 401 and steal the navigation.
+  await page.goto('/login');
   await page.evaluate(() => localStorage.clear());
   await uiLogin(page, TECH_USER, TECH_PASSWORD);
 
