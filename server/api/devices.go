@@ -264,25 +264,85 @@ func (h *DeviceHandler) ReportMetrics(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
-// ListDevices returns all devices.
+// ListDevices returns the devices the caller may see.
+//
+// Scoping is the store query (`ListScoped`), not a filter of `ListAll`: a
+// technician's list is their clients' rows, fetched as such. The scope header is
+// on the response so "the unit is missing" is answerable from the response itself.
 func (h *DeviceHandler) ListDevices(c *gin.Context) {
-	devices, err := h.store.Devices.ListAll()
+	scope, err := ClientScope(c, h.store)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list devices"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "caller scope unavailable"})
 		return
+	}
+	scope.ApplyScopeHeader(c)
+
+	var devices []models.Device
+	if scope.all {
+		all, err := h.store.Devices.ListAll()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list devices"})
+			return
+		}
+		devices = all
+	} else {
+		scoped, err := h.store.Devices.ListScoped(scope.ClientIDs(), scope.IncludeUnassigned())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list devices"})
+			return
+		}
+		devices = scoped
 	}
 	c.JSON(http.StatusOK, gin.H{"devices": devices})
 }
 
-// GetDevice returns a single device by ID.
+// GetDevice returns a single device by ID, inside the caller's client scope.
+//
+// The out-of-scope answer is `DeviceNotFound` — the same status and the same
+// body as a device that does not exist. A distinguishing answer here (403, or a
+// 404 that says "not your client") is a fleet directory for the people the
+// tenancy exists to exclude.
 func (h *DeviceHandler) GetDevice(c *gin.Context) {
 	id := c.Param("id")
 	device, err := h.store.Devices.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+		DeviceNotFound(c)
+		return
+	}
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "caller scope unavailable"})
+		return
+	}
+	scope.ApplyScopeHeader(c)
+	if !scope.AllowsDevice(device) {
+		DeviceNotFound(c)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"device": device})
+}
+
+// scopedDevice resolves a `:id` route to a device the caller may see, answering
+// the request itself when it cannot: 404 for a device that is absent or out of
+// scope, 500 when the scope itself is unresolvable. The caller returns on any
+// non-nil answer.
+func (h *DeviceHandler) scopedDevice(c *gin.Context) (*models.Device, bool) {
+	device, err := h.store.Devices.GetByID(c.Param("id"))
+	if err != nil {
+		DeviceNotFound(c)
+		return nil, false
+	}
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "caller scope unavailable"})
+		return nil, false
+	}
+	scope.ApplyScopeHeader(c)
+	if !scope.AllowsDevice(device) {
+		DeviceNotFound(c)
+		return nil, false
+	}
+	return device, true
 }
 
 // DeleteDevice removes a device by ID.
@@ -320,11 +380,16 @@ func (h *DeviceHandler) ClearMonitoringData(c *gin.Context) {
 // GetMetricsHistory returns historical metrics for a device.
 // Query params: from (RFC3339 timestamp), to (RFC3339 timestamp, defaults to now)
 func (h *DeviceHandler) GetMetricsHistory(c *gin.Context) {
-	id := c.Param("id")
 	if h.metricHistory == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "metric history store not configured"})
 		return
 	}
+	// A unit's history is the unit: scoped with it, or the history of a client
+	// you were removed from keeps streaming.
+	if _, ok := h.scopedDevice(c); !ok {
+		return
+	}
+	id := c.Param("id")
 
 	from := time.Now().Add(-24 * time.Hour)
 	to := time.Now()
@@ -351,11 +416,14 @@ func (h *DeviceHandler) GetMetricsHistory(c *gin.Context) {
 
 // GetLatestMetrics returns the most recent metrics for a device.
 func (h *DeviceHandler) GetLatestMetrics(c *gin.Context) {
-	id := c.Param("id")
 	if h.metricHistory == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "metric history store not configured"})
 		return
 	}
+	if _, ok := h.scopedDevice(c); !ok {
+		return
+	}
+	id := c.Param("id")
 
 	metrics, err := h.metricHistory.QueryLatestByDevice(id)
 	if err != nil {
