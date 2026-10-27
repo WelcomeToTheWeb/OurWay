@@ -58,6 +58,107 @@ func TestRetentionEnforceDeletesOnlyExpiredMetrics(t *testing.T) {
 	}
 }
 
+// TestRetentionPrunesAuditLogOnTheSameSweep: 2.3-6's retention rule is that
+// the ledger is pruned by the manager that already owns this job, on the same
+// tick, with a counter. A second goroutine nobody supervises is how a retention
+// policy quietly stops happening (M11), so the test asserts both halves: the
+// rows past the window are gone, and the sweep says how many went.
+func TestRetentionPrunesAuditLogOnTheSameSweep(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MetricHistory{}, &models.AuditLog{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { sqlDB.Close() })
+
+	metrics := store.NewMetricHistoryStore(db)
+	audit := store.NewAuditStore(db)
+	now := time.Now()
+	seed := []models.AuditLog{
+		{ID: "00000000-0000-0000-0000-000000000001", Action: "device.delete", Outcome: "ok", CreatedAt: now.Add(-120 * 24 * time.Hour)},
+		{ID: "00000000-0000-0000-0000-000000000002", Action: "device.delete", Outcome: "ok", CreatedAt: now.Add(-95 * 24 * time.Hour)},
+		{ID: "00000000-0000-0000-0000-000000000003", Action: "patch.deploy", Outcome: "refused", CreatedAt: now.Add(-30 * 24 * time.Hour)},
+		{ID: "00000000-0000-0000-0000-000000000004", Action: "patch.deploy", Outcome: "ok", CreatedAt: now.Add(-time.Hour)},
+	}
+	for i := range seed {
+		if err := audit.Record(&seed[i]); err != nil {
+			t.Fatalf("record: %v", err)
+		}
+	}
+
+	manager := NewRetentionManager(metrics, DefaultRetentionPolicy(), time.Hour).
+		WithAudit(AuditRetentionPolicy{Store: audit, Window: 90 * 24 * time.Hour})
+	manager.enforce()
+
+	if n := audit.Count(); n != 2 {
+		t.Errorf("ledger holds %d rows, want the 2 inside the 90-day window", n)
+	}
+	counters := manager.Counters()
+	if counters.AuditDeleted != 2 {
+		t.Errorf("counter = %d pruned rows, want 2: the sweep must be observable", counters.AuditDeleted)
+	}
+	if counters.RetentionDays != 90 {
+		t.Errorf("window = %d days, want the configured 90", counters.RetentionDays)
+	}
+	if counters.LastRunAt.IsZero() {
+		t.Error("the sweep recorded no timestamp")
+	}
+	if counters.Errored {
+		t.Error("the sweep reported an error")
+	}
+
+	// The metric tiers keep running beside the ledger's prune, in the same tick.
+	if counters.MetricDeleted < 0 {
+		t.Errorf("metric counter = %d, want a real count", counters.MetricDeleted)
+	}
+
+	// The ledger's page reads the same counters, not a second source.
+	pruned, ranAt, errored := manager.RetentionSummary()
+	if pruned != 2 || ranAt.IsZero() || errored {
+		t.Errorf("RetentionSummary = %d/%v/%v, want 2 and a real run", pruned, ranAt, errored)
+	}
+}
+
+// TestRetentionSurvivesAuditFailure: a ledger that cannot be pruned must not
+// stop the metric cleanup. The two tables are independent, and a sweeper that
+// aborts on the first error turns a read failure into unbounded growth.
+func TestRetentionSurvivesAuditFailure(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MetricHistory{}); err != nil {
+		t.Fatalf("migrate metrics: %v", err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { sqlDB.Close() })
+
+	metrics := store.NewMetricHistoryStore(db)
+	old := []models.MetricHistory{
+		{DeviceID: "d1", Timestamp: time.Now().Add(-400 * 24 * time.Hour), CPU: 1},
+	}
+	if err := metrics.BatchInsert(old); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// The audit store points at a database with no audit_log table: the prune
+	// cannot succeed, and the sweep must report that rather than stop.
+	manager := NewRetentionManager(metrics, DefaultRetentionPolicy(), time.Hour).
+		WithAudit(AuditRetentionPolicy{Store: store.NewAuditStore(db), Window: 90 * 24 * time.Hour})
+	manager.enforce()
+
+	counters := manager.Counters()
+	if counters.MetricDeleted != 1 {
+		t.Errorf("metric sweep deleted %d rows, want 1: the audit failure must not abort it", counters.MetricDeleted)
+	}
+	if !counters.Errored {
+		t.Error("the sweep must report the audit prune's failure")
+	}
+}
+
 func TestDefaultRetentionPolicyWindows(t *testing.T) {
 	p := DefaultRetentionPolicy()
 	if p.Hot != 7*24*time.Hour {

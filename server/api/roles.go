@@ -57,6 +57,7 @@ func (h *RoleHandler) CreateRole(c *gin.Context) {
 		Description: req.Description,
 		Permissions: req.Permissions,
 	}
+	defer auditForAnswer(c, h.store, models.AuditRoleCreate, AuditTarget{Type: "role", ID: role.ID}, map[string]any{"name": role.Name})
 	if err := h.store.Roles.CreateRole(role); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create role"})
 		return
@@ -93,6 +94,7 @@ func (h *RoleHandler) UpdateRole(c *gin.Context) {
 		role.Permissions = req.Permissions
 	}
 
+	defer auditForAnswer(c, h.store, models.AuditRoleUpdate, AuditTarget{Type: "role", ID: role.ID}, map[string]any{"name": role.Name})
 	if err := h.store.Roles.UpdateRole(role); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update role"})
 		return
@@ -103,6 +105,7 @@ func (h *RoleHandler) UpdateRole(c *gin.Context) {
 // DeleteRole deletes a role.
 func (h *RoleHandler) DeleteRole(c *gin.Context) {
 	id := c.Param("id")
+	defer auditForAnswer(c, h.store, models.AuditRoleDelete, AuditTarget{Type: "role", ID: id}, nil)
 	if err := h.store.Roles.DeleteRole(id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "role not found"})
 		return

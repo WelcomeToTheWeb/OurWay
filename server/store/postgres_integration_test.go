@@ -211,4 +211,64 @@ func TestPostgresMigrationsUpgradeFromV22(t *testing.T) {
 	if len(after) != len(devices) {
 		t.Fatalf("after deleting the client, %d devices read as unassigned, want %d", len(after), len(devices))
 	}
+
+	// 2.3-6: the ledger's refusal rows are the ones Postgres would reject a
+	// careless schema for. A failed login has no authenticated user id; a bulk
+	// command refused before any target resolved has no entity id; a row about
+	// the installation has no client. On a `uuid` column all three are the
+	// string Postgres refuses to store, so the empty-actor row is written here
+	// and read back: the schema must be able to hold the events the ledger
+	// exists to record, not only the tidy successes.
+	refusal := &models.AuditLog{
+		ID:            models.NewAuditID(),
+		ActorUserID:   "",
+		ActorUsername: "someone-at-a-keyboard",
+		ActorRoles:    "viewer",
+		Action:        models.AuditDeviceDelete,
+		TargetType:    "route",
+		TargetID:      "",
+		ClientID:      "",
+		Outcome:       models.AuditOutcomeRefused,
+		Details:       `{"route":"/api/devices/:id"}`,
+	}
+	if err := st.Audit.Record(refusal); err != nil {
+		t.Fatalf("record a refusal row: %v", err)
+	}
+	rows, err := st.Audit.List(AuditFilter{Action: models.AuditDeviceDelete, Limit: 10})
+	if err != nil {
+		t.Fatalf("list the ledger: %v", err)
+	}
+	var found bool
+	for _, r := range rows {
+		if r.ID == refusal.ID {
+			found = true
+			if r.ActorUserID != "" || r.TargetID != "" || r.ClientID != "" {
+				t.Errorf("the refusal row came back with ids it never had: %+v", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the refusal row is not in the ledger")
+	}
+
+	// The ledger's two composite indexes are the queries the page runs: a
+	// manager's client-scoped newest-first read, and "every failed login, this
+	// week". Both are selective together, so a single-column index on
+	// `created_at` serves neither — and an index is the part a migration
+	// forgets without anything noticing until the page is slow.
+	for _, probe := range []struct{ table, want string }{
+		{"audit_log", "client_id"},
+		{"audit_log", "action"},
+	} {
+		var indexed bool
+		if err := st.DB.Raw(
+			"SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = ? AND indexdef ILIKE ?)",
+			probe.table, "%"+probe.want+"%",
+		).Row().Scan(&indexed); err != nil {
+			t.Fatalf("index probe on %s: %v", probe.table, err)
+		}
+		if !indexed {
+			t.Errorf("%s has no index covering %s", probe.table, probe.want)
+		}
+	}
 }

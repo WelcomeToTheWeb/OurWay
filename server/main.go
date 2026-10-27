@@ -108,12 +108,21 @@ func main() {
 	if days := cfg.MetricRetentionDays; days > 0 {
 		retentionPolicy.Cold = time.Duration(days) * 24 * time.Hour
 	}
+	// 2.3-6: the audit ledger is pruned by the same sweeper, on the same
+	// schedule, with its own window. A second goroutine nobody supervises is
+	// how a retention policy becomes a rumour (M11), so the ledger shares the
+	// manager that already owns this job — and the counters say what it did.
+	api.SetAuditRetention(cfg.AuditRetentionDays)
 	retentionManager := metrics.NewRetentionManager(
 		st.MetricHistory,
 		retentionPolicy,
 		time.Hour, // Check hourly
-	)
+	).WithAudit(metrics.AuditRetentionPolicy{
+		Store:  st.Audit,
+		Window: time.Duration(cfg.AuditRetentionDays) * 24 * time.Hour,
+	})
 	retentionManager.Start()
+	api.SetRetentionSweeper(retentionManager)
 	defer retentionManager.Stop()
 
 	// Setup API routes (background jobs scope to ctx, cancelled at shutdown)

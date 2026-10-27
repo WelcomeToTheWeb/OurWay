@@ -97,6 +97,12 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		}
 	}
 
+	// Creating an account creates a person the ledger will later name, so the
+	// record fixes the username and the roles it started with.
+	defer auditForAnswer(c, h.store, models.AuditUserCreate, AuditTarget{Type: "user", ID: user.ID}, map[string]any{
+		"username": user.Username,
+		"roles":    req.Roles,
+	})
 	c.JSON(http.StatusCreated, gin.H{"user": user})
 }
 
@@ -127,6 +133,11 @@ func (h *UserHandler) UpdateUserRoles(c *gin.Context) {
 		roleIDs = append(roleIDs, role.ID)
 	}
 
+	// A role change is the row that matters most in an MSP's log: it is how a
+	// viewer becomes someone who can reboot a fleet.
+	defer auditForAnswer(c, h.store, models.AuditUserRoleChange, AuditTarget{Type: "user", ID: id}, map[string]any{
+		"roles": req.Roles,
+	})
 	if err := h.store.UserRoles.SetUserRoles(id, roleIDs); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update roles"})
 		return
@@ -142,6 +153,13 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	// Remove role assignments first
 	h.store.UserRoles.SetUserRoles(id, []string{})
 
+	target := AuditTarget{Type: "user", ID: id}
+	if existing, err := h.store.Users.GetByID(id); err == nil && existing != nil {
+		// Read the account before it goes: after the delete there is no row to
+		// ask which username was removed.
+		target = AuditTarget{Type: "user", ID: existing.ID}
+	}
+	defer auditForAnswer(c, h.store, models.AuditUserDelete, target, nil)
 	if err := h.store.Users.Delete(id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return

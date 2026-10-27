@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ourway/server/models"
 	"ourway/server/patching"
 	"ourway/server/store"
 )
@@ -36,8 +37,17 @@ func (h *RebootHandler) RebootDevice(c *gin.Context) {
 	// this handler goes on to perform.
 	device, ok := ScopedDevice(c, h.store)
 	if !ok {
+		// A reboot attempt at a unit outside the caller's scope. `ScopedDevice`
+		// has already answered, so the status the caller got is on the writer:
+		// 2.3-6's rule is that refusals are rows, and a reboot is the most
+		// destructive thing the console can send.
+		auditForAnswer(c, h.store, models.AuditDeviceReboot, AuditTarget{Type: "device", ID: c.Param("id")}, nil)
 		return
 	}
+	// Deferred so the outcome is the answer: a reboot the agent never received
+	// is not a reboot, and a ledger that says one happened is a ledger that is
+	// trusted for exactly one incident and then ignored.
+	defer auditForAnswer(c, h.store, models.AuditDeviceReboot, DeviceTarget(device), nil)
 	var req struct {
 		DelaySeconds int `json:"delay_seconds"`
 	}

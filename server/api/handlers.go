@@ -94,6 +94,12 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 	policyEngine := patching.NewPolicyEngine(store, hub, deployer, rebooter, scanner)
 	go policyEngine.Run(ctx)
 
+	// 2.3-6: the audit registry is declared before the routes, so the coverage
+	// test compares one table against one router, and the RBAC middlewares get
+	// the store they record refusals with.
+	registerAuditRoutes()
+	setAuditStore(store)
+
 	// Auth routes (no auth required)
 	authGroup := r.Group("/api/auth")
 	{
@@ -282,6 +288,14 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 			clientGroup.GET("/:id/users", RequireRole("admin"), clientHandler.ListClientUsers)
 			clientGroup.PUT("/:id/users", RequireRole("admin"), clientHandler.SetClientUsers)
 		}
+
+		// Audit ledger routes — 2.3-6. An operator surface: admins read the
+		// installation, managers read their tenants, and a viewer reads nothing,
+		// because the ledger answers "who did this to my fleet" and a viewer
+		// performs no acts worth reading about.
+		auditHandler := NewAuditHandler(store)
+		protected.GET("/audit", RequireAnyRole("admin", "manager"), auditHandler.List)
+		protected.GET("/audit/actions", RequireAnyRole("admin", "manager"), auditHandler.Actions)
 
 		// Webhook routes (API v2)
 		webhookGroup := protected.Group("/v2/webhooks")

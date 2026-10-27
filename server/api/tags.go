@@ -74,6 +74,12 @@ func (h *TagHandler) SetDeviceTags(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// Deferred at the point the unit is known: the record names the unit and
+	// the tenant, and every exit of the handler writes the row with the status
+	// the caller got.
+	defer auditForAnswer(c, h.store, models.AuditDeviceTags, DeviceTarget(dev), map[string]any{
+		"tags": models.NormalizeTags(req.Tags),
+	})
 	dev.Tags = models.NormalizeTags(req.Tags)
 	if err := h.store.Devices.Update(dev); err != nil {
 		c.JSON(500, gin.H{"error": "failed to update tags"})
@@ -100,6 +106,16 @@ func (h *TagHandler) BulkTags(c *gin.Context) {
 	// request watches it get skipped — a partial success is exactly the
 	// "partial bulk succeeded" case the plan refuses. Out-of-scope targets are
 	// named, and the fleet is untouched.
+	// The bulk command's record names every target it was given. Deferred, so
+	// the refused case is a row as well as the applied one: "who tried to tag
+	// a unit that is not theirs" is answered by the ledger, and a refusal
+	// recorded without its targets is a rumour.
+	defer auditForAnswer(c, h.store, models.AuditDeviceTags, AuditTarget{Type: "device-batch"}, map[string]any{
+		"device_ids": req.DeviceIDs,
+		"add":        models.NormalizeTags(req.Add),
+		"remove":     models.NormalizeTags(req.Remove),
+	})
+
 	scope, err := ClientScope(c, h.store)
 	if err != nil {
 		ScopeError(c)
@@ -113,6 +129,7 @@ func (h *TagHandler) BulkTags(c *gin.Context) {
 			return
 		}
 		if len(foreign) > 0 {
+			auditNameRefusedTargets(c, foreign)
 			c.JSON(400, gin.H{"error": "one or more targets are outside your client scope", "device_ids": foreign})
 			return
 		}

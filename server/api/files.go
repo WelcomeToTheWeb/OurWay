@@ -93,6 +93,10 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 		Status:     "pending",
 		Direction:  "push",
 	}
+	defer auditForAnswer(c, h.store, models.AuditFileUpload, AuditTarget{Type: "transfer", ID: transferID}, map[string]any{
+		"filename": file.Filename,
+		"bytes":    size,
+	})
 	if err := h.service.CreateTransfer(transfer); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -125,7 +129,15 @@ func (h *FileHandler) PushFile(c *gin.Context) {
 	// Pushing a file onto units is writing to those units: every target is
 	// validated before the first write, and a foreign target fails the whole
 	// request naming its ids. A partial push is the case the plan refuses.
+	// A push sends a file into other people's machines, so the record names
+	// every unit it was aimed at — including the ones that made it refused.
+	defer auditForAnswer(c, h.store, models.AuditFilePush, AuditTarget{Type: "device-batch"}, map[string]any{
+		"device_ids":  req.DeviceIDs,
+		"transfer_id": req.TransferID,
+		"destination": req.Destination,
+	})
 	if code, body := h.validateDeviceTargets(c, req.DeviceIDs); code != 0 {
+		auditNameRefusedTargets(c, refusedTargetsOf(body))
 		c.JSON(code, body)
 		return
 	}
@@ -165,7 +177,12 @@ func (h *FileHandler) PullFile(c *gin.Context) {
 	}
 
 	// Pulling reads a unit's filesystem.
+	defer auditForAnswer(c, h.store, models.AuditFilePull, AuditTarget{Type: "device-batch"}, map[string]any{
+		"device_ids":  []string{req.DeviceID},
+		"source_path": req.SourcePath,
+	})
 	if code, body := h.validateDeviceTargets(c, []string{req.DeviceID}); code != 0 {
+		auditNameRefusedTargets(c, refusedTargetsOf(body))
 		c.JSON(code, body)
 		return
 	}

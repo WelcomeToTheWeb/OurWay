@@ -4,6 +4,8 @@ import (
 	"sort"
 
 	"github.com/gin-gonic/gin"
+
+	"ourway/server/models"
 )
 
 // openStatuses are the update states that count against compliance.
@@ -181,6 +183,14 @@ func (h *PatchHandler) ListFleetUpdates(c *gin.Context) {
 // BulkSetUpdateStatus approves or skips detected updates in bulk.
 // POST /api/patch/updates/approve | /skip   {update_ids: []}
 func (h *PatchHandler) bulkSet(c *gin.Context, status string) {
+	// The audit action follows the verb. Approving and skipping are different
+	// acts in an MSP's record — one makes an install reach a machine, the other
+	// tells the patch engine to leave it alone — and a single action name for
+	// both is a log nobody can filter.
+	action := models.AuditPatchApprove
+	if status == "skipped" {
+		action = models.AuditPatchSkip
+	}
 	var req struct {
 		UpdateIDs []string `json:"update_ids" binding:"required"`
 	}
@@ -194,7 +204,12 @@ func (h *PatchHandler) bulkSet(c *gin.Context, status string) {
 	// and no update changes status. Approving is what makes an install reach a
 	// machine, so a bulk call that quietly skipped the foreign ids would leave
 	// the caller believing they had acted on the list they selected.
+	defer auditForAnswer(c, h.store, action, AuditTarget{Type: "update-batch"}, map[string]any{
+		"update_ids": req.UpdateIDs,
+		"status":     status,
+	})
 	if code, body := h.validateUpdateTargets(c, req.UpdateIDs); code != 0 {
+		auditNameRefusedTargets(c, refusedTargetsOf(body))
 		c.JSON(code, body)
 		return
 	}
@@ -225,7 +240,11 @@ func (h *PatchHandler) ScanMany(c *gin.Context) {
 	// never the installation. A scan is a command into the machine, so the
 	// scoping rule is 400-and-name-the-ids: a partial scan leaves the caller
 	// with a count that quietly excludes the units they may not touch.
+	defer auditForAnswer(c, h.store, models.AuditPatchScan, AuditTarget{Type: "device-batch"}, map[string]any{
+		"device_ids": req.DeviceIDs,
+	})
 	if code, body := h.validateDeviceTargets(c, req.DeviceIDs); code != 0 {
+		auditNameRefusedTargets(c, refusedTargetsOf(body))
 		c.JSON(code, body)
 		return
 	}

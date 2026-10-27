@@ -74,6 +74,15 @@ func (h *ClientHandler) scopedClient(c *gin.Context) (*models.Client, bool) {
 	return client, true
 }
 
+// currentIDs renders a grant set for the record.
+func currentIDs(users []models.User) []string {
+	ids := make([]string, 0, len(users))
+	for _, u := range users {
+		ids = append(ids, u.ID)
+	}
+	return ids
+}
+
 // clientRequest is the writable shape of a client.
 type clientRequest struct {
 	Name  string `json:"name" binding:"required"`
@@ -141,6 +150,12 @@ func (h *ClientHandler) CreateClient(c *gin.Context) {
 		client.Disabled = *req.Disabled
 	}
 
+	// A client is a tenant: creating one is creating a boundary between
+	// people's fleets, so it is recorded with the slug that becomes the scope.
+	defer auditForAnswer(c, h.store, models.AuditClientCreate, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+		"name": client.Name,
+		"slug": client.Slug,
+	})
 	created, err := h.store.Clients.Create(client)
 	if err != nil {
 		if errors.Is(err, store.ErrSlugTaken) {
@@ -190,6 +205,13 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 		client.Disabled = *req.Disabled
 	}
 
+	// `disabled` is in the record: pausing a tenant is the act that locks
+	// technicians out of a fleet, and the row has to say it happened here.
+	defer auditForAnswer(c, h.store, models.AuditClientUpdate, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+		"name":     client.Name,
+		"slug":     client.Slug,
+		"disabled": client.Disabled,
+	})
 	if err := h.store.Clients.Update(client); err != nil {
 		if errors.Is(err, store.ErrSlugTaken) {
 			c.JSON(http.StatusConflict, gin.H{
@@ -227,6 +249,12 @@ func (h *ClientHandler) DeleteClient(c *gin.Context) {
 		return
 	}
 
+	// Deleting a tenant moves its units to unassigned, which makes them
+	// invisible to every non-admin. The count is in the record, because "the
+	// fleet disappeared" is the question that follows this act.
+	defer auditForAnswer(c, h.store, models.AuditClientDelete, AuditTarget{Type: "client", ID: id}, map[string]any{
+		"devices_unassigned": len(devices),
+	})
 	if err := h.store.Clients.Delete(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete client"})
 		return
@@ -278,6 +306,9 @@ func (h *ClientHandler) AssignDevices(c *gin.Context) {
 		for _, d := range mine {
 			ids = append(ids, d.ID)
 		}
+		defer auditForAnswer(c, h.store, models.AuditDeviceAssign, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+			"unassign": ids,
+		})
 		n, err := h.store.Clients.AssignDevices("", ids)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unassign the client's units"})
@@ -305,6 +336,11 @@ func (h *ClientHandler) AssignDevices(c *gin.Context) {
 		}
 	}
 
+	// Assignment is the act that decides which technician sees which fleet, so
+	// the record carries the whole list it was given.
+	defer auditForAnswer(c, h.store, models.AuditDeviceAssign, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+		"device_ids": req.DeviceIDs,
+	})
 	n, err := h.store.Clients.AssignDevices(client.ID, req.DeviceIDs)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to assign devices"})
@@ -479,6 +515,12 @@ func (h *ClientHandler) SetClientUsers(c *gin.Context) {
 			}
 		}
 	}
+	// Grants are recorded with the set they replace: a scope change that does
+	// not say what it removed is not a record of the change.
+	defer auditForAnswer(c, h.store, models.AuditClientGrant, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+		"user_ids": req.UserIDs,
+		"was":      currentIDs(current),
+	})
 	added := 0
 	for _, id := range req.UserIDs {
 		if err := h.store.Clients.AddUserClient(id, client.ID); err != nil {

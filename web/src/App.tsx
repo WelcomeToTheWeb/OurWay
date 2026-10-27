@@ -18,6 +18,7 @@ const Sessions = lazy(() => import('./pages/Sessions').then((m) => ({ default: m
 const SSO = lazy(() => import('./pages/SSO').then((m) => ({ default: m.SSO })));
 const Webhooks = lazy(() => import('./pages/Webhooks').then((m) => ({ default: m.Webhooks })));
 const Clients = lazy(() => import('./pages/Clients').then((m) => ({ default: m.Clients })));
+const Audit = lazy(() => import('./pages/Audit').then((m) => ({ default: m.Audit })));
 
 function RouteFallback() {
   return (
@@ -125,6 +126,17 @@ export function App() {
             element={
               <Suspense fallback={<RouteFallback />}>
                 <Clients />
+              </Suspense>
+            }
+          />
+          {/* 2.3-6: the audit ledger. Admin reads the installation, managers
+              read their tenants, and the route itself refuses a viewer — the
+              page asks for nothing a caller cannot perform. */}
+          <Route
+            path="audit"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <Audit />
               </Suspense>
             }
           />

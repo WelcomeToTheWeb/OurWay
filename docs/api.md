@@ -519,6 +519,85 @@ Grants are **rows**, not token claims, so a grant added here is visible on the
 technician's next request, and a grant revoked here stops their access on their
 next request — same access token, no logout, no re-login.
 
+### GET /api/audit · admin, manager
+
+The audit ledger: every mutating act, its actor, its target, and what the
+server answered (2.3-6).
+
+**Query params** (all optional): `action`, `client_id`, `actor`, `from` and
+`to` (RFC3339), `limit` (default 200, capped at 1000), `offset`, and
+`format=csv` for the export.
+
+**Response:**
+
+```json
+{
+  "logs": [
+    {
+      "id": "5a0f…",
+      "actor_user_id": "3f2c…",
+      "actor_username": "dana",
+      "actor_roles": "technician",
+      "actor_provider": "local",
+      "action": "device.reboot",
+      "target_type": "device",
+      "target_id": "9b1c…",
+      "client_id": "77aa…",
+      "outcome": "ok",
+      "details": "{\"delay_seconds\":0}",
+      "source_ip": "10.0.0.7",
+      "created_at": "2026-10-27T10:30:00Z"
+    }
+  ],
+  "total": 1,
+  "scope": "client-1",
+  "retention_days": 365,
+  "limit": 200,
+  "offset": 0,
+  "retention": { "days": 365, "rows_pruned": 42, "last_run": "2026-10-27T09:00:00Z", "sweep_errored": false }
+}
+```
+
+**Who sees what.** Admin reads the installation. A manager reads the rows of the
+clients they are granted, resolved from `user_clients` on the request, exactly
+like the fleet lists. A **viewer is refused (403)**: the ledger answers "who did
+this to my fleet", and a viewer performs no acts worth reading about.
+
+**`client_id` you are not granted answers an empty ledger**, not an error. The
+ledger's client ids are a list of the tenants that exist in this installation,
+and an error naming the one you may not read would leak exactly what the 404
+rule for units closes.
+
+**Refusals are rows.** `outcome` is `ok`, `refused`, `not_found` or `error`,
+derived from the status the handler answered with. A technician's out-of-scope
+deploy attempt, a viewer's delete, a login with the wrong password
+(`auth.login_failed`) and a reboot the agent never received are all in the
+table. A log of successes only is a log of what the installation allowed, and
+the events an MSP reads the log for are the ones it did not.
+
+**Actor fields are stored, not joined.** Username, roles and provider travel on
+the row, because accounts and providers are deleted: a record that resolves to
+"user 5f8… does not exist" is not a record.
+
+**`client_id` on the row is the tenant at the time of the act**, denormalized
+deliberately. Units move between clients; a query that joined through the
+device's *current* client would answer "who did this to the fleet I manage
+today", which is a live view wearing a timestamp, not a record.
+
+**Retention is stated in the response.** `retention_days` is
+`AUDIT_RETENTION_DAYS`, and `retention` reports the last sweep: rows it
+removed, when it ran, and whether it failed. The same value prunes the table,
+on the metric retention manager's hourly schedule.
+
+### GET /api/audit/actions · admin, manager
+
+The action names the server writes, so a filter UI is built from the
+vocabulary the writers use rather than a list that falls behind it.
+
+```json
+{ "actions": ["device.delete", "patch.deploy", "auth.login_failed"], "retention_days": 365 }
+```
+
 ---
 
 ## Agent Endpoints

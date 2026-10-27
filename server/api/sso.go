@@ -359,6 +359,12 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 			provider.Enabled = *req.Enabled
 		}
 
+		// An identity provider is the door to every account, so editing one is
+		// recorded with its name and type — and never with its client secret.
+		defer auditForAnswer(c, h.store, models.AuditSSOCreate, AuditTarget{Type: "sso-provider", ID: provider.ID}, map[string]any{
+			"name": provider.Name,
+			"type": provider.Type,
+		})
 		if err := h.store.SSOProviders.Update(provider); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update provider"})
 			return
@@ -395,6 +401,10 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 			provider.Enabled = *req.Enabled
 		}
 
+		defer auditForAnswer(c, h.store, models.AuditSSOCreate, AuditTarget{Type: "sso-provider", ID: provider.ID}, map[string]any{
+			"name": provider.Name,
+			"type": provider.Type,
+		})
 		if err := h.store.SSOProviders.Create(provider); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create provider"})
 			return
@@ -418,6 +428,7 @@ func (h *SSOHandler) ListProvidersAdmin(c *gin.Context) {
 func (h *SSOHandler) DeleteProvider(c *gin.Context) {
 	providerID := c.Param("id")
 
+	defer auditForAnswer(c, h.store, models.AuditSSODelete, AuditTarget{Type: "sso-provider", ID: providerID}, nil)
 	if err := h.store.SSOProviders.Delete(providerID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
 		return

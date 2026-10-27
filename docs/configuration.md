@@ -33,6 +33,7 @@ The server reads configuration from environment variables. All variables have se
 | `WEB_URL` | Public URL of the web dashboard | `http://localhost:3000` | No |
 | `INSTALLERS_DIR` | Directory served by `GET /api/v2/installers` | `./dist/agents` | No |
 | `METRIC_RETENTION_DAYS` | How many days of metric history to keep; the retention manager deletes older rows hourly | `365` | No |
+| `AUDIT_RETENTION_DAYS` | How many days of the audit ledger to keep. Pruned by the same hourly sweep as metric history, with a counter the ledger page reports (2.3-6) | `365` | No |
 
 ### Health Check Endpoints
 

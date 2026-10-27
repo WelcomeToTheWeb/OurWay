@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Server,
   Building2,
+  ScrollText,
   Bell,
   Settings,
   MonitorSmartphone,
@@ -38,6 +39,13 @@ const groups: { heading: string; items: GroupItem[] }[] = [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, go: 'g h' },
       { to: '/devices', label: 'Devices', icon: Server, go: 'g d' },
       { to: '/clients', label: 'Clients', icon: Building2, go: 'g c' }, // 2.3-4: the tenant axis
+      {
+        to: '/audit',
+        label: 'Audit',
+        icon: ScrollText,
+        go: 'g i', // 2.3-6: the ledger
+        roles: ['admin', 'manager'], // 2.3-6: the ledger is an operator surface
+      },
       { to: '/alerts', label: 'Alerts', icon: Bell, go: 'g a' },
     ],
   },

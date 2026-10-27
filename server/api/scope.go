@@ -105,6 +105,10 @@ func (s clientScope) AllowsDevice(d *models.Device) bool {
 // ClientIDs is the caller's client set, for store-level list scoping.
 func (s clientScope) ClientIDs() []string { return s.ids }
 
+// All reports the unrestricted scope: the admin's answer, and the one place a
+// reader asks "am I seeing the whole installation".
+func (s clientScope) All() bool { return s.all }
+
 // VisibleDeviceIDs answers "which units may this caller see" for the entities
 // that reference a unit — alerts, detected updates, transfers, sessions. Those
 // tables carry a `device_id` and no client of their own, so scoping them is

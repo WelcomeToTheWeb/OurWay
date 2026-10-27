@@ -47,8 +47,16 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 	// succeeds, so an attempt at a foreign unit is never recorded as an action.
 	device, ok := ScopedDevice(c, h.store)
 	if !ok {
+		// The caller gets the 404 that is indistinguishable from a unit that
+		// never existed. The record is not indistinguishable, and it is not
+		// public: an attempt at a tenant's machine is the event an MSP reads
+		// the ledger for.
+		auditForAnswer(c, h.store, models.AuditSessionStart, AuditTarget{Type: "device", ID: c.Param("id")}, nil)
 		return
 	}
+	// Deferred, so an attempt at an offline unit is recorded as the 409 it is,
+	// and a session that started is recorded as one that started.
+	defer auditForAnswer(c, h.store, models.AuditSessionStart, DeviceTarget(device), nil)
 	deviceID := device.ID
 
 	// Check if device is connected
@@ -124,6 +132,16 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 	})
 }
 
+// sessionTarget names a session by its unit's client, so the record carries
+// the tenant at the time of the act.
+func (h *SessionHandler) sessionTarget(session *models.Session, sessionID string) AuditTarget {
+	target := AuditTarget{Type: "session", ID: sessionID}
+	if device, err := h.store.Devices.GetByID(session.DeviceID); err == nil && device != nil {
+		target.ClientID = DeviceTarget(device).ClientID
+	}
+	return target
+}
+
 // publicServerURL is the base URL remote parties (agent, native viewer)
 // should dial to reach this server. Behind a reverse proxy the request's
 // own Host/TLS describe the hop from the proxy, so prefer the forwarded
@@ -197,6 +215,7 @@ func (h *SessionHandler) EndSession(c *gin.Context) {
 	if !ok {
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditSessionEnd, h.sessionTarget(session, sessionID), nil)
 
 	if err := h.store.Sessions.EndSession(sessionID); err != nil {
 		c.JSON(500, gin.H{"error": "failed to end session"})
@@ -243,6 +262,14 @@ func (h *SessionHandler) SendInput(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "device not found"})
 		return
 	}
+	// Input is remote control of a unit, so it is recorded as the act it is:
+	// the unit, its tenant, the session, and the input type. The `payload` is
+	// not in the record — keystrokes are not evidence, and a log of what a
+	// technician typed at a machine is a second system to breach.
+	defer auditForAnswer(c, h.store, models.AuditSessionStart, DeviceTarget(device), map[string]any{
+		"session_id": sessionID,
+		"input_type": req.Type,
+	})
 
 	// Send input to device via WebSocket
 	inputMsg := gin.H{
@@ -362,6 +389,10 @@ func (h *SessionHandler) SetQuality(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "device not found"})
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditSessionQuality, DeviceTarget(device), map[string]any{
+		"session_id": sessionID,
+		"quality":    req.Quality,
+	})
 
 	if err := h.hub.SendToDevice(device.DeviceKey, "session_quality", gin.H{"quality": req.Quality}); err != nil {
 		c.JSON(409, gin.H{"error": "failed to notify device"})

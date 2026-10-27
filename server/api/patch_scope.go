@@ -15,6 +15,31 @@ import (
 // unit set. `fleetScope` answers that set once per request (2.3-8's rule), and
 // every filter below is a filter over it.
 
+// refusedTargetsOf pulls the out-of-scope ids out of a bulk refusal's response
+// body, so the audit row can name them. The bulk validators already compute
+// that list — it is what makes the 400 actionable — and re-deriving it for the
+// record would be a second answer to "which ones were refused".
+func refusedTargetsOf(body gin.H) []string {
+	// The bulk validators name their refused targets under the key the caller
+	// was given them under: units for a device command, updates for an update
+	// command. Both are recorded, so the row says which kind of id it lists.
+	if ids, ok := body["device_ids"].([]string); ok && len(ids) > 0 {
+		return ids
+	}
+	ids, _ := body["update_ids"].([]string)
+	return ids
+}
+
+// updateTarget names a detected update by the unit it was found on, so the
+// record carries the tenant at the time of the act.
+func (h *PatchHandler) updateTarget(update *models.SoftwareUpdate) AuditTarget {
+	target := AuditTarget{Type: "update", ID: update.ID}
+	if device, err := h.store.Devices.GetByID(update.DeviceID); err == nil && device != nil {
+		target.ClientID = DeviceTarget(device).ClientID
+	}
+	return target
+}
+
 // fleetScope resolves the caller and their visible units. `restricted` is false
 // for admin, whose reads stay unrestricted and cost no scope query.
 func (h *PatchHandler) fleetScope(c *gin.Context) (clientScope, []string, bool, error) {
