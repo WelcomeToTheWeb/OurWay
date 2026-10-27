@@ -410,3 +410,54 @@ func TestHubBrowserOriginHandshake(t *testing.T) {
 		t.Fatal("an origin outside WS_ORIGINS was accepted: the allow-list gate is not enforced")
 	}
 }
+
+// TestHubStoresAgentCapabilities covers the 2.2-1 wire contract: the agent
+// reports its own input/capture capability with each metrics sample, the hub
+// stores it against the connection's device, and a device whose agent reports
+// nothing keeps "unknown" — which the console must render as unknown, never as
+// granted.
+func TestHubStoresAgentCapabilities(t *testing.T) {
+	ts, st, hub := setupHubTest(t)
+	go hub.Run()
+
+	reporting := addDevice(t, st, "mac-unit", "mac-unit-key")
+	silent := addDevice(t, st, "old-agent", "old-agent-key")
+
+	if got, err := st.Devices.GetByID(reporting.ID); err != nil || got.InputCapability != "unknown" {
+		t.Fatalf("a device must start as unknown, got %q (%v)", got.InputCapability, err)
+	}
+
+	conn := dialAgent(t, ts.URL, reporting.DeviceKey)
+	payload := metricsPayload(reporting.DeviceKey, 33.3)
+	payload["input_capability"] = "denied"
+	payload["capture_state"] = "ok"
+	wsSend(t, conn, "metrics", payload)
+	readUntil(t, conn, 5*time.Second, func(m Message) bool { return m.Type == "metrics" })
+
+	deadline := time.Now().Add(5 * time.Second)
+	var got *models.Device
+	var gerr error
+	for time.Now().Before(deadline) {
+		got, gerr = st.Devices.GetByID(reporting.ID)
+		if gerr == nil && got.InputCapability == "denied" && got.CaptureState == "ok" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got == nil || got.InputCapability != "denied" || got.CaptureState != "ok" {
+		t.Fatalf("hub did not store the reported capability: device=%+v read-error=%v", got, gerr)
+	}
+
+	// An agent that reports nothing must not move the stored value.
+	oldConn := dialAgent(t, ts.URL, silent.DeviceKey)
+	wsSend(t, oldConn, "metrics", metricsPayload(silent.DeviceKey, 20.0))
+	readUntil(t, oldConn, 5*time.Second, func(m Message) bool { return m.Type == "metrics" })
+	time.Sleep(200 * time.Millisecond)
+	untouched, err := st.Devices.GetByID(silent.ID)
+	if err != nil {
+		t.Fatalf("read silent device: %v", err)
+	}
+	if untouched.InputCapability != "unknown" || untouched.CaptureState != "unknown" {
+		t.Errorf("a non-reporting agent changed the record: %q / %q", untouched.InputCapability, untouched.CaptureState)
+	}
+}

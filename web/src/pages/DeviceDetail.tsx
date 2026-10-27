@@ -17,6 +17,8 @@ import {
   ExternalLink,
   RefreshCw,
   Download,
+  Keyboard,
+  MonitorX,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -70,6 +72,25 @@ function osLabel(os: string): string {
 }
 
 /** Record-stamp time: ISO date, 24-hour, with the zone it is stated in. */
+// The agent reports what its unit can do; the console states it verbatim.
+// Unknown renders as unknown — never as ready.
+function inputState(cap?: string): 'granted' | 'denied' | 'unavailable' | 'unknown' {
+  return cap === 'granted' || cap === 'denied' || cap === 'unavailable' ? cap : 'unknown';
+}
+
+function inputTone(cap?: string): 'online' | 'alert' | 'offline' {
+  const state = inputState(cap);
+  return state === 'granted' ? 'online' : state === 'unknown' ? 'offline' : 'alert';
+}
+
+// The locale keys are camelCased (devices.inputDenied, devices.hintDenied):
+// passing the raw wire value builds a key that does not exist, and the console
+// prints the key path to the operator.
+function inputKeyPart(cap?: string): 'Granted' | 'Denied' | 'Unavailable' | 'Unknown' {
+  const state = inputState(cap);
+  return (state[0].toUpperCase() + state.slice(1)) as 'Granted' | 'Denied' | 'Unavailable' | 'Unknown';
+}
+
 function utcStamp(iso: string, withClock = true): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
@@ -449,6 +470,29 @@ export function DeviceDetail() {
           </h2>
           <InfoRow label="Agent version" icon={Cpu} value={device.agent_version || '—'} />
           <InfoRow label="Architecture" value={device.arch} />
+          {/* What this unit can actually do in a session (2.2-1). Stated from
+              the agent's own report; "not reported" is never shown as ready. */}
+          <InfoRow
+            label={t('devices.inputTitle')}
+            icon={Keyboard}
+            value={
+              <Stamp tone={inputTone(device.input_capability)}>
+                {t(`devices.input${inputKeyPart(device.input_capability)}`)}
+              </Stamp>
+            }
+          />
+          {device.capture_state === 'error' && (
+            <InfoRow
+              label={t('devices.captureTitle')}
+              icon={MonitorX}
+              value={<Stamp tone="alert">{t('devices.captureError')}</Stamp>}
+            />
+          )}
+          {device.input_capability !== 'granted' && (
+            <p className="cap cap-sm text-text-warning px-1 pt-1" role="status">
+              {t(`devices.hint${inputKeyPart(device.input_capability)}`)}
+            </p>
+          )}
           {device.device_key && (
             <InfoRow
               label="Device key"
@@ -621,7 +665,13 @@ export function DeviceDetail() {
       )}
 
       {/* Remote Session View */}
-      {session && <SessionView session={session} onClose={() => setSession(null)} />}
+      {session && (
+        <SessionView
+          session={session}
+          onClose={() => setSession(null)}
+          inputCapability={device.input_capability}
+        />
+      )}
     </div>
   );
 }

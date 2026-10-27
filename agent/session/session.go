@@ -280,9 +280,15 @@ func (sm *SessionManager) captureLoop(ctx context.Context) {
 
 			frame, err := sm.capture.Capture()
 			if err != nil {
-				log.Printf("session: capture error: %v", err)
+				// Throttled: at 15 fps this failure repeats every frame, and a
+				// unit that cannot capture filled ~1,900 identical lines into
+				// its log in two minutes (buglist.md M20). The state is also
+				// reported to the server so the console can name the reason.
+				setCaptureState(CaptureStateError)
+				logThrottled("capture", "session: capture error: "+err.Error())
 				continue
 			}
+			setCaptureState(CaptureStateOK)
 
 			// The only frame path: upload the JPEG to the server, which
 			// relays it to the browser over the user WebSocket. There is no
@@ -328,12 +334,13 @@ func (sm *SessionManager) postFrame(frame []byte) {
 
 func (sm *SessionManager) handleKeyEvent(input map[string]interface{}) {
 	key, _ := input["key"].(string)
+	code, _ := input["code"].(string)
 	event, _ := input["event"].(string)
-	if key == "" {
+	if key == "" && code == "" {
 		return
 	}
 	log.Printf("session: key event: %s %s", event, key)
-	synthesizeKey(key, event)
+	synthesizeKey(key, code, event, modifiersFrom(input))
 }
 
 func (sm *SessionManager) handleMouseEvent(input map[string]interface{}) {

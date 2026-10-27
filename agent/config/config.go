@@ -26,6 +26,7 @@ type Config struct {
 	Uninstall       bool          `json:"-"`
 	Yes             bool          `json:"-"` // --yes: no confirmation prompt
 	Pause           bool          `json:"-"` // --pause: wait for Enter before exiting
+	GrantInput      bool          `json:"-"` // --grant-input-permission: show the macOS Accessibility prompt
 	ShowVersion     bool          `json:"-"`
 }
 
@@ -77,6 +78,7 @@ func Load() (*Config, error) {
 	pause := flag.Bool("pause", false, "Wait for Enter before exiting (with --uninstall)")
 	version := flag.Bool("version", false, "Print version and exit")
 	logFile := flag.String("log-file", "", "Log file path")
+	grantInput := flag.Bool("grant-input-permission", false, "Ask macOS to show the Accessibility grant prompt for remote input (macOS, cgo build) and exit")
 	flag.Parse()
 
 	cfg.ServerURL = *server
@@ -88,6 +90,7 @@ func Load() (*Config, error) {
 	cfg.Pause = *pause
 	cfg.ShowVersion = *version
 	cfg.LogFile = *logFile
+	cfg.GrantInput = *grantInput
 
 	return cfg, nil
 }

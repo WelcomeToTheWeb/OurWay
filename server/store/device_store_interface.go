@@ -13,5 +13,6 @@ type DeviceStoreInterface interface {
 	ListAll() ([]models.Device, error)
 	Update(d *models.Device) error
 	UpdateLastSeen(id string) error
+	UpdateCapabilities(id, inputCapability, captureState string) error
 	Delete(id string) error
 }

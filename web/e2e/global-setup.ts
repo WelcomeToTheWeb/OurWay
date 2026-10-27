@@ -34,7 +34,23 @@ export default async function globalSetup(): Promise<void> {
   const wsURL = `${API_URL.replace(/^http/, 'ws')}/ws`;
   const child = spawn(
     process.execPath,
-    [join(here, 'support', 'fake-agent.mjs'), '--ws', wsURL, '--keys', units.map((u) => u.deviceKey).join(',')],
+    [
+      join(here, 'support', 'fake-agent.mjs'),
+      '--ws', wsURL,
+      '--keys', units.map((u) => u.deviceKey).join(','),
+      // Each unit states its own remote-control capability on the wire
+      // (2.2-1), and keeps reporting its seeded load, so the console renders
+      // the whole contract — capability and the alert state it implies —
+      // against a connected device, not only against seeded rows.
+      '--report', JSON.stringify(
+        units.map((u) => ({
+          deviceKey: u.deviceKey,
+          inputCapability: u.inputCapability ?? 'unknown',
+          captureState: u.captureState ?? 'unknown',
+          data: u.metrics ?? {},
+        })),
+      ),
+    ],
     { stdio: 'inherit', detached: true },
   );
   writeFileSync(FAKE_AGENT_PID, String(child.pid));

@@ -45,7 +45,17 @@ npm run build --prefix web
 
 # Coverage floor (2.2-0)
 scripts/coverage.sh
+
+# Locale lockstep (2.2 gate): en/de/fr must define the same key paths
+python3 scripts/i18n-parity.py
 ```
+
+The darwin cross-compile above is a compile check of the **non-cgo** path. cgo
+cannot cross-compile from Linux, so the macOS agent that controls input
+(`agent/session/input_darwin_cgo.go`, CoreGraphics) is only ever built on a macOS
+runner with `CGO_ENABLED=1` — `.github/workflows/build.yml`, `build-macos-agents`.
+A darwin binary built any other way reports `input_capability: unavailable` and
+drops remote input by design, so never ship one.
 
 `scripts/coverage.sh` measures total statement coverage for `server/` and `agent/`
 against `coverage.baseline.json` and fails on a decrease — see `scripts/coverage.sh`
@@ -101,16 +111,28 @@ proxy target follows `OURWAY_PROXY_TARGET`. `vite.config.ts` shares the proxy
 config between `server` and `preview`, and Vitest stays scoped to
 `src/**/*.test.{ts,tsx}` so it never collects Playwright specs.
 
-Three constraints that are easy to get wrong in this suite:
+The seeded fleet deliberately carries all four remote-control states (2.2-1), and
+the fake agent reports them on the wire (`heartbeat` + `metrics`, in the agent's
+own `{type, payload}` envelope): a Windows and a Linux unit report `granted`, the
+Mac unit reports `denied` + `capture_state: error`, and a unit whose agent has
+never reported renders as *Not reported*. The seeded load travels with the
+report, so the alert engine keeps evaluating the fleet the seeder described.
+
+Four constraints that are easy to get wrong in this suite:
 
 - **Seeding is registration, not SQL** (`e2e/fixtures.ts`), so re-running against
   a database that already holds a fleet hits the C4 re-registration guard. Point
   `OURWAY_E2E_API_URL` at a fresh database (what CI does), or set
   `OURWAY_E2E_RUN_ID=2` to seed a run-scoped fleet — host names and private
-  addresses move with the run, so the units enroll cleanly. A 401 from
-  registration says which guard fired — the harness quotes the server's own
-  reason, because "already enrolled" and "enrollment secret missing" are
-  opposite problems.
+  addresses move with the run, so the units enroll cleanly. Set
+  `OURWAY_E2E_ENROLLMENT_SECRET` to the server's `ENROLLMENT_SECRET` and the
+  harness sends `x-enrollment-secret` on registration, so the gate is exercised
+  on every run; run without it against a server that has one and seeding stops
+  there. The harness quotes the server's own reason in the 401, because "already
+  enrolled" and "enrollment secret missing" are opposite problems. A shared
+  database plus that secret means registration replays: state from the previous
+  run (approved updates, acknowledged alerts) survives, so repeated local runs
+  want a run id, not a shared fleet.
 - **A viewer socket *is* a session.** The hub ends the session the moment the
   viewer that started it disconnects (`server/ws/hub.go:685`). So a test that
   starts a session from the console overlay and then navigates is watching a
@@ -119,9 +141,23 @@ Three constraints that are easy to get wrong in this suite:
   session itself.
 - **One connection per device key.** The hub accepts a single client per key, so
   a test that opens a device socket displaces the harness's fake agent for that
-  unit. The support agent re-registers in milliseconds on a clean close; tests
-  that need a connected unit wait for it to report `online`
-  (`expectUnitOnline` in `e2e/sessions.spec.ts`) before they act on it.
+  unit. The displacement arrives as close code **1008**
+  ("superseded by newer connection", `server/ws/hub.go:617`), and the support
+  agent treats it as such — 50 ms, not the exponential back-off a network drop
+  deserves, and one pending reconnect per key, because two sockets for one key
+  take turns superseding each other. Tests that need a connected unit wait for it
+  to report `online` (`expectUnitOnline` in `e2e/sessions.spec.ts`) before they
+  act on it.
+- **Assert where the subject can exist.** A browser assertion needs its setup to
+  be possible in CI, not just locally. `POST /api/devices/:id/sessions` answers
+  409 "device is not connected" (the hub has no socket) while the unit's stored
+  status says `online`, and CI's darwin unit sits in that state for a whole run —
+  four retries, four runs. A spec that cannot start the thing it asserts is a
+  spec that quietly never runs, so 2.2-1's session-panel copy is asserted in
+  `web/src/components/SessionView.test.tsx` (the component and the prop that
+  decide it) while `e2e/devices.spec.ts` keeps the unit view. When a browser test
+  fails only in CI, say which of the two is true — the product is wrong, or the
+  test's precondition never holds there — and put the assertion where it runs.
 - **Do not `waitForLoadState('networkidle')`.** The console holds a WebSocket open
   for the whole session, so that event never settles.
 - **Destructive actions are gated by `window.confirm` today** (`buglist.md` M19,

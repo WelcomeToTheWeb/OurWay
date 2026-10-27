@@ -13,6 +13,12 @@
 #   --expect-frames  require a remote-session frame (a session reaching "active")
 #   --expect-service require the installed service to report a heartbeat
 #                    (systemd / launchd / Windows service; run as root/admin)
+#   --expect-capability=VALUE  require the unit to report this input capability
+#                    (granted/denied/unavailable/unknown), or `reported` for
+#                    "the agent stated a decision" (granted *or* denied) —
+#                    which is what a cgo darwin build must do in CI
+#   --expect-latency-ms=MS  fail if the measured server→agent control round
+#                    trip (one key event) exceeds MS milliseconds
 #
 # What it asserts, in the order a real install experiences it:
 #   1. the unit enrolls          (POST /api/agent/register)
@@ -23,6 +29,17 @@
 #                                 which only happens when the agent ships a frame)
 #   6. the service runs          (--expect-service: after --install, the installed
 #                                 service reports a heartbeat of its own)
+#   7. control latency is measured   (POST a key event → the agent acts on it,
+#      stamped by the wall clock: the number the acceptance criteria asks for)
+#   8. the unit states what remote control can do (--expect-capability): the
+#      agent reports its own input capability, so the console never has to
+#      guess. On the macOS runner the assertion is `reported`, not `denied`:
+#      GitHub's macOS images ship with Accessibility already granted to the
+#      runner user, so AXIsProcessTrusted() answers true there and a build that
+#      says so is behaving correctly. The point of the assertion is that a cgo
+#      darwin build *states a decision* (granted/denied) where a CGO_ENABLED=0
+#      build can only say `unavailable` — not that the runner happens to be
+#      ungranted.
 #
 # Screen capture needs a display: pass --expect-frames only where one exists
 # (Linux with Xvfb + scrot, Windows with the runner desktop). On macOS a CI
@@ -33,6 +50,8 @@
 set -euo pipefail
 
 SERVER="" WS="" AGENT="./ourway-agent" NAME="" SECRET="" EXPECT_FRAMES=0 EXPECT_SERVICE=0
+EXPECT_CAPABILITY=""
+EXPECT_LATENCY_MS=""
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 # Root privilege: macOS/Linux need sudo; the Windows runner is already
 # administrator, and Git Bash has no sudo at all.
@@ -50,6 +69,8 @@ while [ $# -gt 0 ]; do
     --secret) SECRET="$2"; shift 2 ;;
     --expect-frames) EXPECT_FRAMES=1; shift ;;
     --expect-service) EXPECT_SERVICE=1; shift ;;
+    --expect-capability=*) EXPECT_CAPABILITY="${1#--expect-capability=}"; shift ;;
+    --expect-latency-ms=*) EXPECT_LATENCY_MS="${1#--expect-latency-ms=}"; shift ;;
     *) echo "agent-smoke: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -143,6 +164,31 @@ done
 [ -n "$LAST_SEEN" ] && ok "heartbeat recorded (last_seen $LAST_SEEN)" || no "heartbeat never recorded"
 [ "${METRICS:-0}" -gt 0 ] && ok "metrics recorded ($METRICS samples)" || no "no metric samples arrived"
 
+# --- 4b. the unit reports what remote control can do on it (2.2-1)
+if [ -n "$EXPECT_CAPABILITY" ]; then
+  step "waiting for the unit to report input_capability=$EXPECT_CAPABILITY"
+  CAPABILITY=""
+  for _ in $(seq 1 30); do
+    CAPABILITY=$(curl -s "${AUTH[@]}" "$SERVER/api/devices/$DEVICE_ID" | json "d['device'].get('input_capability','')")
+    if [ "$EXPECT_CAPABILITY" = "reported" ]; then
+      case "$CAPABILITY" in granted|denied) break ;; esac
+    elif [ "$CAPABILITY" = "$EXPECT_CAPABILITY" ]; then
+      break
+    fi
+    sleep 1
+  done
+  if [ "$EXPECT_CAPABILITY" = "reported" ]; then
+    case "$CAPABILITY" in
+      granted|denied) ok "unit states its input capability ($CAPABILITY) — the console renders that word, never a guess" ;;
+      *) no "unit reported input_capability='${CAPABILITY:-<empty>}' , expected a stated decision (granted/denied)" ;;
+    esac
+  else
+    [ "$CAPABILITY" = "$EXPECT_CAPABILITY" ] \
+      && ok "unit reports its input capability ($CAPABILITY) — the console states it" \
+      || no "unit reported input_capability='${CAPABILITY:-<empty>}' , expected $EXPECT_CAPABILITY"
+  fi
+fi
+
 # --- 5. remote control: a session reaches active, which needs a real frame
 if [ "$EXPECT_FRAMES" = "1" ]; then
   step "starting a remote session"
@@ -166,6 +212,35 @@ for s in json.load(sys.stdin).get('sessions', []):
       no "session never became active (status: ${SSTATE:-gone}) — capture produced no frames"
       echo "  agent log:"; tail -25 "$AGENT_LOG" | sed 's/^/    /'
     fi
+    # Measured control latency: the time from POSTing a key event to the
+    # server, to the agent acting on it (the session code stamps every key
+    # it receives). This is the number 2.2-1's acceptance asks for, and the
+    # one a technician feels as the pointer lagging behind the hand.
+    step "measuring control round-trip"
+    MARK="smoke-$RANDOM"
+    SENT=$(python3 -c 'import time; print(time.time())')
+    curl -s -o /dev/null -X POST "$SERVER/api/sessions/$SESSION_ID/input" "${AUTH[@]}" \
+      -H 'content-type: application/json' \
+      -d "{\"type\":\"key\",\"payload\":{\"event\":\"down\",\"key\":\"j\",\"code\":\"KeyJ\",\"note\":\"$MARK\"}}" || true
+    LATENCY=""
+    for _ in $(seq 1 200); do
+      if grep -q "key event: down j" "$AGENT_LOG" 2>/dev/null; then
+        LATENCY=$(python3 -c "import time; print(round(time.time() - $SENT, 3))")
+        break
+      fi
+      sleep 0.05
+    done
+    if [ -n "$LATENCY" ]; then
+      ok "key event reached the agent in ${LATENCY}s (server→agent, same host)"
+      if [ -n "$EXPECT_LATENCY_MS" ] && python3 -c "import sys; sys.exit(0 if $LATENCY*1000 <= $EXPECT_LATENCY_MS else 1)"; then
+        ok "control latency ${LATENCY}s within the ${EXPECT_LATENCY_MS} ms budget"
+      elif [ -n "$EXPECT_LATENCY_MS" ]; then
+        no "control latency ${LATENCY}s exceeds the ${EXPECT_LATENCY_MS} ms budget"
+      fi
+    else
+      no "the agent never logged the key event (control path dead?)"
+    fi
+
     curl -s -o /dev/null -X DELETE "$SERVER/api/sessions/$SESSION_ID" "${AUTH[@]}" || true
   else
     no "session start failed"

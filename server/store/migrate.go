@@ -116,6 +116,23 @@ var migrations = []migration{
 		}
 		return db.Migrator().AddColumn(&models.Session{}, "ViewerTokenHash")
 	}},
+	{version: 7, name: "devices_input_and_capture_capability", fn: func(db *gorm.DB) error {
+		// 2.2-1: the agent reports whether remote input can land on it and
+		// whether capture is producing frames. Additive: older agents send
+		// neither, and the stored "unknown" is what the console shows.
+		for _, col := range []struct{ model, field string }{
+			{"devices", "input_capability"},
+			{"devices", "capture_state"},
+		} {
+			if db.Migrator().HasColumn(col.model, col.field) {
+				continue
+			}
+			if err := db.Migrator().AddColumn(&models.Device{}, col.field); err != nil {
+				return err
+			}
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

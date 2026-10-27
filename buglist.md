@@ -63,8 +63,8 @@ advertises and what the code does. Findings are numbered continuously with the
 October set.
 
 ### 🟠 H8. macOS remote control is view-only
-**Status:** ⚠️ Open — scoped as `v2.2.0` scope in `docs/roadmap-2.x.md`
-**Files:** `agent/session/input_darwin.go`
+**Status:** ✅ Fixed in `v2.2.0` (2.2-1) — `agent/session/input_darwin_cgo.go`
+**Files:** `agent/session/input_darwin_cgo.go`, `agent/session/input_darwin_nocgo.go`
 
 `synthesizeKey` and `synthesizeMouse` on darwin log the event and return. Screen
 capture, geometry, framing, and the session control path are all implemented for
@@ -74,10 +74,18 @@ click the technician sends is silently discarded. `PRODUCT.md` and `README.md`
 advertise remote control on all three desktop OSes; only Windows
 (`input_windows.go`) and Linux (`input_linux.go`) synthesize input.
 
-**Fix:** CGEvent-backed synthesis (`CGEventCreateKeyboardEvent`,
-`CGEventCreateMouseEvent`) plus the macOS Accessibility-permission gate — the
-capture half is already there. `x`/`y` already arrive as 0–100 frame percentages
-and `toScreenCoords` maps them, so the coordinate contract is ready.
+**Fix (shipped):** CGEvent-backed keyboard/mouse/scroll posting in a cgo file,
+with the browser `code`/`key` → macOS virtual-key table in
+`agent/session/macosmapping.go` (tested) and the modifier state carried on every
+key event. The Accessibility (TCC) state is read with `AXIsProcessTrusted`,
+reported to the server on the metrics envelope (`input_capability`), and named on
+the unit view and in the session panel. A `CGO_ENABLED=0` darwin build — what a
+plain Linux cross-compile produces — now reports `unavailable` and drops input
+*loudly*, instead of silently. `ourway-agent --grant-input-permission` shows the
+grant prompt; `docs/agent.md` states the per-binary / per-path / codesign rule.
+CI builds the cgo darwin binaries (arm64 + amd64) on a macOS runner and the smoke
+job asserts the unit reports `denied` there. Measured control round-trip on the
+smoke run: 0.034 s (server → agent, same host).
 
 ### 🟡 M15. WebRTC removal was server-side only; the agent kept it
 **Status:** ✅ Fixed 2026-10-26 — `agent/session/webrtc.go` (178 lines,
@@ -231,7 +239,7 @@ session at all.
 `en`/`de`/`fr` like every other string.
 
 ### 🟡 M20. A unit that cannot capture spams 15 log lines a second and tells the console nothing
-**Status:** ⚠️ Open — the state reporting belongs with 2.2-1 (macOS TCC surfacing)
+**Status:** ✅ Fixed in `v2.2.0` (2.2-1)
 **Files:** `agent/session/session.go` (capture loop), found by `scripts/agent-smoke.sh`
 
 `captureLoop` runs at 15 fps; on capture failure it logs `session: capture error: …`
@@ -241,10 +249,13 @@ that is 15 identical lines per second for the whole session (the smoke run produ
 about 1,900 in two minutes), with no backoff, no consolidation, and no signal to the
 server: the technician's session panel stays blank with no reason.
 
-**Fix:** back off after repeated failures, log the first and the recovery, and report
-the capture state (`ok` / `denied-permission` / `no-display` / `error`) through the
-agent status envelope so the console can name the reason. The macOS permission case is
-2.2-1's device-detail surface — same field, one design.
+**Fix (shipped):** the capture loop records its outcome and reports it as
+`capture_state` (`ok` / `error`) on the same metrics envelope as the input
+capability; the console shows *Capture failing* on the unit view. Logging goes
+through `logThrottled`, which emits one line per reason per 10 seconds and one on
+recovery — the ~1,900 identical lines from the two-minute smoke run are gone.
+The finer states (`denied-permission` vs `no-display`) are a macOS-side mapping
+left for the Screen-Recording grant work.
 
 ### 🟢 L13. `TestViewerSessionRelay` can fail under container load
 **Status:** ⚠️ Observed once (not reproduced in 4 later runs)

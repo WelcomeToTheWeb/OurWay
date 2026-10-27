@@ -76,6 +76,25 @@ func (s *DeviceStore) UpdateLastSeen(id string) error {
 		}).Error
 }
 
+// UpdateCapabilities records what the agent reported about itself (2.2-1):
+// whether remote input can land on it, and whether capture is producing
+// frames. Empty values are left untouched, so an agent that reports only one
+// field cannot erase the other, and an agent that reports nothing leaves the
+// stored "unknown" in place.
+func (s *DeviceStore) UpdateCapabilities(id, inputCapability, captureState string) error {
+	updates := map[string]interface{}{}
+	if inputCapability != "" {
+		updates["input_capability"] = inputCapability
+	}
+	if captureState != "" {
+		updates["capture_state"] = captureState
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return s.db.Model(&models.Device{}).Where("id = ?", id).Updates(updates).Error
+}
+
 // Delete removes a device by ID.
 func (s *DeviceStore) Delete(id string) error {
 	return s.db.Delete(&models.Device{}, "id = ?", id).Error

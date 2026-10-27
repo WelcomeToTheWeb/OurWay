@@ -126,6 +126,26 @@ jobs:
           # Later steps need the client on PATH.
           Add-Content -Path $env:GITHUB_PATH -Value $bin
 
+      # 2.2-1: the macOS input path is cgo (CoreGraphics), and a cgo package
+      # is only compiled where the Apple toolchain exists — every Linux job
+      # cross-compile silently skips it. This step builds the real darwin
+      # binaries with CGO_ENABLED=1, for the runner's architecture and across
+      # to the other one, so the cgo path is compiled in CI on every push.
+      - name: Build the cgo macOS agent (arm64 + amd64)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          host=$(go env GOARCH)
+          other=arm64; [ "$host" = arm64 ] && other=amd64
+          # `-o` is resolved against the `-C` directory, so `../` is what puts
+          # the binary in the workspace root, where the smoke step and the
+          # `file` probe below look for it. The first macOS run of this step
+          # built both binaries and then failed on its own `ls`.
+          CGO_ENABLED=1 GOOS=darwin GOARCH="$host"  go build -C agent -o ../ourway-agent-cgo-$host .
+          CGO_ENABLED=1 GOOS=darwin GOARCH="$other" go build -C agent -o ../ourway-agent-cgo-$other .
+          ls -la ./ourway-agent-cgo-*
+          file ./ourway-agent-cgo-*
+
       # Linux screen capture shells out to scrot/import on an X display; the
       # runner has Xvfb but not a display, and scrot is not preinstalled.
       - name: Prepare a display (Linux)
@@ -133,7 +153,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq scrot imagemagick xvfb
+          sudo apt-get install -y -qq scrot imagemagick xvfb xdotool
           Xvfb :99 -screen 0 1280x800x24 -ac >/tmp/xvfb.log 2>&1 &
           sleep 2
           echo "DISPLAY=:99" >> "$GITHUB_ENV"
@@ -160,7 +180,17 @@ jobs:
           # granted non-interactively; the script prints that it skipped frames
           # rather than passing them off as a green result.
           if [ "${{ matrix.os }}" != "macos-latest" ]; then
-            args+=(--expect-frames)
+            args+=(--expect-frames --expect-capability=granted --expect-latency-ms=2000)
+          else
+            # Run the cgo build and require it to state its own state. The
+            # assertion is "a decision was reported", not "denied": GitHub's
+            # macOS images ship with Accessibility granted to the runner user, so
+            # AXIsProcessTrusted() answers true there and `granted` is the honest
+            # report. What must never happen on a cgo build is `unknown` /
+            # `unavailable` — a unit that says nothing is the bug 2.2-1 removes.
+            cp ./ourway-agent-cgo-$(go env GOARCH) ./ourway-agent
+            chmod +x ./ourway-agent
+            args+=(--expect-capability=reported)
           fi
           bash scripts/agent-smoke.sh "${args[@]}"
 

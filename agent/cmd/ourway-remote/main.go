@@ -217,8 +217,9 @@ func main() {
 				switch in.Type {
 				case "key":
 					key, _ := m["key"].(string)
+					code, _ := m["code"].(string)
 					event, _ := m["event"].(string)
-					session.InjectKey(key, event)
+					session.InjectKey(key, code, event, session.ModifiersFrom(m))
 				case "mouse":
 					event, _ := m["event"].(string)
 					x, _ := m["x"].(float64)
