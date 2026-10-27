@@ -20,8 +20,8 @@ import (
 // The API presents the sentinel (`UnassignedClientID`) in list responses so
 // the console has one name for the concept; nothing stores it.
 type Client struct {
-	ID      string `gorm:"type:uuid;primaryKey" json:"id"`
-	Name    string `gorm:"not null" json:"name"`
+	ID   string `gorm:"type:uuid;primaryKey" json:"id"`
+	Name string `gorm:"not null" json:"name"`
 	// Slug is the URL/filter identity (`?client=<slug>`), unique and
 	// normalized like tags: lower-case, trimmed, 1-32 chars of a-z 0-9 . _ - :.
 	// Two clients whose names differ only by case or spacing are the same
