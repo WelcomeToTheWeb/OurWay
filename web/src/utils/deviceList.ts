@@ -140,6 +140,19 @@ export function devicesViewToParams(
 }
 
 /** Any filter at all? Drives the "N of M units in view" line and Clear. */
+/**
+ * Are any filters on? Explicitly field by field, because the caller is the
+ * whole view object — filters plus sort and direction — and a JSON comparison
+ * against `defaultFilters` reads "sorted" as "filtered". That misreport is what
+ * made an ungranted tenant's empty fleet say "no devices match your search"
+ * with a Clear-filters button, when the honest answer is "you have no devices".
+ */
 export function isFiltered(v: DeviceFilters): boolean {
-  return JSON.stringify(v) !== JSON.stringify(defaultFilters);
+  return (
+    v.search.trim() !== '' ||
+    v.status !== 'all' ||
+    v.os !== 'all' ||
+    v.tag.trim() !== '' ||
+    v.client.trim() !== ''
+  );
 }
