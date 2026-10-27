@@ -20,6 +20,11 @@ type Device struct {
 	// Tags are free-form labels used to group devices (policy scope, filters,
 	// bulk actions). Normalized by NormalizeTags.
 	Tags []string `gorm:"type:text;serializer:json" json:"tags"`
+	// ClientID is the tenant this device belongs to (2.3-0). NULL is not a
+	// missing value: it *is* "unassigned", and it is the only definition of it.
+	// It is indexed because every scoped read filters on it, and a 10,000-device
+	// fleet must not pay a scan per list (2.3-8).
+	ClientID *string `gorm:"type:uuid;index" json:"client_id"`
 	// RebootPending is set when a deployment reported that the device
 	// needs a reboot to finish patching; cleared when a reboot is sent.
 	RebootPending bool `gorm:"not null;default:false" json:"reboot_pending"`

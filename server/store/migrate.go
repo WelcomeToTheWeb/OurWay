@@ -133,6 +133,53 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 8, name: "clients_and_user_client_scope", fn: func(db *gorm.DB) error {
+		// 2.3-0: the tenant axis. Two new tables and one nullable column — no
+		// data rewrite, because a pre-2.3 device has no client and `NULL` is
+		// that fact (2.3-7's upgrade test asserts exactly this: every device
+		// survives, every device reads as unassigned).
+		if !db.Migrator().HasTable(&models.Client{}) {
+			if err := db.Migrator().CreateTable(&models.Client{}); err != nil {
+				return err
+			}
+		}
+		if !db.Migrator().HasTable(&models.UserClient{}) {
+			if err := db.Migrator().CreateTable(&models.UserClient{}); err != nil {
+				return err
+			}
+		}
+		if !db.Migrator().HasColumn(&models.Device{}, "client_id") {
+			if err := db.Migrator().AddColumn(&models.Device{}, "ClientID"); err != nil {
+				return err
+			}
+		}
+		// The index is created here as well as declared on the model: on an
+		// existing 2.2 table, AddColumn does not build model indexes, and every
+		// scoped read filters on this column.
+		if !db.Migrator().HasIndex(&models.Device{}, "client_id") {
+			if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices (client_id)").Error; err != nil {
+				return err
+			}
+		}
+		// The plan names `client_id` a foreign key, so Postgres enforces it:
+		// a device pointing at a client that does not exist is a row no scope
+		// query can ever return. `ClientStore.Delete` nulls the devices first,
+		// so the default RESTRICT never blocks the deletion it must not block.
+		if db.Dialector.Name() == "postgres" {
+			var exists bool
+			if err := db.Raw(
+				"SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_devices_client')",
+			).Row().Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				if err := db.Exec("ALTER TABLE devices ADD CONSTRAINT fk_devices_client FOREIGN KEY (client_id) REFERENCES clients(id)").Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

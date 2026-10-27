@@ -87,3 +87,128 @@ func TestPostgresMigrationsUpgradeFromV1(t *testing.T) {
 		t.Fatalf("applied %v, want %d", versions, len(migrations))
 	}
 }
+
+// 2.3-0's acceptance, on the database the release actually upgrades: Postgres.
+// SQLite builds a fresh schema every time and so cannot show that a 2.2 row
+// survives the column addition.
+//
+// The claim being tested is the one the upgrade guide has to keep: a 2.2
+// database comes forward with every device intact, every device readable, and
+// every device *unassigned* — because `client_id IS NULL` is the whole
+// definition of unassigned, and no migration invents a tenant for anybody.
+func TestPostgresMigrationsUpgradeFromV22(t *testing.T) {
+	st := pgStore(t)
+
+	// A fleet as 2.2 left it: devices, no client column, no client tables.
+	// Created through the store, so the rows are the shape the product writes.
+	devices := []string{}
+	for i := 0; i < 3; i++ {
+		d := &models.Device{
+			ID:        uuid.NewString(),
+			Name:      "unit-0" + string(rune('1'+i)),
+			Hostname:  "unit-0" + string(rune('1'+i)),
+			OS:        "linux",
+			Arch:      "amd64",
+			Status:    "online",
+			Tags:      []string{},
+			DeviceKey: uuid.NewString(),
+		}
+		if err := st.Devices.Create(d); err != nil {
+			t.Fatalf("create device: %v", err)
+		}
+		devices = append(devices, d.ID)
+	}
+
+	// Roll the schema back to 2.2: drop what 2.3 adds, and forget it was ever
+	// applied. Re-running Migrate must put it back, idempotently.
+	for _, stmt := range []string{
+		"ALTER TABLE devices DROP COLUMN client_id",
+		"DROP TABLE IF EXISTS user_clients",
+		"DROP TABLE IF EXISTS clients",
+		"DELETE FROM schema_migrations WHERE version > 7",
+	} {
+		if err := st.DB.Exec(stmt).Error; err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+
+	if err := Migrate(st.DB); err != nil {
+		t.Fatalf("upgrade 2.2 → 2.3: %v", err)
+	}
+	if err := Migrate(st.DB); err != nil {
+		t.Fatalf("second Migrate (idempotency): %v", err)
+	}
+	versions, _ := AppliedVersions(st.DB)
+	if len(versions) != len(migrations) {
+		t.Fatalf("applied %v, want %d", versions, len(migrations))
+	}
+
+	// Every device is still there and readable, with no client.
+	for _, id := range devices {
+		d, err := st.Devices.GetByID(id)
+		if err != nil {
+			t.Fatalf("device %s after upgrade: %v", id, err)
+		}
+		if d == nil {
+			t.Fatalf("device %s vanished in the upgrade", id)
+		}
+		if d.ClientID != nil {
+			t.Fatalf("device %s came forward with client %v; the upgrade assigns nothing", id, *d.ClientID)
+		}
+	}
+
+	// The unassigned bucket is exactly that fleet — the sentinel the API
+	// presents, computed from NULLs, with no row behind it.
+	unassigned, err := st.Devices.ListScoped(nil, true)
+	if err != nil {
+		t.Fatalf("ListScoped(unassigned): %v", err)
+	}
+	if len(unassigned) != len(devices) {
+		t.Fatalf("unassigned bucket has %d devices, want %d", len(unassigned), len(devices))
+	}
+
+	// The client filter is indexed: 2.3-8's rule is that scoping must not cost
+	// a scan per list, and the index is the part a migration can forget.
+	var indexed bool
+	if err := st.DB.Raw(
+		"SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'devices' AND indexdef ILIKE '%client_id%')",
+	).Row().Scan(&indexed); err != nil {
+		t.Fatalf("index probe: %v", err)
+	}
+	if !indexed {
+		t.Fatal("devices.client_id has no index after the upgrade")
+	}
+
+	// The plan names `client_id` a foreign key. On Postgres that is enforced,
+	// which is the difference between "the store is careful" and "a device
+	// cannot point at a client that does not exist".
+	var fk bool
+	if err := st.DB.Raw(
+		"SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_devices_client')",
+	).Row().Scan(&fk); err != nil {
+		t.Fatalf("fk probe: %v", err)
+	}
+	if !fk {
+		t.Fatal("devices.client_id has no foreign key to clients after the upgrade")
+	}
+
+	// And the FK does not obstruct the deletion rule: removing a client moves
+	// its devices to unassigned, it does not fail on the reference.
+	client := &models.Client{ID: models.NewClientID(), Name: "Acme", Slug: "acme"}
+	if _, err := st.Clients.Create(client); err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	if _, err := st.Clients.AssignDevices(client.ID, devices); err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+	if err := st.Clients.Delete(client.ID); err != nil {
+		t.Fatalf("delete client with devices: %v", err)
+	}
+	after, err := st.Devices.ListScoped(nil, true)
+	if err != nil {
+		t.Fatalf("ListScoped: %v", err)
+	}
+	if len(after) != len(devices) {
+		t.Fatalf("after deleting the client, %d devices read as unassigned, want %d", len(after), len(devices))
+	}
+}

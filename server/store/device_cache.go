@@ -67,6 +67,14 @@ func (s *CachedDeviceStore) ListAll() ([]models.Device, error) {
 	return s.ds.ListAll()
 }
 
+// ListScoped passes straight through to the store: the cache keys single
+// devices (`device:<id>`), so a scoped list has no cache entry to read, and
+// caching a caller's *scope* is how a technician ends up seeing the client they
+// were just removed from.
+func (s *CachedDeviceStore) ListScoped(clientIDs []string, includeUnassigned bool) ([]models.Device, error) {
+	return s.ds.ListScoped(clientIDs, includeUnassigned)
+}
+
 // Update updates a device and invalidates its cache.
 func (s *CachedDeviceStore) Update(device *models.Device) error {
 	err := s.ds.Update(device)
