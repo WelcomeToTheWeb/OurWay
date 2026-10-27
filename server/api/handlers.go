@@ -266,6 +266,23 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		protected.POST("/sso/providers", RequireRole("admin"), ssoHandler.CreateProvider)
 		protected.DELETE("/sso/providers/:id", RequireRole("admin"), ssoHandler.DeleteProvider)
 
+		// Client (tenant) routes — 2.3-4. Reads respect the caller's client
+		// scope; every write is admin-only, because assigning a unit or granting
+		// a client is what moves fleets between people.
+		clientHandler := NewClientHandler(store)
+		clientGroup := protected.Group("/clients")
+		{
+			clientGroup.GET("", clientHandler.ListClients)
+			clientGroup.POST("", RequireRole("admin"), clientHandler.CreateClient)
+			clientGroup.GET("/:id", clientHandler.GetClient)
+			clientGroup.PUT("/:id", RequireRole("admin"), clientHandler.UpdateClient)
+			clientGroup.DELETE("/:id", RequireRole("admin"), clientHandler.DeleteClient)
+			clientGroup.PUT("/:id/devices", RequireRole("admin"), clientHandler.AssignDevices)
+			clientGroup.GET("/:id/rollup", clientHandler.ClientRollup)
+			clientGroup.GET("/:id/users", RequireRole("admin"), clientHandler.ListClientUsers)
+			clientGroup.PUT("/:id/users", RequireRole("admin"), clientHandler.SetClientUsers)
+		}
+
 		// Webhook routes (API v2)
 		webhookGroup := protected.Group("/v2/webhooks")
 		{

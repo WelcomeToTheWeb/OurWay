@@ -193,11 +193,27 @@ is an action on a client the caller must not touch.
 
 ---
 
-## 2.3-4 · Client CRUD + the Clients surface
+## 2.3-4 · Client CRUD + the Clients surface · 🔨 API half delivered, console half open
+
+**Split, and why.** The API and the console surface are two PRs: the API is the
+contract (and `docs/api.md` moves with it), and the console is the ledger, the
+assignment UI, `ConfirmSheet` copy in three locales, and e2e. Landing them
+together would make one review that cannot say which half a comment is about.
+The enrollment-token pairing is a **third** piece — it is an authentication
+surface, and it deserves its own gate, not a ride along with a ledger.
+
+Shipped: `server/api/clients.go` — CRUD, `PUT /api/clients/:id/devices`
+(assign batch and empty-out), `GET /api/clients/:id/rollup`, and
+`GET`/`PUT /api/clients/:id/users` for the grants. Routes in
+`server/api/handlers.go`, documented in `docs/api.md` (§ Client Endpoints).
+Tests: `server/api/clients_test.go` (6 tests over the real router).
 
 **Do**
-- [ ] `GET/POST /api/clients`, `PUT/DELETE /api/clients/:id`; `PUT /api/clients/:id/devices`
-      (assign batch), `GET /api/clients/:id/rollup`.
+- [x] `GET/POST /api/clients`, `PUT/DELETE /api/clients/:id`; `PUT /api/clients/:id/devices`
+      (assign batch), `GET /api/clients/:id/rollup`. **Plus** `GET`/`PUT
+      /api/clients/:id/users`, which the plan's 2.3-4 acceptance needs to grant a
+      technician two clients in the first place — the grants are rows, and
+      without an endpoint there is no way to create them outside the store.
 - [ ] `admin` manages clients; `manager` reads clients in scope. Deleting a client
       moves its devices to `unassigned` — never deletes devices.
 - [ ] Assign a client at enrollment via the enrollment flow when
@@ -208,11 +224,18 @@ is an action on a client the caller must not touch.
       assignment.
 
 **Acceptance criteria**
-- Deleting a client leaves every device intact and `client_id IS NULL`, asserted in
-  a store test.
-- A technician assigned to two clients sees exactly those two in the ledger.
-- `GET /api/clients/:id/rollup` numbers equal the device-ledger numbers computed
-  independently — the same single-source rule as 2.2-4.
+- [x] Deleting a client leaves every device intact and `client_id IS NULL`,
+  asserted in a store test (2.3-0's `TestPostgresMigrationsUpgradeFromV22`) **and**
+  through the API (`TestClientsDeleteMovesDevicesToUnassigned`).
+- [x] A technician assigned to two clients sees exactly those two in the ledger
+  (`TestClientsTwoGrantsSeeExactlyTwo` — the client list, the fleet, and the
+  `X-OurWay-Client-Scope` header all name exactly the two granted ids, and the
+  unassigned unit is not among them).
+- [x] `GET /api/clients/:id/rollup` numbers equal the device-ledger numbers
+  computed independently — the same single-source rule as 2.2-4
+  (`TestClientsRollupMatchesTheLedgers` recomputes units, units online, alerts by
+  severity and patch compliance from `ListScoped` / `ListByStatusesScoped` and
+  compares them field by field).
 - Every string in `en`/`de`/`fr` in lockstep, and `scripts/i18n-parity.py` (2.2-5)
   is green.
 

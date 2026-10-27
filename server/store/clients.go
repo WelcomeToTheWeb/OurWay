@@ -57,6 +57,8 @@ type ClientStoreInterface interface {
 	// this caller may not touch", so a partial bulk fails as 400 naming ids
 	// instead of writing to the ones it may.
 	DeviceIDsNotIn(clientIDs []string, includeUnassigned bool, deviceIDs []string) ([]string, error)
+	// UsersForClient lists the accounts granted this client.
+	UsersForClient(clientID string) ([]models.User, error)
 
 	// Client scope of a user.
 	ClientIDsForUser(userID string) ([]string, error)
@@ -260,6 +262,28 @@ func (s *ClientStore) AddUserClient(userID, clientID string) error {
 		UserID:   userID,
 		ClientID: clientID,
 	}).Error
+}
+
+// UsersForClient lists the accounts granted this client. The grants are the
+// scope, so this is the ledger's "who can see this fleet" answer and the
+// starting point of a `PUT /api/clients/:id/users` replace.
+func (s *ClientStore) UsersForClient(clientID string) ([]models.User, error) {
+	var rows []models.UserClient
+	if err := s.db.Where("client_id = ?", clientID).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	userIDs := make([]string, 0, len(rows))
+	for _, r := range rows {
+		userIDs = append(userIDs, r.UserID)
+	}
+	if len(userIDs) == 0 {
+		return []models.User{}, nil
+	}
+	var users []models.User
+	if err := s.db.Where("id IN ?", userIDs).Order("username").Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
 }
 
 func (s *ClientStore) RemoveUserClient(userID, clientID string) error {
