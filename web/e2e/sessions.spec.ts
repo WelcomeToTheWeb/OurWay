@@ -128,8 +128,20 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   const row = page.getByRole('row').filter({ hasText: reFor(sessionID.slice(0, 8)) }).first();
   await expect(row, 'the started session should appear in the ledger').toBeVisible({ timeout: 10_000 });
   await expect(row, 'the row is this session, on this unit').toContainText(reFor(unit.id.slice(0, 8)));
-  // Pending until the agent reports a frame, per server/api/sessions.go.
-  await expect(row).toContainText(/pending|active/);
+
+  // Its state comes from the server, which is the ledger's source: pending
+  // until the agent reports a frame, active once it does (server/api/sessions.go).
+  const ledgerToken = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
+  const listed = await fetch(`${apiBase()}/api/sessions`, {
+    headers: { authorization: `Bearer ${ledgerToken}` },
+  });
+  const listedBody = await listed.json();
+  const recorded = (listedBody.sessions as { device_id?: string; id: string; status: string }[]).find(
+    (x) => x.id === sessionID,
+  );
+  expect(recorded, 'the started session is server state').toBeTruthy();
+  expect(recorded?.device_id, 'the ledger records this session on this unit').toBe(unit.id);
+  expect(['pending', 'active']).toContain(recorded?.status);
 
   // The session survives a reload: it is server state, not page state.
   await page.reload();
@@ -140,7 +152,6 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   // a harness that accepts a dialog to make its cleanup is testing the dialog,
   // not the ledger. Task 2.2-9 replaces the dialog with ConfirmSheet and puts
   // the click assertion where it belongs.
-  const ledgerToken = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
   const ended = await fetch(`${apiBase()}/api/sessions/${sessionID}`, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${ledgerToken}` },

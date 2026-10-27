@@ -7,9 +7,8 @@ import { Sidebar } from './Sidebar';
 import { LinkStamp, Stamp } from './Stamp';
 import { useGlobalShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { listPolicies } from '../api/patching';
+import { useFleet } from '../hooks/useFleet';
 import { getServerVersion, type ServerVersion } from '../api/system';
-import type { PatchPolicy } from '../types/patch';
 import { nextWindow, untilLabel } from '../utils/nextWindow';
 import { formatWindow } from '../utils/patchWindow';
 import { useRateLimit } from '../hooks/useRateLimit';
@@ -27,7 +26,6 @@ export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [clock, setClock] = useState(() => new Date());
-  const [policies, setPolicies] = useState<PatchPolicy[]>([]);
   const [serverVersion, setServerVersion] = useState<ServerVersion | null>(null);
   // Telling the technician that polling is resting belongs in the shift bar:
   // it explains why figures stop moving, before they go hunting for a bug.
@@ -39,15 +37,10 @@ export function Layout() {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    listPolicies()
-      .then((p) => !cancelled && setPolicies(p))
-      .catch(() => !cancelled && setPolicies([]));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // The shift bar reads the policy list off the shared fleet model (2.2-2):
+  // the bar is mounted on every page, so as its own poller it was the read
+  // every navigation paid.
+  const { data: policies } = useFleet('patchPolicies');
 
   useEffect(() => {
     let cancelled = false;

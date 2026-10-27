@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, RotateCw, ShieldCheck, ShieldAlert, Server, Radio } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -9,12 +9,10 @@ import { DeviceCard } from '../components/DeviceCard';
 import { FieldBox } from '../components/FieldBox';
 import { Stamp } from '../components/Stamp';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
-import { getPatchOverview } from '../api/patching';
 import { useRateLimit } from '../hooks/useRateLimit';
-import { listSessions, type Session } from '../api/sessions';
-import type { DeviceCompliance, PatchOverview, PatchPolicy } from '../types/patch';
+import { useFleet } from '../hooks/useFleet';
+import type { DeviceCompliance } from '../types/patch';
 import { buildAttentionList, osBreakdown } from '../utils/attention';
-import { listPolicies } from '../api/patching';
 import { useFleetHistory } from '../stores/fleetHistory';
 
 /**
@@ -28,31 +26,27 @@ export function Dashboard() {
   const { connected } = useWebSocket(accessToken);
   const canSeePatches = hasAnyRole(['admin', 'manager', 'technician']);
 
-  const [overview, setOverview] = useState<PatchOverview | null>(null);
-  const [policies, setPolicies] = useState<PatchPolicy[]>([]);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  // One read model, many views (2.2-2): the dashboard takes what it needs from
+  // the shared collections, so opening this page alongside Devices or a unit
+  // detail costs no additional list reads.
+  const { data: overview, refresh: refreshOverview } = useFleet('patchOverview', {
+    enabled: canSeePatches,
+    owner: canSeePatches,
+  });
+  const { data: policies, refresh: refreshPolicies } = useFleet('patchPolicies');
+  const { data: sessions, refresh: refreshSessions } = useFleet('sessions');
   const { limited, secondsLeft } = useRateLimit();
   const samples = useFleetHistory((s) => s.samples);
   const push = useFleetHistory((s) => s.push);
 
-  const load = useCallback(async () => {
-    try {
-      const [o, p, s] = await Promise.all([
-        canSeePatches ? getPatchOverview() : Promise.resolve(null),
-        listPolicies().catch(() => [] as PatchPolicy[]),
-        listSessions().catch(() => [] as Session[]),
-      ]);
-      setOverview(o);
-      setPolicies(p);
-      setSessions(s);
-    } catch {
-      setOverview(null);
-    }
-  }, [canSeePatches]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // "Reload" asks every collection this page reads for a fresh pass; the
+  // subscription already did the first read on mount.
+  const load = useCallback(() => {
+    refresh();
+    refreshOverview();
+    refreshPolicies();
+    refreshSessions();
+  }, [refresh, refreshOverview, refreshPolicies, refreshSessions]);
 
   const online = devices.filter((d) => d.status === 'online').length;
   const alerts = devices.filter((d) => d.status === 'alert').length;
@@ -146,7 +140,7 @@ export function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => void load()} className="btn btn-quiet">
+          <button onClick={() => load()} className="btn btn-quiet">
             <RefreshCw className="h-3.5 w-3.5" /> {t('sheet.reload')}
           </button>
           <button onClick={refresh} className="btn">

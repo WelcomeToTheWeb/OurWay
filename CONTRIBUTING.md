@@ -164,6 +164,41 @@ Four constraints that are easy to get wrong in this suite:
   task 2.2-9): Playwright dismisses dialogs by default, so a test that ends a
   session must accept one. That is the smell, not the design.
 
+## The fleet read model (2.2-2)
+
+`web/src/stores/fleet.ts` owns the shared fleet collections — the unit list,
+the patch-compliance view, the policy list, the session ledger — with **one
+ref-counted poller per collection**. Pages subscribe through
+`useFleet(key, { enabled?, owner? })`:
+
+- A page that *is* the collection (the sessions ledger on the sessions page,
+  the unit ledger on the devices page) passes `owner: true`: it reads on mount
+  unless the data landed in the last 3 s, which is the same-commit case.
+- Everyone else rides along. Opening a unit view after the dashboard issues
+  **no** fleet list read — the unit view's own reads are that unit's record and
+  its metric history.
+- A role that may not read a collection passes `enabled: false` and subscribes
+  nothing (a viewer's 403 is not a feature).
+- A mutation invalidates: starting a session calls `invalidateFleet('sessions')`
+  so a ledger open in another tab is not a minute behind.
+- Streaming (`POST /api/devices/:id/stream`) and per-device metric history stay
+  per-detail, exactly as they were.
+
+Two rules this layer must keep:
+
+- Do not persist a `fetchedAt` stamp without its data. The store persists the
+  unit list only, so a reload reads the rest at mount; persisting stamps without
+  data shows an empty ledger for the length of the freshness window.
+- The read queue and 429 back-off in `api/client.ts` are the back-stop, not the
+  mechanism. If a page needs a poller, it subscribes; it does not add its own
+  `setInterval`.
+
+Measured on the seeded e2e fleet (production bundle, `e2e/fleet.spec.ts`): a cold
+dashboard mount costs 5 fleet reads (7 with the shell's auth/version reads)
+against 14 before 2.1.0; a unit view opened from it costs 2 reads, both about
+that unit; two surfaces open sit at roughly 15 reads/min against the documented
+100 req/min default (`RATE_LIMIT_PER_MINUTE`, 2.2-3).
+
 ## Conventions
 
 - **Commit messages** use conventional-commit prefixes: `fix:`, `feat:`,

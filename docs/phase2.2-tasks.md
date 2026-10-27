@@ -147,19 +147,38 @@ reported" as unknown, never as granted.
 
 ---
 
-## 2.2-2 · Shared fleet store: end the per-page polling
+## 2.2-2 · Shared fleet store: end the per-page polling · ✅ delivered
+
+**Delivered:** `web/src/stores/fleet.ts` is the read model (unit list, patch
+compliance, policy list, session ledger) with one ref-counted poller per
+collection; `useFleet(key, { enabled, owner })` is the subscription, `web/src/stores/devices.ts`
+and the per-page `setInterval` pollers are gone, and `useRateLimitAwarePoll` is
+gone with them (rate-limit rest moved into the shared poller). Measured on the
+seeded e2e fleet with the production bundle (`web/e2e/fleet.spec.ts`): cold
+dashboard mount **5 fleet reads / 7 total** (14 before 2.1.0), a unit view opened
+from it adds **zero** fleet reads (its own record + metric history only), two
+surfaces open ≈ **15 reads/min** against the documented 100. 8 vitest cases in
+`web/src/stores/fleet.test.ts` cover the subscriber claims, including the two
+that the browser cannot: an invalidated collection re-reads, and a role that may
+not read a collection subscribes nothing.
+
+Two things the harness caught on the way, both kept as rules in
+`CONTRIBUTING.md`: persisting a freshness stamp without its data shows an empty
+ledger for the length of the window (the reload test in `e2e/sessions.spec.ts`
+found it), and measuring a mount by navigating *after* signing in counts the
+landing mount too — mount costs are measured on a cold context.
 
 **Finding:** `.impeccable/review/verdict.md`, debt #1 — polling is per-page; a
 shared fleet store cuts request pressure roughly in half.
 
 **Do**
-- [ ] One fleet read model owning the device list, alert rollups, and metric
+- [x] One fleet read model owning the device list, alert rollups, and metric
       history — `web/src/stores/devices.ts`, `metrics.ts`, and `fleetHistory.ts`
       become views on it instead of three independent pollers.
-- [ ] A single fleet poller with a page-driven subscription, so opening device
+- [x] A single fleet poller with a page-driven subscription, so opening device
       detail adds **zero** new list reads.
-- [ ] Streaming (`POST /api/devices/:id/stream`) stays per-detail and is unaffected.
-- [ ] Measure the dashboard mount cost before and after, on the same fixture set.
+- [x] Streaming (`POST /api/devices/:id/stream`) stays per-detail and is unaffected.
+- [x] Measure the dashboard mount cost before and after, on the same fixture set.
 
 **Acceptance criteria**
 - Dashboard mount issues **≤ 10** GET requests measured in the browser (the

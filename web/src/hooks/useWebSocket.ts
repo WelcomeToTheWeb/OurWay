@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Metrics } from '../types/device';
 import { useMetricsStore } from '../stores/metrics';
-import { useDevicesStore } from '../stores/devices';
+import { useFleetStore } from '../stores/fleet';
 
 // Raw message as sent by the server: {type, payload}
 interface RawWSMessage {
@@ -61,7 +61,7 @@ export function useWebSocket(token: string | null) {
   tokenRef.current = token;
 
   const addMetric = useMetricsStore((s) => s.addMetric);
-  const updateDeviceStatus = useDevicesStore((s) => s.updateDeviceStatus);
+  const updateDeviceStatus = useFleetStore((s) => s.applyDeviceStatus);
 
   useEffect(() => {
     if (!token) return;

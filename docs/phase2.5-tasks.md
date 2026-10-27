@@ -208,7 +208,7 @@ unit is on, or which units are stuck.
 - [ ] Console: fleet posture ledger — version spread, channel spread, stalled
       units, units reporting `dev`, units below the server's minimum supported
       agent version; per-client (2.3 scope) and per-tag filters.
-- [ ] Staged roll-out control: server-side "update rollout" gate (migration 14
+- [ ] Staged roll-out control: server-side "update rollout" gate (migration 15
       `update_rollouts`) so an operator can release a version to a pilot tag/group
       before the whole fleet, reusing the deployment batching discipline
       (`MaxDevicesPerBatch`). Default behaviour is unchanged: an agent takes an
