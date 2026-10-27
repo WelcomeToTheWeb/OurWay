@@ -80,8 +80,10 @@ Accessibility granted to the runner user, so `granted` is the honest answer ther
 `unknown`/`unavailable` from a cgo build is the failure the assertion catches.
 Measured control round-trip:
 **0.034 s** (server → agent, same host, Linux smoke run).
-Remaining for the human gate: the physical Mac (type/click/drag/right-click/scroll
-with the grant, and control surviving a self-update at a fixed path).
+Remaining for the human gate: none — **passed 2026-10-27** on the physical Mac
+(type, click, drag, right-click and scroll with the Accessibility grant, and control
+surviving a self-update at a fixed path). Phase 2.2 is complete: every acceptance
+item in this file is delivered and verified.
 
 Shipped with it, because the acceptance criteria are harness criteria:
 `.github/workflows/build.yml` no longer cross-compiles darwin — the macOS agent,

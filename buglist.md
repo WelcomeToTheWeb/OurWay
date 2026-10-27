@@ -87,6 +87,11 @@ CI builds the cgo darwin binaries (arm64 + amd64) on a macOS runner and the smok
 job asserts the unit reports `denied` there. Measured control round-trip on the
 smoke run: 0.034 s (server → agent, same host).
 
+**Human gate: passed 2026-10-27** — on the physical Mac, with the Accessibility grant
+in place, type / click / drag / right-click / scroll all land on the unit, and control
+survives a self-update at a fixed path. That is the whole 2.2-1 acceptance: CI proves
+the build and the reported decision, the bench proves the input.
+
 ### 🟡 M15. WebRTC removal was server-side only; the agent kept it
 **Status:** ✅ Fixed 2026-10-26 — `agent/session/webrtc.go` (178 lines,
 `NewWebRTCManager` had zero callers) deleted; `pion/webrtc/v3` and its 15 transitive
