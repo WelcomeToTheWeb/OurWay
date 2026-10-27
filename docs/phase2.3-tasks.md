@@ -155,7 +155,7 @@ is an action on a client the caller must not touch.
 - A technician assigned to two clients sees exactly those two in the ledger.
 - `GET /api/clients/:id/rollup` numbers equal the device-ledger numbers computed
   independently — the same single-source rule as 2.2-4.
-- Every string in `en`/`de`/`fr` in lockstep, and `scripts/i18n-parity.sh` (2.2-5)
+- Every string in `en`/`de`/`fr` in lockstep, and `scripts/i18n-parity.py` (2.2-5)
   is green.
 
 ---
@@ -279,7 +279,7 @@ GOOS=windows GOARCH=amd64 go -C agent build ./...
 GOOS=darwin  GOARCH=arm64 go -C agent build ./...
 npm ci --prefix web && npm run build --prefix web && npm run test:run --prefix web
 npm run typecheck --prefix web
-scripts/i18n-parity.sh
+scripts/i18n-parity.py
 scripts/release.sh --check 2.3.0
 ```
 

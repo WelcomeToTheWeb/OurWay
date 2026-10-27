@@ -205,7 +205,9 @@
       "expiresOn": "expire le {{date}}",
       "rotateKey": "Faire pivoter la clé",
       "revokeKey": "Révoquer la clé",
-      "deleteKey": "Supprimer la clé"
+      "deleteKey": "Supprimer la clé",
+      "deleteKeyFailed": "Échec de la suppression de la clé API.",
+      "revokeKeyFailed": "Échec de la révocation de la clé API."
     },
     "dangerZone": {
       "title": "Zone de danger",
@@ -217,7 +219,10 @@
       "deleteAccount": "Supprimer le compte",
       "deleteAccountDesc": "Supprimer définitivement votre compte et tous les appareils",
       "deleteAccountButton": "Supprimer le compte",
-      "deleting": "Suppression…"
+      "deleting": "Suppression…",
+      "clearDataDone": "{{metrics}} mesures et {{alerts}} alertes supprimés.",
+      "clearDataFailed": "Échec de l’effacement des données de surveillance.",
+      "deleteAccountFailed": "Échec de la suppression du compte."
     }
   },
   "auth": {
@@ -454,5 +459,58 @@
   "layout": {
     "versionTitle": "Serveur {{server}} (commit {{commit}}) · build console {{console}}",
     "rateBudgetTitle": "Quota de requêtes par utilisateur : {{perMinute}} lectures par minute, rafale instantanée {{burst}}. La sonde s’arrête quand le quota est épuisé."
+  },
+  "confirm": {
+    "cancel": "Annuler",
+    "endSession": {
+      "title": "Terminer la session {{id}} ?",
+      "body": "L’unité arrête de diffuser et le technicien est déconnecté. L’enregistrement de la session reste dans le journal.",
+      "action": "Terminer la session"
+    },
+    "deleteDevice": {
+      "title": "Supprimer l’unité « {{name}} » ?",
+      "body": "Son historique de mesures, ses alertes, ses sessions et ses déploiements de correctifs en file sont supprimés. Cette action est irréversible.",
+      "action": "Supprimer l’unité"
+    },
+    "deleteUser": {
+      "title": "Supprimer l’utilisateur « {{name}} » ?",
+      "body": "Sa connexion cesse immédiatement. Les alertes qu’il a signées gardent son nom dans le journal. Cette action est irréversible.",
+      "action": "Supprimer l’utilisateur"
+    },
+    "deleteWebhook": {
+      "title": "Supprimer le webhook « {{name}} » ?",
+      "body": "Les événements correspondants ne sont plus livrés. Les livraisons déjà envoyées ne sont pas rappelées.",
+      "action": "Supprimer le webhook"
+    },
+    "deleteSsoBinding": {
+      "title": "Supprimer la liaison « {{name}} » ?",
+      "body": "Le fournisseur ne correspond plus à un compte de console ; quiconque se connecte via lui revient à l’écran de connexion.",
+      "action": "Supprimer la liaison"
+    },
+    "deletePolicy": {
+      "title": "Supprimer la règle « {{name}} » ?",
+      "body": "Les déploiements planifiés pour cette règle sont annulés. Les correctifs déjà installés sur les unités restent installés.",
+      "action": "Supprimer la règle"
+    },
+    "purgeMetrics": {
+      "title": "Supprimer tout l’historique de mesures et les alertes ?",
+      "body": "Chaque mesure stockée, chaque historique de graphique et chaque alerte sont supprimés. Les unités continuent de remonter — c’est l’historique qui disparaît. Cette action est irréversible.",
+      "action": "Supprimer l’historique"
+    },
+    "deleteAccount": {
+      "title": "Supprimer définitivement votre compte ?",
+      "body": "Votre connexion, vos clés d’API et vos webhooks sont supprimés. Les unités et leurs enregistrements restent sur le serveur. Cette action est irréversible.",
+      "action": "Supprimer le compte"
+    },
+    "deleteApiKey": {
+      "title": "Supprimer la clé d’API « {{name}} » ?",
+      "body": "Les scripts qui l’utilisent cessent immédiatement de fonctionner et l’enregistrement quitte cette liste.",
+      "action": "Supprimer la clé"
+    },
+    "revokeApiKey": {
+      "title": "Révoquer la clé d’API « {{name}} » ?",
+      "body": "La clé cesse immédiatement de fonctionner. Son enregistrement reste ici, pour que le remplacement reste visible.",
+      "action": "Révoquer la clé"
+    }
   }
 }

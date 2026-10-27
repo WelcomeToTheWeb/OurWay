@@ -223,20 +223,27 @@ harness works around it by listing users first.
 the named field, matching L5's wording.
 
 ### 🟡 M19. Ten destructive actions still confirm with a browser dialog
-**Status:** ⚠️ Open — proposed as `2.2-9` in `docs/phase2.2-tasks.md`
-**Files:** `web/src/pages/{Sessions,Settings,Users,Webhooks,SSO,DeviceDetail,PatchPolicies}.tsx`
+**Status:** ✅ Fixed in `v2.2.0` (2.2-9)
+**Files:** `web/src/pages/{Sessions,Settings,Users,Webhooks,SSO,DeviceDetail,PatchPolicies}.tsx`,
+`web/src/components/ConfirmSheet.tsx`, `scripts/browser-dialogs-check.sh`
 
 `DESIGN.md` states the rule outright — "Confirmation is a state of the control,
-not a browser dialog… `window.confirm()` is banned" — and 2.1.0 shipped
-`ConfirmSheet` for exactly this. Ten call sites still use the native dialog
-(`confirm(` / `window.confirm(`), including "End session", "Delete ALL metrics
-history and alerts", and "Permanently delete your account". Native dialogs are
+not a browser dialog… `window.confirm()` is banned". Ten call sites still used the
+native dialog (`confirm(` / `window.confirm(`), including "End session", "Delete ALL
+metrics history and alerts", and "Permanently delete your account". Native dialogs are
 unthemeable, unlocalised (English-only strings built by string concatenation), and
-are auto-dismissed by automation — the harness has to accept the dialog to end a
+are auto-dismissed by automation — the harness had to accept the dialog to end a
 session at all.
 
-**Fix:** finish the `ConfirmSheet` migration in 2.2, with the confirmation copy in
-`en`/`de`/`fr` like every other string.
+**Fixed by:** `ConfirmSheet` (title names the target, body states the consequence, the
+verb is on the control), the ten call sites routed through it, the copy in
+`confirm.<action>.*` in `en`/`de`/`fr`, and `scripts/browser-dialogs-check.sh` in the
+tests job and the release gate, so a typed `confirm(` now fails CI.
+
+**Doc correction:** this entry claimed 2.1.0 shipped `ConfirmSheet`. It did not — the
+component existed in `DESIGN.md` and in this buglist only; there was no such file in
+`web/src/components/` on `v2.1.0`, `v2.1.0`'s tree, or any commit before 2.2-9. The
+sheet is built in 2.2-9.
 
 ### 🟡 M20. A unit that cannot capture spams 15 log lines a second and tells the console nothing
 **Status:** ✅ Fixed in `v2.2.0` (2.2-1)

@@ -279,7 +279,7 @@ JSX text nodes: `Settings.tsx` 5, `DeviceDetail.tsx` 2, `Alerts.tsx` 1,
 **Do**
 - [ ] Add the 2 missing keys to `de` and `fr`.
 - [ ] Extract the hardcoded nodes listed above through `t(...)`.
-- [ ] Add `scripts/i18n-parity.sh` (or a `web` npm script) that flattens the three
+- [ ] Add `scripts/i18n-parity.py` (or a `web` npm script) that flattens the three
       locale files and **fails CI** on any missing or extra key, and reports the
       count of untranslated JSX text nodes so the number only goes down.
 - [ ] Keep the `t` shadowing rule enforced (`CONTRIBUTING.md`): no local named `t`.
@@ -359,35 +359,51 @@ been documented**.
 ## 2.2-9 · Finish the confirm-sheet migration (browser dialogs are banned)
 
 **Finding:** `buglist.md` M19. `DESIGN.md` — "Confirmation is a state of the
-control, not a browser dialog… `window.confirm()` is banned", and 2.1.0 shipped
-`ConfirmSheet`. Ten call sites still use the native dialog: End session
-(`Sessions.tsx:33`), Delete device (`DeviceDetail.tsx:251`), delete user
-(`Users.tsx:85`), delete webhook (`Webhooks.tsx:85`), delete SSO binding
-(`SSO.tsx:74`), delete policy (`PatchPolicies.tsx:124`), purge metrics history and
-delete account (`Settings.tsx:64,80`), delete and revoke API key
-(`Settings.tsx:136,146`).
+control, not a browser dialog… `window.confirm()` is banned". Ten call sites used
+the native dialog: End session (`Sessions.tsx:33`), Delete device
+(`DeviceDetail.tsx:251`), delete user (`Users.tsx:85`), delete webhook
+(`Webhooks.tsx:85`), delete SSO binding (`SSO.tsx:74`), delete policy
+(`PatchPolicies.tsx:124`), purge metrics history and delete account
+(`Settings.tsx:64,80`), delete and revoke API key (`Settings.tsx:136,146`).
+
+**Correction to the finding as written in 2.2 planning:** 2.1.0 did **not** ship
+`ConfirmSheet`. The component existed only in `DESIGN.md` prose and in the buglist —
+no such file was in `web/src/components/` at `v2.1.0` or in any earlier commit. The
+sheet is built by this task; the migration is from a native dialog to a component
+that had to be written first.
 
 Native dialogs are unthemeable, unlocalisable (the copy is string concatenation in
 English, so `de`/`fr` users get English on the one control that asks them to destroy
-data), and they are auto-dismissed by automation — the e2e suite has to accept a
+data), and they are auto-dismissed by automation — the e2e suite had to accept a
 dialog to end a session at all.
 
 **Do**
-- [ ] Route every remaining destructive action through `ConfirmSheet` with the
+- [x] Route every remaining destructive action through `ConfirmSheet` with the
       named target in the title ("End session `a1b2c3d4`?"), the consequence in the
       body, and the verb on the confirm button.
-- [ ] Move the copy into `en`/`de`/`fr` (interpolated target, not concatenation) so
-      the 2.2-5 parity check covers it.
-- [ ] Add one e2e assertion that an inline confirmation is required before the
-      write happens (the suite currently has to accept a dialog, which is the smell
-      that proves the point).
+      **Done 2026-10-27:** `web/src/components/ConfirmSheet.tsx` (sheet anatomy: stamp-red
+      head, consequence body, Cancel + verb; Escape cancels, focus opens on Cancel and
+      returns to the control that asked, both controls rest while the act is in flight)
+      and `web/src/utils/confirmSheet.ts` (`confirmRequest`/`pendingConfirm`, so a sheet
+      can only confirm the act that opened it). `Settings` also lost its `window.alert`:
+      the clear-history result is a line on the sheet.
+- [x] Move the copy into `en`/`de`/`fr` (interpolated target, not concatenation) so
+      the 2.2-5 parity check covers it — `confirm.<action>.{title,body,action}` for all
+      ten acts, 436 key paths in lockstep.
+- [x] Add one e2e assertion that an inline confirmation is required before the write
+      happens — `sessions.spec.ts` clicks End, asserts the sheet names the session and
+      the row is still there, cancels (writes nothing), then confirms and the row goes.
+- [x] Make the ban a gate step: `scripts/browser-dialogs-check.sh` fails on any
+      `confirm(` / `alert(` / `prompt(` call in `web/src` — in the `tests` job and in
+      `scripts/release.sh`. It found one more thing: a test fixture helper named `alert`
+      in `fleet.test.ts` shadowing the banned global (now `alertRow`).
 
 **Acceptance criteria**
-- `grep -rn "confirm(" web/src --include=*.tsx` finds no `window.confirm` and no
-  bare `confirm(` in a page component.
-- The destructive copy exists in all three locale files and the parity check fails
-  a removal.
-- `web/e2e/sessions.spec.ts` no longer registers a dialog handler: ending a session
+- [x] `grep -rn "confirm(" web/src --include=*.tsx` finds no `window.confirm` and no
+      bare `confirm(` in a page component — and the check that says so runs in CI.
+- [x] The destructive copy exists in all three locale files and the parity check fails
+      a removal (`scripts/i18n-parity.py`: 436/436/436).
+- [x] `web/e2e/sessions.spec.ts` no longer registers a dialog handler: ending a session
   clicks the control and confirms in the page.
 
 ---
@@ -401,17 +417,23 @@ GOOS=windows GOARCH=amd64 go -C agent build ./...
 GOOS=darwin  GOARCH=arm64 go -C agent build ./...
 npm ci --prefix web && npm run build --prefix web && npm run test:run --prefix web
 npm run typecheck --prefix web
-scripts/i18n-parity.sh                     # new in 2.2-5
+scripts/coverage.sh                        # new in 2.2-0 (the floor, not a wish)
+python3 scripts/i18n-parity.py             # new in 2.2-5 (named .sh in the plan; the script is Python)
+bash scripts/browser-dialogs-check.sh      # new in 2.2-9 (DESIGN.md §6, enforced)
 scripts/release.sh --check 2.2.0           # every check + the full gate, publishes nothing
 ```
 
 Plus, non-negotiable for this release:
 
 - [ ] macOS remote control verified on real hardware (2.2-8), not on a build.
-- [ ] Dashboard mount ≤ 10 reads, measured in a browser (2.2-2).
-- [ ] `scripts/i18n-parity.sh` green: 383/383/383 keys, 0 hardcoded nodes.
+- [x] Dashboard mount ≤ 10 reads, measured in a browser (2.2-2): 7 on the seeded
+      e2e fleet, asserted by `web/e2e/fleet.spec.ts`.
+- [x] `python3 scripts/i18n-parity.py` green: 436 key paths in all three locales
+      (383 at the finding, plus what 2.2-1/2.2-4/2.2-9 added), 0 missing, 0 extra.
 - [ ] Route↔docs diff check green (2.2-7).
-- [ ] The Playwright smoke flows are green and are the reason we believe the above.
+- [x] Destructive confirmation happens in the page: 0 native dialogs in `web/src`,
+      asserted by `scripts/browser-dialogs-check.sh` (2.2-9).
+- [x] The Playwright smoke flows are green and are the reason we believe the above.
 
 Tag with `scripts/release.sh 2.2.0` — it refuses a dirty tree, a non-`main`
 branch, a HEAD that is not the pushed tip, a version not greater than the latest

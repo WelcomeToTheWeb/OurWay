@@ -147,17 +147,27 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   await page.reload();
   await expect(row).toBeVisible();
 
-  // Leaving the fleet tidy for the next run, through the API. Not through the
-  // End control: that control confirms with a native dialog at this commit, and
-  // a harness that accepts a dialog to make its cleanup is testing the dialog,
-  // not the ledger. Task 2.2-9 replaces the dialog with ConfirmSheet and puts
-  // the click assertion where it belongs.
-  const ended = await fetch(`${apiBase()}/api/sessions/${sessionID}`, {
-    method: 'DELETE',
-    headers: { authorization: `Bearer ${ledgerToken}` },
+  // Leaving the fleet tidy for the next run — while proving the gate.
+  //
+  // 2.2-9: ending a session is confirmed *in the page* (ConfirmSheet). DESIGN.md
+  // bans browser dialogs, and a native confirm() is auto-dismissed by automation,
+  // so the suite used to accept a dialog to get the write at all. The row must
+  // survive the request to end, and only the sheet's verb may write it.
+  await row.getByRole('button', { name: /^end$/i }).click();
+  const sheet = page.getByRole('dialog', {
+    name: new RegExp(`End session ${sessionID.slice(0, 8)}`),
   });
-  expect(ended.status, 'the ledger accepts an end').toBe(200);
+  await expect(sheet, 'the confirmation names the session it is about to end').toBeVisible();
+
+  // Cancel is a real answer: the sheet closes and the session is untouched.
+  await sheet.getByRole('button', { name: /cancel/i }).click();
+  await expect(sheet).toHaveCount(0);
+  await expect(row, 'cancel writes nothing — the session is still open').toBeVisible();
+
+  await row.getByRole('button', { name: /^end$/i }).click();
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole('button', { name: /end session/i }).click();
   await page.reload();
-  await expect(row).toHaveCount(0, { timeout: 10_000 });
+  await expect(row, 'the verb is the only thing that writes').toHaveCount(0, { timeout: 10_000 });
 });
 

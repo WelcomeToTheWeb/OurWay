@@ -253,6 +253,12 @@ jobs:
       - name: Locale parity (en/de/fr)
         run: python3 scripts/i18n-parity.py
 
+      # 2.2-9 gate: DESIGN.md §6 bans browser dialogs, and the ban only holds
+      # while something fails on it — 2.1.0 shipped the ConfirmSheet pattern and
+      # ten destructive actions stayed on window.confirm (buglist.md M19).
+      - name: No browser dialogs (console)
+        run: bash scripts/browser-dialogs-check.sh
+
   # Build and push server Docker image
   build-server-image:
     name: Build Server Image

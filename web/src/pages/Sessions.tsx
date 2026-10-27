@@ -6,6 +6,8 @@ import { endSession, type Session } from '../api/sessions';
 import { useFleet } from '../hooks/useFleet';
 import { invalidateFleet } from '../stores/fleet';
 import { Stamp } from '../components/Stamp';
+import { ConfirmSheet } from '../components/ConfirmSheet';
+import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
 import { agoLabel } from '../utils/policyScope';
 
 /** Who is sitting at somebody else's screen right now. */
@@ -15,12 +17,12 @@ export function Sessions() {
   // same list, so opening this page next to it costs no second read.
   const { data: sessions, loading, refresh } = useFleet('sessions', { owner: true });
   const [endingId, setEndingId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [error, setError] = useState('');
 
   const load = useCallback(() => refresh(), [refresh]);
 
   const handleEnd = async (session: Session) => {
-    if (!confirm(`End session ${session.id.slice(0, 8)}?`)) return;
     setEndingId(session.id);
     try {
       await endSession(session.id);
@@ -32,6 +34,7 @@ export function Sessions() {
       setError(e instanceof Error ? e.message : t('common.error'));
     } finally {
       setEndingId(null);
+      setPending(null);
     }
   };
 
@@ -101,7 +104,16 @@ export function Sessions() {
                   </td>
                   <td className="text-right">
                     <button
-                      onClick={() => handleEnd(s)}
+                      onClick={() =>
+                        setPending(
+                          pendingConfirm(
+                            t,
+                            'endSession',
+                            () => handleEnd(s),
+                            { id: s.id.slice(0, 8) }
+                          )
+                        )
+                      }
                       disabled={endingId === s.id}
                       className="btn px-2 py-1 text-[11px]"
                     >
@@ -115,6 +127,13 @@ export function Sessions() {
           </table>
         </div>
       )}
+
+      <ConfirmSheet
+        request={pending?.request ?? null}
+        busy={endingId !== null}
+        onCancel={() => setPending(null)}
+        onConfirm={() => pending?.run()}
+      />
     </div>
   );
 }

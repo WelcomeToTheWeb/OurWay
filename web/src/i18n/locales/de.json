@@ -205,7 +205,9 @@
       "expiresOn": "läuft ab am {{date}}",
       "rotateKey": "Schlüssel rotieren",
       "revokeKey": "Schlüssel widerrufen",
-      "deleteKey": "Schlüssel löschen"
+      "deleteKey": "Schlüssel löschen",
+      "deleteKeyFailed": "Das Löschen des API-Schlüssels ist fehlgeschlagen.",
+      "revokeKeyFailed": "Der Widerruf des API-Schlüssels ist fehlgeschlagen."
     },
     "dangerZone": {
       "title": "Gefahrenzone",
@@ -217,7 +219,10 @@
       "deleteAccount": "Konto löschen",
       "deleteAccountDesc": "Ihr Konto und alle Geräte dauerhaft löschen",
       "deleteAccountButton": "Konto löschen",
-      "deleting": "Wird gelöscht…"
+      "deleting": "Wird gelöscht…",
+      "clearDataDone": "{{metrics}} Messwerte und {{alerts}} Alarme gelöscht.",
+      "clearDataFailed": "Das Löschen der Überwachungsdaten ist fehlgeschlagen.",
+      "deleteAccountFailed": "Das Löschen des Kontos ist fehlgeschlagen."
     }
   },
   "auth": {
@@ -454,5 +459,58 @@
   "layout": {
     "versionTitle": "Server {{server}} (Commit {{commit}}) · Konsolen-Build {{console}}",
     "rateBudgetTitle": "Anforderungskontingent pro Nutzer: {{perMinute}} Leseanfragen pro Minute, sofortiger Burst {{burst}}. Abfragen pausieren, wenn das Kontingent erschöpft ist."
+  },
+  "confirm": {
+    "cancel": "Abbrechen",
+    "endSession": {
+      "title": "Sitzung {{id}} beenden?",
+      "body": "Das Gerät stoppt die Übertragung, und der Techniker wird getrennt. Der Sitzungsdatensatz bleibt im Protokoll.",
+      "action": "Sitzung beenden"
+    },
+    "deleteDevice": {
+      "title": "Gerät „{{name}}“ löschen?",
+      "body": "Messwert-Historie, Alarme, Sitzungen und eingeplante Patch-Bereitstellungen dieses Geräts werden gelöscht. Das lässt sich nicht rückgängig machen.",
+      "action": "Gerät löschen"
+    },
+    "deleteUser": {
+      "title": "Benutzer „{{name}}“ löschen?",
+      "body": "Die Anmeldung funktioniert sofort nicht mehr. Von ihm quittierte Alarme behalten seinen Namen im Protokoll. Das lässt sich nicht rückgängig machen.",
+      "action": "Benutzer löschen"
+    },
+    "deleteWebhook": {
+      "title": "Webhook „{{name}}“ löschen?",
+      "body": "Passende Ereignisse werden nicht mehr zugestellt. Bereits gesendene Zustellungen werden nicht zurückgeholt.",
+      "action": "Webhook löschen"
+    },
+    "deleteSsoBinding": {
+      "title": "Bindung „{{name}}“ löschen?",
+      "body": "Der Anbieter wird nicht mehr auf ein Konsolen-Konto abgebildet; wer sich über ihn anmeldet, landet wieder am Anmeldebildschirm.",
+      "action": "Bindung löschen"
+    },
+    "deletePolicy": {
+      "title": "Richtlinie „{{name}}“ löschen?",
+      "body": "Eingeplante Bereitstellungen dieser Richtlinie entfallen. Bereits installierte Patches bleiben installiert.",
+      "action": "Richtlinie löschen"
+    },
+    "purgeMetrics": {
+      "title": "Alle Messwert-Historie und Alarme löschen?",
+      "body": "Jeder gespeicherte Messwert, jede Chart-Historie und jeder Alarm-Datensatz wird gelöscht. Die Geräte melden weiter — die Historie ist es, die verschwindet. Das lässt sich nicht rückgängig machen.",
+      "action": "Historie löschen"
+    },
+    "deleteAccount": {
+      "title": "Ihr Konto endgültig löschen?",
+      "body": "Ihre Anmeldung, API-Schlüssel und Webhooks werden gelöscht. Geräte und ihre Datensätze bleiben auf dem Server. Das lässt sich nicht rückgängig machen.",
+      "action": "Konto löschen"
+    },
+    "deleteApiKey": {
+      "title": "API-Schlüssel „{{name}}“ löschen?",
+      "body": "Skripte, die ihn verwenden, funktionieren sofort nicht mehr, und der Datensatz verschwindet aus dieser Liste.",
+      "action": "Schlüssel löschen"
+    },
+    "revokeApiKey": {
+      "title": "API-Schlüssel „{{name}}“ widerrufen?",
+      "body": "Der Schlüssel funktioniert sofort nicht mehr. Sein Datensatz bleibt hier, damit die Ablösung sichtbar ist.",
+      "action": "Schlüssel widerrufen"
+    }
   }
 }

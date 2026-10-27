@@ -41,6 +41,8 @@ import { TagEditor } from '../components/TagEditor';
 import { CopyButton } from '../components/CopyButton';
 import { ServiceRecord } from '../components/ServiceRecord';
 import { Stamp } from '../components/Stamp';
+import { ConfirmSheet } from '../components/ConfirmSheet';
+import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
 import { SessionView } from '../components/SessionView';
 import { useMetricsStore } from '../stores/metrics';
 import { useAuth } from '../auth/context';
@@ -118,6 +120,7 @@ export function DeviceDetail() {
   const [viewerLaunched, setViewerLaunched] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -270,12 +273,12 @@ export function DeviceDetail() {
 
   async function handleDelete() {
     if (!device) return;
-    if (!confirm(`Delete device "${device.name}"? This cannot be undone.`)) return;
     try {
       await deleteDevice(device.id);
       navigate('/devices');
     } catch (err) {
       setError((err as Error).message);
+      setPending(null);
     }
   }
 
@@ -424,7 +427,12 @@ export function DeviceDetail() {
             <RefreshCw className={`h-3.5 w-3.5 ${rebooting ? 'animate-spin' : ''}`} />
             {t('devices.reboot', 'Reboot')}
           </button>
-          <button onClick={handleDelete} className="btn text-[var(--stamp)]">
+          <button
+            onClick={() =>
+              setPending(pendingConfirm(t, 'deleteDevice', () => void handleDelete(), { name: device.name }))
+            }
+            className="btn text-[var(--stamp)]"
+          >
             <Trash2 className="h-3.5 w-3.5" />
             {t('common.delete')}
           </button>
@@ -676,6 +684,12 @@ export function DeviceDetail() {
           inputCapability={device.input_capability}
         />
       )}
+
+      <ConfirmSheet
+        request={pending?.request ?? null}
+        onCancel={() => setPending(null)}
+        onConfirm={() => pending?.run()}
+      />
     </div>
   );
 }

@@ -222,9 +222,9 @@ describe('fleet read model (2.2-2)', () => {
     // Three surfaces called "open alerts" three populations. The shared
     // definition: open is unresolved, and a sign-off does not close a signal.
     const alerts = [
-      alert('a', { acknowledged: false, resolved: false }),
-      alert('b', { acknowledged: true, resolved: false }),
-      alert('c', { acknowledged: true, resolved: true }),
+      alertRow('a', { acknowledged: false, resolved: false }),
+      alertRow('b', { acknowledged: true, resolved: false }),
+      alertRow('c', { acknowledged: true, resolved: true }),
     ];
     expect(openAlertCount(alerts)).toBe(2);
     expect(alerts.filter(isAlertOpen).map((a) => a.id)).toEqual(['a', 'b']);
@@ -235,10 +235,10 @@ describe('fleet read model (2.2-2)', () => {
     // the dashboard tile counted the fleet. Filters are client-side over one
     // collection, so a chip and its rows are the same predicate.
     const alerts = [
-      alert('a', { severity: 'critical' }),
-      alert('b', { severity: 'warning' }),
-      alert('c', { severity: 'critical', resolved: true }),
-      alert('d', { severity: 'critical', message: 'disk full on E2E-SERVER-01' }),
+      alertRow('a', { severity: 'critical' }),
+      alertRow('b', { severity: 'warning' }),
+      alertRow('c', { severity: 'critical', resolved: true }),
+      alertRow('d', { severity: 'critical', message: 'disk full on E2E-SERVER-01' }),
     ];
     const all = filterAlerts(alerts, {});
     const critical = filterAlerts(alerts, { severity: 'critical' });
@@ -265,7 +265,7 @@ function releaseC(...releases: (() => void)[]) {
   for (const release of releases) release();
 }
 
-function alert(id: string, over: Partial<Alert> = {}): Alert {
+function alertRow(id: string, over: Partial<Alert> = {}): Alert {
   return {
     id,
     device_id: 'dev-' + id,
