@@ -3,14 +3,13 @@ package api
 import (
 	"crypto/subtle"
 	"encoding/base64"
-	"errors"
 	"io"
 	"log"
+	"net/http"
 	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	"ourway/server/events"
 	"ourway/server/models"
@@ -41,18 +40,16 @@ func NewSessionHandler(store *store.Store, hub *ws.Hub) *SessionHandler {
 //
 // POST /api/devices/:id/sessions
 func (h *SessionHandler) StartSession(c *gin.Context) {
-	deviceID := c.Param("id")
-
-	// Verify device exists
-	device, err := h.store.Devices.GetByID(deviceID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"error": "device not found"})
-		} else {
-			c.JSON(500, gin.H{"error": "internal server error"})
-		}
+	// Starting a session on a unit is remote control of that unit, so it is
+	// scoped with the unit: a technician removed from a client must not be able
+	// to open a console on it, and the answer they get is the answer for a unit
+	// that does not exist. 2.3-4 (audit) logs this call *after* this check
+	// succeeds, so an attempt at a foreign unit is never recorded as an action.
+	device, ok := ScopedDevice(c, h.store)
+	if !ok {
 		return
 	}
+	deviceID := device.ID
 
 	// Check if device is connected
 	if !h.hub.IsDeviceConnected(device.DeviceKey) {
@@ -146,9 +143,18 @@ func publicServerURL(c *gin.Context) string {
 	return scheme + "://" + host
 }
 
-// authorizeSessionAccess verifies the session exists and belongs to the
-// caller. Returns the session on success; on failure it writes the
-// appropriate 403/404 response and returns false.
+// authorizeSessionAccess verifies the session exists, belongs to the caller,
+// and sits on a unit inside the caller's client scope. Returns the session on
+// success; on failure it writes the appropriate 403/404 response and returns
+// false.
+//
+// The two checks are not redundant. Ownership is the narrower rule (2.2 era:
+// only the operator who started a console may drive it); client scope is the
+// wider-world rule that survives an account move — a technician who started a
+// session on a unit and is then removed from that unit's client must lose the
+// session, and an ownership check alone would let them keep driving it.
+// Out-of-scope answers the session-not-found 404, the same rule as devices:
+// a body that distinguishes them says the session exists.
 func (h *SessionHandler) authorizeSessionAccess(c *gin.Context, sessionID string) (*models.Session, bool) {
 	session, err := h.store.Sessions.GetByID(sessionID)
 	if err != nil {
@@ -160,6 +166,22 @@ func (h *SessionHandler) authorizeSessionAccess(c *gin.Context, sessionID string
 	userID, _ := userIDVal.(string)
 	if session.UserID != userID {
 		c.JSON(403, gin.H{"error": "not authorized for this session"})
+		return nil, false
+	}
+
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return nil, false
+	}
+	scope.ApplyScopeHeader(c)
+	ok, err := scope.AllowsDeviceID(session.DeviceID, h.store)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
+		return nil, false
+	}
+	if !ok {
+		c.JSON(404, gin.H{"error": "session not found"})
 		return nil, false
 	}
 

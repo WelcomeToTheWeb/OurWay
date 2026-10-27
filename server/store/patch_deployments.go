@@ -144,3 +144,14 @@ func (s *PatchDeploymentStore) FinishIfComplete(id string) (string, error) {
 
 	return deployment.Status, nil
 }
+
+// Count reports how many rows exist. The scoping tests use it as the store spy:
+// a refused bulk request must leave the count unmoved, which is the 2.3-3 atomicity
+// rule measured where it can be measured.
+func (s *PatchDeploymentStore) Count() (int64, error) {
+	var n int64
+	if err := s.db.Model(&models.PatchDeployment{}).Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
+}

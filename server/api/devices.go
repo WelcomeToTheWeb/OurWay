@@ -322,27 +322,9 @@ func (h *DeviceHandler) GetDevice(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"device": device})
 }
 
-// scopedDevice resolves a `:id` route to a device the caller may see, answering
-// the request itself when it cannot: 404 for a device that is absent or out of
-// scope, 500 when the scope itself is unresolvable. The caller returns on any
-// non-nil answer.
+// scopedDevice is this handler's view of the package-wide door in scope.go.
 func (h *DeviceHandler) scopedDevice(c *gin.Context) (*models.Device, bool) {
-	device, err := h.store.Devices.GetByID(c.Param("id"))
-	if err != nil {
-		DeviceNotFound(c)
-		return nil, false
-	}
-	scope, err := ClientScope(c, h.store)
-	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "caller scope unavailable"})
-		return nil, false
-	}
-	scope.ApplyScopeHeader(c)
-	if !scope.AllowsDevice(device) {
-		DeviceNotFound(c)
-		return nil, false
-	}
-	return device, true
+	return ScopedDevice(c, h.store)
 }
 
 // DeleteDevice removes a device by ID.
@@ -440,6 +422,10 @@ func (h *DeviceHandler) GetLatestMetrics(c *gin.Context) {
 // again on receipt.
 // POST /api/devices/:id/stream
 func (h *DeviceHandler) StartStream(c *gin.Context) {
+	// A stream is remote viewing of a unit: scoped with the unit.
+	if _, ok := h.scopedDevice(c); !ok {
+		return
+	}
 	id := c.Param("id")
 	var req struct {
 		Interval int `json:"interval"`
@@ -479,10 +465,8 @@ func (h *DeviceHandler) StartStream(c *gin.Context) {
 // StopStream tells a device to revert to its normal metrics interval.
 // POST /api/devices/:id/stream/stop
 func (h *DeviceHandler) StopStream(c *gin.Context) {
-	id := c.Param("id")
-	device, err := h.store.Devices.GetByID(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+	device, ok := h.scopedDevice(c)
+	if !ok {
 		return
 	}
 

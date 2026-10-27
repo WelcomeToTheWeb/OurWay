@@ -28,8 +28,16 @@ func NewRebootHandler(store *store.Store, rebooter *patching.Rebooter) *RebootHa
 // RebootDevice triggers a reboot of a device.
 // POST /api/devices/:id/reboot
 func (h *RebootHandler) RebootDevice(c *gin.Context) {
-	deviceID := c.Param("id")
-
+	// A reboot is the most destructive act the console can send to a unit, so
+	// it walks the same door as reading that unit: out of scope answers 404, the
+	// answer for a unit that does not exist. Scope is checked *before* the body
+	// is read, so an attempt at a foreign unit is refused on identity, not on
+	// payload validation — the order matters for 2.3-6, which logs the actions
+	// this handler goes on to perform.
+	device, ok := ScopedDevice(c, h.store)
+	if !ok {
+		return
+	}
 	var req struct {
 		DelaySeconds int `json:"delay_seconds"`
 	}
@@ -43,12 +51,6 @@ func (h *RebootHandler) RebootDevice(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
 			return
 		}
-	}
-
-	device, err := h.store.Devices.GetByID(deviceID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
-		return
 	}
 
 	if device.Status != "online" {

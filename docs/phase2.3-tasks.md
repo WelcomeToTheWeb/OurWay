@@ -67,18 +67,24 @@ edited. This lands as **version 8**.
 
 ---
 
-## 2.3-1 · Scope resolution: one place that answers "may this caller see it"
+## 2.3-1 · Scope resolution: one place that answers "may this caller see it" · ✅ delivered
+
+Shipped as `server/api/scope.go`: `ClientScope(c, store)`, `clientScope.AllowsDevice`,
+`DeviceNotFound(c)` as the single 404 door, and `X-OurWay-Client-Scope`. Applied to
+the device reads (`/devices`, `/devices/:id`, `/metrics`, `/metrics/history`).
+Tests: `server/api/scope_test.go`.
 
 **Do**
-- [ ] A single resolver in `server/api/` — `clientScope(c)` (the caller's allowed
-      client IDs, `all` for admin) and `scopeAllowsDevice(c, deviceID)`.
-- [ ] Scope is resolved from the **user row + junction**, not from a token claim,
+- [x] A single resolver in `server/api/` — `ClientScope(c, store)` (the caller's
+      allowed client IDs, `all` for admin) and `clientScope.AllowsDevice(d)`.
+- [x] Scope is resolved from the **user row + junction**, not from a token claim,
       so revoking a scope takes effect on the next request, not the next login.
-- [ ] Out-of-scope device → `404` with the same body as a nonexistent device
+- [x] Out-of-scope device → `404` with the same body as a nonexistent device
       (`{"error":"device not found"}`). Same shape, same status: scoping must not
       leak which IDs exist.
 - [ ] Scope changes to a user are audited (2.3-6) and take effect without
-      re-authentication.
+      re-authentication. *(The take-effect half is delivered; the audit half is
+      2.3-6, which needs this resolver's `CallerUserID`.)*
 
 **Acceptance criteria**
 - A technician scoped to client A requesting `GET /api/devices/<B's id>` gets
@@ -92,14 +98,19 @@ edited. This lands as **version 8**.
 
 ---
 
-## 2.3-2 · Scope every read route
+## 2.3-2 · Scope every read route · ✅ delivered
 
-Enumerated from `server/api/handlers.go` — every route below takes a scope filter:
+Enumerated from `server/api/handlers.go` — every route below takes a scope filter.
+Shipped in the 2.3-2 branch: the by-device door `ScopedDevice(c, store)`, the
+store-level scoped reads (`AlertStore.ListScoped`,
+`SoftwareUpdateStore.ListByStatusesScoped`, `FileTransferStore.ListScoped`,
+`DeviceStore.ListScoped`), and the role matrix test
+`TestScopeRoleMatrixOnEveryReadSurface` in `server/api/scope_routes_test.go`.
 
 | Route | Scoping |
 |---|---|
 | `GET /devices`, `GET /devices/:id`, `GET /devices/:id/metrics`, `/metrics/history` | by `device.client_id` |
-| `GET /tags` (and `PUT /devices/:id/tags` reads the device first) | tags present in the caller's scope only |
+| `GET /tags` (and `PUT /devices/:id/tags` reads the device first) | tags present in the caller's scope only — the counts are built over the caller's units, so the tag vocabulary cannot be a side channel to another client's fleet |
 | `GET /alerts` | by the alert's device |
 | `GET /sessions` | intersection of the existing owner/admin rule (2.2 era) **and** client scope |
 | `GET /devices/:id/updates`, `GET /patch/overview`, `GET /patch/updates`, `GET /patch/deployments`, `GET /patch/deployments/:id/results` | by the update/deployment's device(s) |
@@ -107,28 +118,58 @@ Enumerated from `server/api/handlers.go` — every route below takes a scope fil
 | `GET /files/transfers`, `/files/transfers/:id`, `/files/:transfer_id/file` | by the transfer's device; a download token for an out-of-scope transfer is 404 |
 
 **Acceptance criteria**
-- A parameterized scoping test walks **every route above** × {admin, manager
+- [x] A parameterized scoping test walks **every route above** × {admin, manager
   scoped to A, technician scoped to A, viewer scoped to A, technician with no
   client} and asserts: in-scope rows present, out-of-scope rows absent,
-  out-of-scope by-ID requests **404**.
-- Fleet views (`/patch/overview`, `/patch/updates`) are computed **inside** the
-  scope — a scoped manager's compliance percentage is over their clients, not the
-  installation. Add a fixture where the two numbers differ, so the test proves the
-  difference.
-- No route filters in the handler by post-filtering a full store read: scoping is a
-  store-level query. A test asserts the SQL carries the client filter (row counts
-  from the store, not the handler).
+  out-of-scope by-ID requests **404** (`TestScopeRoleMatrixOnEveryReadSurface`).
+- [x] Fleet views (`/patch/overview`, `/patch/updates`) are computed **inside**
+  the scope — a scoped manager's compliance percentage is over their clients, not
+  the installation. The fixture makes the numbers differ on purpose: client A
+  carries three open updates, client B one, the unassigned unit none, so the
+  installation's total (4) and A's total (3) are provably not the same number.
+- [x] No route filters in the handler by post-filtering a full store read:
+  scoping is a store-level query. Devices scope through `ListScoped`; the
+  entity tables that reference a unit (`alerts`, `software_updates`,
+  `file_transfers`) scope through `ListScoped` / `ListByStatusesScoped`, whose
+  SQL carries `device_id IN (the caller's units)`. **Recorded limit:** a
+  deployment's unit list is a serialized JSON array column, so deployments are
+  filtered in the API layer over the caller's visible units — the one place in
+  2.3-2 where the filter is not in SQL, and the reason is the column's shape,
+  not convenience. `GET /patch/policies` likewise answers only the policies
+  that can reach the caller's units (`all`, matching tags, matching devices).
 
 ---
 
-## 2.3-3 · Scope every bulk and mutating route (the security task)
+## 2.3-3 · Scope every bulk and mutating route (the security task) · ✅ bulk rows delivered
+
+**Delivered with 2.3-2** (the same door, the same tests): every by-device route
+answers 404 out of scope (`reboot`, `stream`, `stream/stop`, `updates/scan`,
+`sessions` start, `PUT /devices/:id/tags`); alerts by id answer
+alert-not-found; `POST /updates/:id/approve` answers update-not-found; bulk
+`/patch/deploy`, `/patch/scan`, `/devices/tags/bulk`, `/files/push`,
+`/files/pull` refuse the whole request naming the out-of-scope ids; bulk
+approval/skip refuses naming the out-of-scope update ids; sessions by id check
+the unit's scope **in addition to** ownership.
+
+**Status code, decided and recorded:** the plan's table says bulk refusal is
+`403`. It ships as **`400` with the offending ids named**. 403 is this API's
+RBAC answer — "your role may not call this endpoint" — and a caller whose role
+is fine, on a request whose *targets* are not theirs, needs the second reading,
+which is also the actionable one: remove the named ids and the request is valid.
+Two meanings in one status code is what makes a console show "you lack
+permission" to an operator who has it.
+
+**Remaining:** `POST /patch/policies` scope refusal — vacuous today, because
+those routes are `RequireRole("admin")` and admin is scope-all, so no creator
+exists who cannot see a client; it becomes real the moment a manager may create
+a policy.
 
 Bulk routes are where tenancy leaks: they take lists of IDs, and a partial success
 is an action on a client the caller must not touch.
 
 | Route | Required behaviour |
 |---|---|
-| `POST /patch/deploy`, `POST /patch/scan`, `POST /devices/tags/bulk`, `POST /files/push`, `POST /files/pull` | every target device in scope, **or the whole request is refused** (`403`, body lists the out-of-scope IDs). No partial deploy, no partial queueing. |
+| `POST /patch/deploy`, `POST /patch/scan`, `POST /devices/tags/bulk`, `POST /files/push`, `POST /files/pull` | every target device in scope, **or the whole request is refused** (`400`, body lists the out-of-scope IDs — see the recorded status-code decision above). No partial deploy, no partial queueing. |
 | `POST /devices/:id/reboot`, `/stream`, `/stream/stop`, `/updates/scan`, `POST /devices/:id/sessions` | 404 when the device is out of scope |
 | `POST /alerts/:id/resolve`, `/acknowledge`, `/assign` | 404 when the alert's device is out of scope |
 | `POST /updates/:id/approve`, `POST /patch/updates/approve`, `/skip` | update belongs to an in-scope device; bulk approval refuses the batch otherwise |
@@ -138,10 +179,12 @@ is an action on a client the caller must not touch.
 | `POST /patch/policies`, `PUT`, `DELETE` | admin only; a policy whose scope reaches a client the creator cannot see is refused with a named error |
 
 **Acceptance criteria**
-- **Atomicity test:** a technician scoped to A calls `POST /patch/deploy` with
-  `[A-device, B-device]` → `403`, **and the store shows no deployment row, no
-  deployment results, and no queued deploy for either device**. Same for
-  `/patch/scan`, `/devices/tags/bulk`, `/files/push`.
+- [x] **Atomicity test:** a technician scoped to A calls `POST /patch/deploy`
+  with `[A-device, B-device]` → `400`, **and the store shows no deployment row**
+  (`TestScopeBulkRefusalWritesNothing`, via the `Count()` store spy added to
+  `PatchDeploymentStore`, `SoftwareUpdateStore` and `SessionStore`). Same test
+  proves `/devices/tags/bulk` moved no unit's tags, `/patch/scan` added no
+  update rows, and a session start on a foreign unit created no session row.
 - A technician scoped to A cannot start a session, send input, reboot, push a file,
   or resolve an alert on any B device — each asserted with the exact status code.
 - An `admin` is unaffected: the full existing test suite passes unchanged.

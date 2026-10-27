@@ -20,7 +20,21 @@ func NewTagHandler(st *store.Store) *TagHandler { return &TagHandler{store: st} 
 // ListTags returns every tag in use with its device count.
 // GET /api/tags
 func (h *TagHandler) ListTags(c *gin.Context) {
+	// The tag vocabulary is the fleet's, so the counts are the caller's: a
+	// manager of two clients is offered the tags on their units, not the
+	// installation's. The tag filter on a scoped list is the store's client
+	// filter, so a tag cannot be a side channel to another client's fleet.
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+	scope.ApplyScopeHeader(c)
+
 	devices, err := h.store.Devices.ListAll()
+	if !scope.all {
+		devices, err = h.store.Devices.ListScoped(scope.ClientIDs(), scope.IncludeUnassigned())
+	}
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list devices"})
 		return
@@ -53,9 +67,11 @@ func (h *TagHandler) SetDeviceTags(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "invalid request body"})
 		return
 	}
-	dev, err := h.store.Devices.GetByID(c.Param("id"))
-	if err != nil {
-		c.JSON(404, gin.H{"error": "device not found"})
+	// Tags ride the unit: a technician removed from a client must not be able to
+	// retag that client's units, and retagging is how a fleet disappears from
+	// someone's view.
+	dev, ok := ScopedDevice(c, h.store)
+	if !ok {
 		return
 	}
 	dev.Tags = models.NormalizeTags(req.Tags)
@@ -78,6 +94,30 @@ func (h *TagHandler) BulkTags(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "invalid request body"})
 		return
 	}
+	// Bulk targets are validated before anything is written. Silently skipping
+	// ids the caller may not touch (the old behaviour, which skipped unknown
+	// ones too) means a technician who includes a foreign unit in a bulk
+	// request watches it get skipped — a partial success is exactly the
+	// "partial bulk succeeded" case the plan refuses. Out-of-scope targets are
+	// named, and the fleet is untouched.
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+	scope.ApplyScopeHeader(c)
+	if !scope.all {
+		foreign, err := h.store.Clients.DeviceIDsNotIn(scope.ClientIDs(), scope.IncludeUnassigned(), req.DeviceIDs)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed to validate bulk targets"})
+			return
+		}
+		if len(foreign) > 0 {
+			c.JSON(400, gin.H{"error": "one or more targets are outside your client scope", "device_ids": foreign})
+			return
+		}
+	}
+
 	add := models.NormalizeTags(req.Add)
 	remove := map[string]bool{}
 	for _, t := range models.NormalizeTags(req.Remove) {

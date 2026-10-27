@@ -164,6 +164,23 @@ func (s *SoftwareUpdateStore) RevertToApproved(deploymentID, deviceID string) er
 		Updates(map[string]interface{}{"status": "approved", "deployment_id": ""}).Error
 }
 
+// ListByStatusesScoped returns the open updates whose **unit** is in
+// `deviceIDs`. Empty set, no rows — see `AlertStore.ListScoped` for why the
+// filter belongs in the SQL.
+func (s *SoftwareUpdateStore) ListByStatusesScoped(statuses []string, deviceIDs []string) ([]models.SoftwareUpdate, error) {
+	if len(deviceIDs) == 0 {
+		return []models.SoftwareUpdate{}, nil
+	}
+	var updates []models.SoftwareUpdate
+	if err := s.db.Where("status IN ?", statuses).
+		Where("device_id IN ?", deviceIDs).
+		Order("created_at DESC").
+		Find(&updates).Error; err != nil {
+		return nil, err
+	}
+	return updates, nil
+}
+
 // ListByStatuses returns updates (all devices) in any of the statuses.
 func (s *SoftwareUpdateStore) ListByStatuses(statuses []string) ([]models.SoftwareUpdate, error) {
 	var updates []models.SoftwareUpdate
@@ -183,4 +200,15 @@ func (s *SoftwareUpdateStore) SetStatusIfDetected(ids []string, status string) (
 		Where("id IN ? AND status = ?", ids, "detected").
 		Updates(map[string]interface{}{"status": status, "updated_at": time.Now()})
 	return res.RowsAffected, res.Error
+}
+
+// Count reports how many rows exist. The scoping tests use it as the store spy:
+// a refused bulk request must leave the count unmoved, which is the 2.3-3 atomicity
+// rule measured where it can be measured.
+func (s *SoftwareUpdateStore) Count() (int64, error) {
+	var n int64
+	if err := s.db.Model(&models.SoftwareUpdate{}).Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
 }

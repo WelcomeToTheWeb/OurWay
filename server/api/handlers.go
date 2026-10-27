@@ -302,10 +302,10 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 	// operator is working under, not just the code behind a 429.
 	r.GET("/api/agent/version", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"version":                 config.Version,
-			"git_commit":              config.GitCommit,
-			"rate_limit_per_minute":   ratePerMinute,
-			"rate_limit_burst":        effectiveBurst,
+			"version":               config.Version,
+			"git_commit":            config.GitCommit,
+			"rate_limit_per_minute": ratePerMinute,
+			"rate_limit_burst":      effectiveBurst,
 		})
 	})
 
