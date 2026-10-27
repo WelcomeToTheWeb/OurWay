@@ -284,26 +284,27 @@ Tests: `server/api/clients_test.go` (6 tests over the real router).
 there is no table, no writer, and no UI. This lands as migration **9**.
 
 **Do**
-- [ ] `AuditLog` model + migration 9: `id`, `actor_user_id`, `actor_username`,
+- [x] `AuditLog` model + migration 9: `id`, `actor_user_id`, `actor_username`,
       `actor_provider`, `action` (verb, e.g. `device.delete`, `patch.deploy`),
       `target_type`, `target_id`, `client_id`, `details` (JSON), `source_ip`,
       `created_at`. Index on `(client_id, created_at)` and `(action, created_at)`.
-- [ ] A store-level writer (`store.Audit.Record(...)`) called from handlers, **not**
+- [x] A store-level writer (`store.Audit.Record(...)`) called from handlers, **not**
       a gin middleware — middleware cannot know the target, the client, or whether
       the action succeeded.
-- [ ] Record every mutating route in `server/api/handlers.go`, plus: login
+- [x] Record every mutating route in `server/api/handlers.go`, plus: login
       success/failure, logout, password change, SSO JIT provisioning, role and
       client-scope changes, API key create/rotate/revoke, session start/end,
       reboot, device delete, tag changes, deploy/approve/skip/rollback.
-- [ ] Failed and refused actions are recorded with the outcome — a refused
+- [x] Failed and refused actions are recorded with the outcome — a refused
       out-of-scope deploy is exactly the event an MSP wants to see.
-- [ ] Retention: `AUDIT_RETENTION_DAYS` (default 365), pruned by the existing
+- [x] Retention: `AUDIT_RETENTION_DAYS` (default 365), pruned by the existing
       retention manager pattern (`store/metrics_history.go` has the shape; M11's
       lesson is that a delete method with no caller is not a retention policy).
-- [ ] `GET /api/audit` (admin; managers see their clients' rows) with
+- [x] `GET /api/audit` (admin; managers see their clients' rows) with
       actor/action/client/date filters + CSV export.
-- [ ] Console: Audit ledger with filters; entry points from device detail
-      ("this unit's record") and from the user's own profile.
+- [x] Console: Audit ledger with filters. **Entry points from the unit view and
+      the operator's own profile are not built** — the ledger filters by unit id
+      from its own page, and the deep link is the follow-up noted below.
 
 **Acceptance criteria**
 - **Coverage test, not a promise:** a test walks `SetupRouter`'s route list, filters
@@ -319,6 +320,68 @@ there is no table, no writer, and no UI. This lands as migration **9**.
   leaves the record; proven with a failing-action fixture.
 - Pruning is scheduled and tested: rows older than `AUDIT_RETENTION_DAYS` disappear,
   and the prune is observable (a counter, in the 2.5.0 metrics surface).
+
+**Delivered (2.3-6)** — `server/api/audit.go`, `server/api/audit_list.go`,
+`server/store/audit.go`, `server/models/audit.go`, migration 9,
+`server/metrics/retention.go`, `web/src/pages/Audit.tsx`, `web/src/api/audit.ts`.
+
+The decisions the code records, in the order they were forced:
+
+- **The writer is deferred at the top of the handler, not placed above the 200.**
+  `auditForAnswer` reads `c.Writer.Status()` when the handler returns, so the
+  outcome column is the response the technician got, and every exit of a handler
+  — success, 400, 404, 409, 500 — is a row. A record written as the handler
+  *begins* is a ledger of intentions: it says a reboot happened when the agent
+  never received one.
+- **RBAC refusals are recorded by the middleware.** `RequireRole` and
+  `RequireAnyRole` abort **before** any handler runs, so the handler-side writer
+  cannot see the most important refusal class in an MSP product: a viewer
+  pressing delete. `auditRoleDenial` records the actor, the action (from the
+  registry, keyed on the matched route), the status, and the route.
+- **The registry is one table, and the coverage test compares it to the live
+  router.** `TestEveryMutatingRouteIsAudited` enumerates `SetupRouter`'s routes,
+  keeps the mutating verbs (68 of them), and fails on any route with no action
+  **and no written reason** for not having one. The skip list is checked in the
+  same direction: an entry naming a route the router no longer has fails too, so
+  the allow-list cannot rot into a list of claims about the product that stopped
+  being true.
+- **The agent-side writes are on that skip list, with reasons.** The actor of a
+  `POST /api/agent/heartbeat` is a device key, not a person; a row for it would
+  name a machine as the author of a human act. They are recorded where they
+  belong — as device reports, deployment results, session rows.
+- **`actor_user_id`, `target_id` and `client_id` are text, not `uuid`.** Postgres
+  is what forced this: a `uuid` column rejects the empty string, and these
+  columns are legitimately empty — a failed login has no authenticated user id,
+  a bulk command refused before any target resolved has no entity id, a row
+  about the installation has no client. A `uuid` schema cannot store the
+  refusals the ledger exists to record, and it fails at migration time, not at
+  the row that needs it. `TestPostgresMigrationsUpgradeFromV22` writes the
+  empty-actor row and reads it back.
+- **Retention shares the metric sweep, with counters.** `RetentionManager.
+  WithAudit(...)` prunes the ledger on the same hourly tick as metric history;
+  `Counters()` and `RetentionSummary()` report rows removed, last run, and
+  failure. The ledger endpoint prints the same numbers, so the page states the
+  promise and the evidence together. A failed ledger prune is counted and
+  logged and never aborts the metric cleanup (`TestRetentionSurvivesAuditFailure`).
+- **The CSV export is an authenticated request, not a link.** A link cannot
+  carry the `Authorization` header, and the shape that works — `?access_token=`
+  in the URL — puts a live bearer token in browser history, proxy logs and
+  `Referer` headers. The export goes through the authenticated client as a Blob,
+  and `limit` is capped server-side at 1000 so "the whole log" is bounded by
+  design.
+- **A `client_id` the caller is not granted answers an empty ledger.** The
+  ledger's client ids are a list of the tenants that exist in the installation;
+  an error naming the one you may not read leaks what the 404 rule closes.
+- **Console tests cannot use the generic key-path guard here.** The ledger's own
+  vocabulary is dotted by design — `device.delete`, `patch.deploy` — so
+  `Audit.test.tsx` builds its guard from the locale file's real key paths. A
+  test that fails on correct output is a test that gets switched off.
+
+**Follow-up, not shipped in this pass:** the plan's "entry points from device
+detail (*this unit's record*) and from the user's own profile". The ledger
+filters by action, client and date from its own page and the filters are URL
+state, so the deep link is a link; the buttons on the unit view and the profile
+are not built.
 
 ---
 

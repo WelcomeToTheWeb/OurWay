@@ -53,6 +53,16 @@ func writeBinary(t *testing.T, conn *websocket.Conn, data []byte) {
 	}
 }
 
+// relayBudget is how long this relay test waits for one hop.
+//
+// It is generous on purpose. `go test ./...` runs the packages in parallel, and
+// this test's hops are real WebSocket round-trips through a hub goroutine: on a
+// loaded CI box, a scheduler can starve the hub's loop while every other package
+// is compiling and racing. A tight deadline here reads as "the relay is slow"
+// when nothing is wrong with the relay, and a test that fails under load and
+// passes on re-run teaches people to ignore the suite.
+const relayBudget = 20 * time.Second
+
 func TestViewerSessionRelay(t *testing.T) {
 	ts, st, hub := setupHubTest(t)
 	go hub.Run()
@@ -87,7 +97,7 @@ func TestViewerSessionRelay(t *testing.T) {
 	}
 
 	// The exe is told to switch to the framed protocol.
-	readUntil(t, remote, 5*time.Second, func(m Message) bool { return m.Type == "viewer_attach" })
+	readUntil(t, remote, relayBudget, func(m Message) bool { return m.Type == "viewer_attach" })
 
 	// Framed frames pass through verbatim; legacy JPEGs are wrapped.
 	rich := []byte{frameKindTiles, 0, 0, 10, 0, 10, 0, 0}
@@ -104,14 +114,14 @@ func TestViewerSessionRelay(t *testing.T) {
 	// Viewer -> exe: allowed types only, order preserved.
 	wsSend(t, viewer, "command", map[string]string{"cmd": "format c:"})
 	wsSend(t, viewer, "clipboard", map[string]string{"text": "hello"})
-	m := readUntil(t, remote, 5*time.Second, func(m Message) bool { return m.Type != "ping" && m.Type != "viewer_attach" })
+	m := readUntil(t, remote, relayBudget, func(m Message) bool { return m.Type != "ping" && m.Type != "viewer_attach" })
 	if m.Type != "clipboard" {
 		t.Errorf("exe got %q first; disallowed type must not be relayed", m.Type)
 	}
 
 	// Ctrl+Alt+Del goes to the agent service, not the exe.
 	wsSend(t, viewer, "special_key", map[string]string{"key": "ctrl_alt_del"})
-	got := readUntil(t, agent, 5*time.Second, func(m Message) bool { return m.Type == "send_sas" })
+	got := readUntil(t, agent, relayBudget, func(m Message) bool { return m.Type == "send_sas" })
 	if got == nil {
 		t.Fatal("agent did not receive send_sas")
 	}
@@ -121,18 +131,18 @@ func TestViewerSessionRelay(t *testing.T) {
 	// Exe -> viewer: allowed types only.
 	wsSend(t, remote, "command", nil)
 	wsSend(t, remote, "monitor_list", []map[string]int{{"id": 0, "w": 1920, "h": 1080}})
-	ml := readUntil(t, viewer, 5*time.Second, func(m Message) bool { return m.Type == "monitor_list" })
+	ml := readUntil(t, viewer, relayBudget, func(m Message) bool { return m.Type == "monitor_list" })
 	if ml == nil {
 		t.Fatal("viewer did not receive monitor_list")
 	}
 
 	// The API's session_end reaches the viewer.
 	hub.SendToViewer(sess.ID, "session_end", nil)
-	readUntil(t, viewer, 5*time.Second, func(m Message) bool { return m.Type == "session_end" })
+	readUntil(t, viewer, relayBudget, func(m Message) bool { return m.Type == "session_end" })
 
 	// Closing the viewer ends the session and stops the device.
 	viewer.Close(websocket.StatusNormalClosure, "bye")
-	readUntil(t, agent, 5*time.Second, func(m Message) bool { return m.Type == "session_end" })
+	readUntil(t, agent, relayBudget, func(m Message) bool { return m.Type == "session_end" })
 	if got, err := st.Sessions.GetByID(sess.ID); err != nil || got.Status != "ended" {
 		t.Errorf("session status after viewer left = %v (err %v), want ended", got, err)
 	}

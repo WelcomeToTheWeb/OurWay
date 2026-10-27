@@ -53,6 +53,39 @@ func hasRole(c *gin.Context, role string) bool {
 	return false
 }
 
+// auditRoleDenial records a role refusal.
+//
+// The RBAC middlewares run **before** any handler, so the handler-side writer
+// never sees the most important class of refusal in an MSP product: a viewer
+// pressing delete on a unit, a technician calling an admin route. Nothing in
+// the handler runs, so nothing there can record it — and a ledger with no
+// denied attempts is a ledger of what the installation allowed.
+//
+// The middleware knows the actor (the auth middleware loaded it), the action
+// (the registry, keyed on the route the router matched) and the status. It does
+// not know the target's client, because no lookup happened: that is the
+// handler's knowledge, so the row says what the middleware knows.
+func auditRoleDenial(c *gin.Context, status int, reason string) {
+	st := auditStoreFromContext(c)
+	if st == nil {
+		return
+	}
+	action, ok := lookupAuditAction(c.Request.Method, c.FullPath())
+	if !ok {
+		return
+	}
+	target := AuditTarget{Type: "route", ID: c.FullPath()}
+	if id := c.Param("id"); id != "" {
+		target.ID = id
+		target.Type = "entity"
+	}
+	recordAudit(c, st, action, status, target, map[string]any{
+		"denied": reason,
+		"route":  c.FullPath(),
+		"path":   c.Request.URL.Path,
+	})
+}
+
 // RequireRole checks that the authenticated user has the specified role.
 func RequireRole(role string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -77,6 +110,7 @@ func RequireRole(role string) gin.HandlerFunc {
 			}
 		}
 
+		auditRoleDenial(c, 403, "requires role "+role)
 		c.JSON(403, gin.H{"error": "insufficient permissions"})
 		c.Abort()
 	}
@@ -108,6 +142,7 @@ func RequireAnyRole(roles ...string) gin.HandlerFunc {
 			}
 		}
 
+		auditRoleDenial(c, 403, "requires one of: "+strings.Join(roles, ", "))
 		c.JSON(403, gin.H{"error": "insufficient permissions"})
 		c.Abort()
 	}

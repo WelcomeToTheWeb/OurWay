@@ -554,5 +554,42 @@
     "rebootPending": "Redémarrage en attente",
     "openRow": "Ouvrir le détail de {{name}}",
     "create": "Ajouter le client"
+  },
+  "audit": {
+    "title": "Journal",
+    "subtitle": "qui a quoi fait, à quel client, et ce que le serveur a répondu",
+    "noAccess": "Le journal est une interface d'exploitation : les administrateurs lisent l'installation, les gestionnaires lisent leurs clients.",
+    "scope": "Périmètre appliqué : {{scope}}",
+    "retention": "Les entrées de plus de {{days}} jours sont supprimées",
+    "lastSweep": "La dernière passe a supprimé {{rows}} entrées ({{when}})",
+    "sweepNever": "La passe de conservation n'a pas encore tourné sur ce serveur",
+    "sweepFailed": "La dernière passe de conservation a échoué — les entrées restent au-delà de la fenêtre",
+    "filterAction": "Action",
+    "filterActionAll": "Toutes les actions",
+    "filterClient": "Client",
+    "filterClientAll": "Tous les clients visibles",
+    "filterFrom": "À partir du",
+    "clearFilters": "Effacer les filtres",
+    "export": "Exporter en CSV",
+    "exporting": "Export en cours …",
+    "exportFailed": "L'export ne s'est pas terminé.",
+    "empty": "Aucune entrée pour ce filtre. Les entrées plus anciennes que la fenêtre de conservation ont été supprimées.",
+    "noActor": "aucun compte",
+    "footnote": "Les tentatives refusées sont enregistrées aussi — c'est le rôle du journal. Les entrées de plus de {{days}} jours sont supprimées.",
+    "col": {
+      "actor": "Qui",
+      "action": "Action",
+      "target": "Cible",
+      "outcome": "Résultat",
+      "source": "Source",
+      "when": "Quand"
+    },
+    "outcomes": {
+      "ok": "fait",
+      "refused": "refusé",
+      "notFound": "introuvable",
+      "error": "échoué",
+      "unknown": "inconnu"
+    }
   }
 }

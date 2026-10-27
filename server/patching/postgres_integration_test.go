@@ -14,7 +14,8 @@ import (
 
 // Exercises the patch pipeline against a real PostgreSQL (uuid columns and
 // DDL behave differently from SQLite). Set OURWAY_TEST_PG_DSN to run, e.g.
-//   OURWAY_TEST_PG_DSN="host=/tmp user=me dbname=ourway_test sslmode=disable"
+//
+//	OURWAY_TEST_PG_DSN="host=/tmp user=me dbname=ourway_test sslmode=disable"
 func pgPatchStore(t *testing.T) *store.Store {
 	t.Helper()
 	dsn := os.Getenv("OURWAY_TEST_PG_DSN")

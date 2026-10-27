@@ -28,6 +28,11 @@ type Config struct {
 	WebURL              string
 	InstallersDir       string
 	MetricRetentionDays int
+	// AuditRetentionDays is how long the audit ledger keeps rows
+	// (AUDIT_RETENTION_DAYS, default 365). 2.3-6 states retention as a number
+	// an operator can read, so the same value answers the ledger endpoint and
+	// drives the sweeper that prunes it.
+	AuditRetentionDays int
 	// EnrollSecret, when non-empty, is required as X-Enrollment-Secret on
 	// new device registration (re-registration of a known device with a
 	// valid device key still works without it).
@@ -70,6 +75,7 @@ func Load() *Config {
 		WebURL:              getEnv("WEB_URL", "http://localhost:3000"),
 		InstallersDir:       getEnv("INSTALLERS_DIR", "./dist/agents"),
 		MetricRetentionDays: getEnvInt("METRIC_RETENTION_DAYS", 365),
+		AuditRetentionDays:  getEnvInt("AUDIT_RETENTION_DAYS", 365),
 		EnrollSecret:        getEnv("ENROLLMENT_SECRET", ""),
 		WSOrigins:           getEnv("WS_ORIGINS", ""),
 		RateLimitPerMinute:  getEnvInt("RATE_LIMIT_PER_MINUTE", 100),

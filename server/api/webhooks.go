@@ -58,6 +58,14 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 		webhook.Enabled = *req.Enabled
 	}
 
+	// A webhook sends fleet data to an outside system, so its creation is a
+	// data-egress decision: the record names the URL and the events, and never
+	// the signing secret.
+	defer auditForAnswer(c, h.store, models.AuditWebhookCreate, AuditTarget{Type: "webhook", ID: webhook.ID}, map[string]any{
+		"name":   webhook.Name,
+		"url":    webhook.URL,
+		"events": webhook.Events,
+	})
 	if err := h.store.Webhooks.Create(webhook); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create webhook"})
 		return
@@ -139,6 +147,11 @@ func (h *WebhookHandler) Update(c *gin.Context) {
 		webhook.Enabled = *req.Enabled
 	}
 
+	defer auditForAnswer(c, h.store, models.AuditWebhookUpdate, AuditTarget{Type: "webhook", ID: webhook.ID}, map[string]any{
+		"name":    webhook.Name,
+		"url":     webhook.URL,
+		"enabled": webhook.Enabled,
+	})
 	if err := h.store.Webhooks.Update(webhook); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update webhook"})
 		return
@@ -150,6 +163,7 @@ func (h *WebhookHandler) Update(c *gin.Context) {
 // Delete removes a webhook.
 func (h *WebhookHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
+	defer auditForAnswer(c, h.store, models.AuditWebhookDelete, AuditTarget{Type: "webhook", ID: id}, nil)
 	if err := h.store.Webhooks.Delete(id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "webhook not found"})
 		return
@@ -160,6 +174,9 @@ func (h *WebhookHandler) Delete(c *gin.Context) {
 // Test sends a test event to the webhook.
 func (h *WebhookHandler) Test(c *gin.Context) {
 	id := c.Param("id")
+	// A test event ships real fleet data to an outside URL, so it is an act,
+	// not a page interaction.
+	defer auditForAnswer(c, h.store, models.AuditWebhookTest, AuditTarget{Type: "webhook", ID: id}, nil)
 	webhook, err := h.store.Webhooks.GetByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "webhook not found"})
@@ -187,6 +204,9 @@ func (h *WebhookHandler) ListDeliveries(c *gin.Context) {
 
 // RetryDelivery retries a failed delivery.
 func (h *WebhookHandler) RetryDelivery(c *gin.Context) {
+	// Re-delivering an event re-sends fleet data to an outside system, so it
+	// shares the test verb: the ledger's filter list stays one verb per act.
+	defer auditForAnswer(c, h.store, models.AuditWebhookTest, AuditTarget{Type: "webhook", ID: c.Param("id")}, nil)
 	deliveryID := c.Param("delivery_id")
 
 	delivery, err := h.store.WebhookDeliveries.GetByID(deliveryID)

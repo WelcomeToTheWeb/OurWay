@@ -554,5 +554,42 @@
     "rebootPending": "Reboot pending",
     "openRow": "Open {{name}} detail",
     "create": "Add client"
+  },
+  "audit": {
+    "title": "Audit",
+    "subtitle": "who did what, to which tenant, and what the server answered",
+    "noAccess": "The audit log is an operator surface: administrators read the installation, managers read their clients.",
+    "scope": "Scope applied: {{scope}}",
+    "retention": "Records older than {{days}} days are removed",
+    "lastSweep": "Last sweep removed {{rows}} rows ({{when}})",
+    "sweepNever": "The retention sweep has not run yet on this server",
+    "sweepFailed": "The last retention sweep failed — records are being kept past the window",
+    "filterAction": "Action",
+    "filterActionAll": "All actions",
+    "filterClient": "Client",
+    "filterClientAll": "All clients I can see",
+    "filterFrom": "From",
+    "clearFilters": "Clear filters",
+    "export": "Export CSV",
+    "exporting": "Exporting…",
+    "exportFailed": "The export did not complete.",
+    "empty": "Nothing in the log for this filter. Records older than the retention window are gone.",
+    "noActor": "no account",
+    "footnote": "Refused attempts are recorded too — that is what the log is for. Rows older than {{days}} days are pruned.",
+    "col": {
+      "actor": "Who",
+      "action": "Action",
+      "target": "Target",
+      "outcome": "Outcome",
+      "source": "Source",
+      "when": "When"
+    },
+    "outcomes": {
+      "ok": "done",
+      "refused": "refused",
+      "notFound": "not found",
+      "error": "failed",
+      "unknown": "unknown"
+    }
   }
 }

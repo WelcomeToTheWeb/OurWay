@@ -70,6 +70,12 @@ func (h *APIKeyHandler) CreateKey(c *gin.Context) {
 		key.ExpiresAt = &exp
 	}
 
+	// The record names the key by id and label, never the secret: an audit
+	// log that contained a key value would be a store of credentials, and the
+	// ledger is the most-read surface in the product.
+	defer auditForAnswer(c, h.store, models.AuditAPIKeyCreate, AuditTarget{Type: "api-key", ID: key.ID}, map[string]any{
+		"name": key.Name,
+	})
 	if err := h.store.APIKeys.Create(key); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create API key"})
 		return
@@ -145,6 +151,9 @@ func (h *APIKeyHandler) UpdateKey(c *gin.Context) {
 		key.Scopes = string(scopesJSON)
 	}
 
+	defer auditForAnswer(c, h.store, models.AuditAPIKeyUpdate, AuditTarget{Type: "api-key", ID: key.ID}, map[string]any{
+		"name": key.Name,
+	})
 	if err := h.store.APIKeys.Update(key); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update API key"})
 		return
@@ -169,6 +178,7 @@ func (h *APIKeyHandler) DeleteKey(c *gin.Context) {
 		return
 	}
 
+	defer auditForAnswer(c, h.store, models.AuditAPIKeyDelete, AuditTarget{Type: "api-key", ID: keyID}, map[string]any{"name": key.Name})
 	if err := h.store.APIKeys.Delete(keyID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete API key"})
 		return
@@ -193,6 +203,7 @@ func (h *APIKeyHandler) RevokeKey(c *gin.Context) {
 		return
 	}
 
+	defer auditForAnswer(c, h.store, models.AuditAPIKeyRevoke, AuditTarget{Type: "api-key", ID: keyID}, map[string]any{"name": key.Name})
 	if err := h.store.APIKeys.Revoke(keyID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke API key"})
 		return
@@ -237,6 +248,10 @@ func (h *APIKeyHandler) RotateKey(c *gin.Context) {
 	}
 
 	// Generate new key
+	// Rotation replaces a credential an integration is using, so it is
+	// recorded with the key it rotates — and never with the new value.
+	defer auditForAnswer(c, h.store, models.AuditAPIKeyRotate, AuditTarget{Type: "api-key", ID: keyID}, map[string]any{"name": key.Name})
+
 	key.Key = models.GenerateAPIKey()
 	key.KeyHash = models.HashAPIKey(key.Key)
 	now := time.Now()

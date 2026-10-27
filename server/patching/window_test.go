@@ -8,7 +8,9 @@ import (
 	"ourway/server/ws"
 )
 
-func utc(y int, m time.Month, d, h, min int) time.Time { return time.Date(y, m, d, h, min, 0, 0, time.UTC) }
+func utc(y int, m time.Month, d, h, min int) time.Time {
+	return time.Date(y, m, d, h, min, 0, 0, time.UTC)
+}
 
 func TestInWindowBasics(t *testing.T) {
 	p := &models.PatchPolicy{Schedule: "daily", WindowStart: "02:00", WindowHours: 4, Timezone: "UTC"}

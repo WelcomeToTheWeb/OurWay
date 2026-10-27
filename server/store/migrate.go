@@ -180,6 +180,32 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 9, name: "audit_log", fn: func(db *gorm.DB) error {
+		// 2.3-6: the record of mutating acts. docs/phase1-tasks.md lists "Audit
+		// log for user actions" as complete; there was no table, no writer and
+		// no UI. Migration numbers are append-only, so it lands as 9.
+		//
+		// The two composite indexes are the queries the ledger answers: a
+		// manager reading their clients' rows newest-first, and an operator
+		// asking "every failed login, this week". A single-column index on
+		// `created_at` serves neither: both filters are selective together.
+		if !db.Migrator().HasTable(&models.AuditLog{}) {
+			if err := db.Migrator().CreateTable(&models.AuditLog{}); err != nil {
+				return err
+			}
+		}
+		if db.Dialector.Name() == "postgres" {
+			if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_audit_log_client_created ON audit_log (client_id, created_at)").Error; err != nil {
+				return err
+			}
+			if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_audit_log_action_created ON audit_log (action, created_at)").Error; err != nil {
+				return err
+			}
+		} else if err := db.AutoMigrate(&models.AuditLog{}); err != nil {
+			return err
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

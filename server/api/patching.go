@@ -60,6 +60,7 @@ func (h *PatchHandler) ScanDevice(c *gin.Context) {
 	if !ok {
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditPatchScan, DeviceTarget(device), nil)
 	deviceID := device.ID
 
 	// Scan just this device.
@@ -87,9 +88,15 @@ func (h *PatchHandler) ApproveUpdate(c *gin.Context) {
 	// the unit the update belongs to — and the out-of-scope answer is the
 	// update-not-found answer, not "not your client".
 	if code, body := h.checkUpdateScope(c, update); code != 0 {
+		// An approval attempt at an update on another tenant's unit. The
+		// answer is the record, and the record is the row.
+		auditForAnswer(c, h.store, models.AuditPatchApprove, AuditTarget{Type: "update", ID: updateID}, nil)
 		c.JSON(code, body)
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditPatchApprove, h.updateTarget(update), map[string]any{
+		"title": update.Title,
+	})
 
 	if update.Status != "detected" {
 		c.JSON(409, gin.H{"error": "only detected updates can be approved", "status": update.Status})
@@ -276,6 +283,10 @@ func (h *PatchHandler) CreatePolicy(c *gin.Context) {
 		c.JSON(400, gin.H{"error": msg})
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditPolicyCreate, AuditTarget{Type: "patch-policy", ID: policy.ID}, map[string]any{
+		"name":  policy.Name,
+		"scope": policy.Scope,
+	})
 	if err := h.store.PatchPolicies.Create(policy); err != nil {
 		c.JSON(500, gin.H{"error": "failed to create policy"})
 		return
@@ -302,6 +313,10 @@ func (h *PatchHandler) UpdatePolicy(c *gin.Context) {
 		c.JSON(400, gin.H{"error": msg})
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditPolicyUpdate, AuditTarget{Type: "patch-policy", ID: policy.ID}, map[string]any{
+		"name":  policy.Name,
+		"scope": policy.Scope,
+	})
 	if err := h.store.PatchPolicies.Update(policy); err != nil {
 		c.JSON(500, gin.H{"error": "failed to update policy"})
 		return
@@ -317,6 +332,7 @@ func (h *PatchHandler) DeletePolicy(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "policy not found"})
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditPolicyDelete, AuditTarget{Type: "patch-policy", ID: c.Param("id")}, nil)
 	if err := h.store.PatchPolicies.Delete(c.Param("id")); err != nil {
 		c.JSON(500, gin.H{"error": "failed to delete policy"})
 		return
@@ -383,7 +399,15 @@ func (h *PatchHandler) DeployNow(c *gin.Context) {
 
 	// A deployment installs onto machines, so every target is validated before
 	// anything is created.
+	// The deploy is recorded with the targets it was given, before any of them
+	// is touched. A refused bulk command is a row naming the ids it refused:
+	// that is the event an MSP reads the ledger for, and the 400 naming them is
+	// visible only to the caller who made the request.
+	defer auditForAnswer(c, h.store, models.AuditPatchDeploy, AuditTarget{Type: "device-batch"}, map[string]any{
+		"device_ids": req.DeviceIDs,
+	})
 	if code, body := h.validateDeviceTargets(c, req.DeviceIDs); code != 0 {
+		auditNameRefusedTargets(c, refusedTargetsOf(body))
 		c.JSON(code, body)
 		return
 	}
@@ -446,7 +470,11 @@ func (h *PatchHandler) RollbackDeployment(c *gin.Context) {
 	// An explicit device list is validated on top of that — a caller who names
 	// units outside this deployment's reach must fail naming them, not quietly
 	// roll back the subset they were allowed to name.
+	defer auditForAnswer(c, h.store, models.AuditPatchRollback, AuditTarget{Type: "deployment", ID: deploymentID}, map[string]any{
+		"device_ids": req.DeviceIDs,
+	})
 	if code, body := h.validateDeviceTargets(c, req.DeviceIDs); code != 0 {
+		auditNameRefusedTargets(c, refusedTargetsOf(body))
 		c.JSON(code, body)
 		return
 	}

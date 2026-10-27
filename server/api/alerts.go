@@ -109,6 +109,16 @@ func (h *AlertHandler) scopedAlert(c *gin.Context) (*models.Alert, bool) {
 	return alert, true
 }
 
+// alertTarget names an alert's unit, and the unit's client, so the record
+// carries the tenant at the time of the act. An alert has no client of its own
+// — it points at a unit — so this is the same derivation the fleet reads use.
+func (h *AlertHandler) alertTarget(alert *models.Alert) AuditTarget {
+	if device, err := h.store.Devices.GetByID(alert.DeviceID); err == nil && device != nil {
+		return DeviceTarget(device)
+	}
+	return AuditTarget{Type: "alert", ID: alert.ID}
+}
+
 // ResolveAlert marks an alert as resolved.
 func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 	id := c.Param("id")
@@ -116,6 +126,7 @@ func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 	if !ok {
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditAlertResolve, h.alertTarget(alert), nil)
 	if err := h.store.Alerts.MarkResolved(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve alert"})
 		return
@@ -133,9 +144,11 @@ func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 // AcknowledgeAlert marks an alert as acknowledged.
 func (h *AlertHandler) AcknowledgeAlert(c *gin.Context) {
 	id := c.Param("id")
-	if _, ok := h.scopedAlert(c); !ok {
+	alert, ok := h.scopedAlert(c)
+	if !ok {
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditAlertAcknowledge, h.alertTarget(alert), nil)
 	userID, _ := c.Get("user_id")
 	if err := h.store.Alerts.Acknowledge(id, userID.(string)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to acknowledge alert"})
@@ -147,9 +160,11 @@ func (h *AlertHandler) AcknowledgeAlert(c *gin.Context) {
 // AssignAlert assigns an alert to a user.
 func (h *AlertHandler) AssignAlert(c *gin.Context) {
 	id := c.Param("id")
-	if _, ok := h.scopedAlert(c); !ok {
+	alert, ok := h.scopedAlert(c)
+	if !ok {
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditAlertAssign, h.alertTarget(alert), nil)
 
 	var req struct {
 		UserID string `json:"user_id" binding:"required"`

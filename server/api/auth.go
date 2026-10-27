@@ -37,6 +37,31 @@ func (h *AuthHandler) Status(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"has_users": count > 0})
 }
 
+// auditLoginAttempt writes a login record. The actor fields are passed in
+// explicitly, because a login has no authenticated context to read: the auth
+// middleware runs on the other routes, and the actor here is the account the
+// request **claims**, which for a failure may be nobody.
+func auditLoginAttempt(c *gin.Context, st *store.Store, action, userID, username string, roles []string, status int) {
+	if st == nil || st.Audit == nil {
+		return
+	}
+	row := &models.AuditLog{
+		ID:            models.NewAuditID(),
+		ActorUserID:   userID,
+		ActorUsername: username,
+		ActorRoles:    joinRoles(roles),
+		Action:        action,
+		TargetType:    "route",
+		TargetID:      "/api/auth/login",
+		Outcome:       models.AuditOutcomeFor(status),
+		SourceIP:      c.ClientIP(),
+	}
+	// Best-effort by construction: an audit row is never the reason a
+	// technician cannot log in. A failure here is a server-log line, which is
+	// the record of the record's absence.
+	_ = st.Audit.Record(row)
+}
+
 // Register handles user registration.
 //
 // Registration is only open while the install has zero users (first
@@ -97,6 +122,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	defer auditForAnswer(c, h.store, models.AuditAuthRegister, AuditTarget{Type: "user", ID: user.ID}, map[string]any{
+		"username": user.Username,
+		"role":     roleName,
+		"provider": user.Provider,
+	})
 	c.JSON(http.StatusCreated, gin.H{"user": user})
 }
 
@@ -120,13 +150,20 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// Login is recorded on both outcomes, and the failure is the row an MSP
+	// reads: `auth.login_failed`, the username that was tried, the source IP,
+	// and no user id — the account may not exist. The password is never in
+	// the record: the request body is not evidence, and a log of secrets is a
+	// second system to breach.
 	user, err := h.store.Users.GetByUsername(req.Username)
 	if err != nil {
+		auditLoginAttempt(c, h.store, models.AuditAuthLoginFailed, "", req.Username, []string{}, http.StatusUnauthorized)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		auditLoginAttempt(c, h.store, models.AuditAuthLoginFailed, user.ID, user.Username, []string{}, http.StatusUnauthorized)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
@@ -143,6 +180,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		roleNames[i] = r.Name
 	}
 
+	// The success row carries the roles the token is about to carry, so the
+	// ledger says what the person was allowed to be at that moment.
+	auditLoginAttempt(c, h.store, models.AuditAuthLogin, user.ID, user.Username, roleNames, http.StatusOK)
 	accessToken, err := h.jwtAuth.GenerateToken(user.ID, user.Username, roleNames)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
@@ -308,6 +348,11 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 		return
 	}
 
+	// The password is never recorded; that it changed, on which account, and
+	// under which provider is the record.
+	defer auditForAnswer(c, h.store, models.AuditAuthPasswordChange, AuditTarget{Type: "user", ID: user.ID}, map[string]any{
+		"provider": user.Provider,
+	})
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
@@ -351,6 +396,13 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 	}
 	h.store.UserRoles.SetUserRoles(user.ID, []string{})
 
+	// The self-delete is recorded with the id and the username, because after
+	// this the account cannot be looked up: "someone deleted an account" with
+	// no name is not a record.
+	defer auditForAnswer(c, h.store, models.AuditUserDelete, AuditTarget{Type: "user", ID: user.ID}, map[string]any{
+		"username": user.Username,
+		"self":     true,
+	})
 	if err := h.store.Users.Delete(user.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 		return
@@ -370,6 +422,9 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
 	}
+	// The revoked token id is in the record: "this token stopped working here"
+	// is the answer a logout has to give.
+	defer auditForAnswer(c, h.store, models.AuditAuthLogout, AuditTarget{Type: "token", ID: claims.ID}, nil)
 	h.jwtAuth.Deny(claims.ID, claims.ExpiresAt)
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

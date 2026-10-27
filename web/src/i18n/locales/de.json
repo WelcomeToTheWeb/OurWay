@@ -554,5 +554,42 @@
     "rebootPending": "Neustart ausstehend",
     "openRow": "Detail von {{name}} öffnen",
     "create": "Mandant anlegen"
+  },
+  "audit": {
+    "title": "Protokoll",
+    "subtitle": "wer was getan hat, bei welchem Mandanten, und was der Server geantwortet hat",
+    "noAccess": "Das Protokoll ist eine Oberfläche für Betreuer: Administratoren lesen die Installation, Managers lesen ihre Mandanten.",
+    "scope": "Angewandter Bereich: {{scope}}",
+    "retention": "Einträge älter als {{days}} Tage werden entfernt",
+    "lastSweep": "Der letzte Durchlauf hat {{rows}} Einträge entfernt ({{when}})",
+    "sweepNever": "Der Bereinigungslauf wurde auf diesem Server noch nicht ausgeführt",
+    "sweepFailed": "Der letzte Bereinigungslauf ist fehlgeschlagen — Einträge bleiben länger als geplant",
+    "filterAction": "Aktion",
+    "filterActionAll": "Alle Aktionen",
+    "filterClient": "Mandant",
+    "filterClientAll": "Alle Mandanten, die ich sehen darf",
+    "filterFrom": "Ab",
+    "clearFilters": "Filter zurücksetzen",
+    "export": "CSV exportieren",
+    "exporting": "Exportiere …",
+    "exportFailed": "Der Export ist nicht abgeschlossen worden.",
+    "empty": "Keine Einträge für diesen Filter. Einträge älter als das Aufbewahrungsfenster sind entfernt.",
+    "noActor": "kein Konto",
+    "footnote": "Auch abgelehnte Versuche werden erfasst — dafür ist das Protokoll da. Einträge älter als {{days}} Tage werden entfernt.",
+    "col": {
+      "actor": "Wer",
+      "action": "Aktion",
+      "target": "Ziel",
+      "outcome": "Ergebnis",
+      "source": "Quelle",
+      "when": "Wann"
+    },
+    "outcomes": {
+      "ok": "ausgeführt",
+      "refused": "abgelehnt",
+      "notFound": "nicht gefunden",
+      "error": "fehlgeschlagen",
+      "unknown": "unbekannt"
+    }
   }
 }

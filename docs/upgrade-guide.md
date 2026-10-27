@@ -128,6 +128,31 @@ journalctl -u ourway-server -f
 3. Check metrics are updating
 4. Test API endpoints
 
+### The audit ledger arrives with 2.3
+
+Upgrading to 2.3 adds the `audit_log` table (migration 9) and starts recording
+every mutating act. Nothing to configure, and nothing to migrate by hand: the
+table starts empty, so **the log is not a record of the past**. History from
+before the upgrade is not recoverable, and an operator who expects to see last
+quarter's reboots in the page after upgrading is reading the wrong surface.
+
+`AUDIT_RETENTION_DAYS` (default 365) sets the window. Rows past it are removed
+by the same hourly sweep that prunes metric history, and the ledger page prints
+the window, the last sweep and the rows it removed. If a client contract
+requires a longer log, set it **before** the first write, not after a row has
+already aged out.
+
+Two visible things to expect after the upgrade:
+
+- Administrators see every tenant's rows. A manager sees only the clients they
+  are granted, and a viewer is refused the page. Asking for a client the caller
+  is not granted answers an empty ledger, by design — the ledger's client ids
+  are a list of which tenants exist in the installation.
+- Refusals appear in the log as rows with an outcome (`refused`, `not_found`,
+  `error`). A page full of `refused` entries after a permissions change is not
+  an outage; it is the log doing the job it was built for, recording the attempts
+  that did not work.
+
 ---
 
 ## Agent Upgrade

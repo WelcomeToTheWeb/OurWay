@@ -330,6 +330,18 @@ func (h *DeviceHandler) scopedDevice(c *gin.Context) (*models.Device, bool) {
 // DeleteDevice removes a device by ID.
 func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 	id := c.Param("id")
+	// The unit is read before it is destroyed, for the record's sake: after the
+	// delete there is no row to ask which tenant lost a machine, and an audit
+	// entry that cannot name the client is a number, not a record.
+	device, err := h.store.Devices.GetByID(id)
+	if err != nil || device == nil {
+		DeviceNotFound(c)
+		return
+	}
+	defer auditForAnswer(c, h.store, models.AuditDeviceDelete, DeviceTarget(device), map[string]any{
+		"name":     device.Name,
+		"hostname": device.Hostname,
+	})
 	if err := h.store.Devices.Delete(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete device"})
 		return
@@ -342,6 +354,12 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 // route middleware).
 // DELETE /api/monitoring/data
 func (h *DeviceHandler) ClearMonitoringData(c *gin.Context) {
+	// Deferred, and that is the design in one line: the record is written as
+	// the handler answers, so the outcome column is the status the caller got,
+	// and every exit of this handler — success, the metrics failure, the
+	// alerts failure — is a row. This is the installation's Danger Zone button;
+	// it has no path that acts without recording.
+	defer auditForAnswer(c, h.store, models.AuditMonitoringPurge, AuditTarget{Type: "monitoring"}, nil)
 	metricsCleared, err := h.store.MetricHistory.ClearAll()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to clear metrics"})
@@ -368,9 +386,11 @@ func (h *DeviceHandler) GetMetricsHistory(c *gin.Context) {
 	}
 	// A unit's history is the unit: scoped with it, or the history of a client
 	// you were removed from keeps streaming.
-	if _, ok := h.scopedDevice(c); !ok {
+	device, ok := h.scopedDevice(c)
+	if !ok {
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditDeviceStream, DeviceTarget(device), map[string]any{"action": "start"})
 	id := c.Param("id")
 
 	from := time.Now().Add(-24 * time.Hour)
@@ -469,6 +489,7 @@ func (h *DeviceHandler) StopStream(c *gin.Context) {
 	if !ok {
 		return
 	}
+	defer auditForAnswer(c, h.store, models.AuditDeviceStream, DeviceTarget(device), map[string]any{"action": "stop"})
 
 	// Best effort: an offline device simply reverts on its next connect.
 	if err := h.hub.SendToDevice(device.DeviceKey, "stream_end", map[string]interface{}{}); err != nil {
