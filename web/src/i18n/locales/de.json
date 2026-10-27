@@ -436,6 +436,7 @@
     "consoleUnavailable": "Konsolendaten nicht verfügbar"
   },
   "layout": {
-    "versionTitle": "Server {{server}} (Commit {{commit}}) · Konsolen-Build {{console}}"
+    "versionTitle": "Server {{server}} (Commit {{commit}}) · Konsolen-Build {{console}}",
+    "rateBudgetTitle": "Anforderungskontingent pro Nutzer: {{perMinute}} Leseanfragen pro Minute, sofortiger Burst {{burst}}. Abfragen pausieren, wenn das Kontingent erschöpft ist."
   }
 }

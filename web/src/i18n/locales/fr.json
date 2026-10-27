@@ -436,6 +436,7 @@
     "consoleUnavailable": "Données de console indisponibles"
   },
   "layout": {
-    "versionTitle": "Serveur {{server}} (commit {{commit}}) · build console {{console}}"
+    "versionTitle": "Serveur {{server}} (commit {{commit}}) · build console {{console}}",
+    "rateBudgetTitle": "Quota de requêtes par utilisateur : {{perMinute}} lectures par minute, rafale instantanée {{burst}}. La sonde s’arrête quand le quota est épuisé."
   }
 }

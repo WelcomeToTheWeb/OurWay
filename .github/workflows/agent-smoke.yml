@@ -1,0 +1,183 @@
+name: Agent Smoke
+
+# 2.2-0: the agent has never been run end-to-end on Windows or macOS in CI —
+# every previous job cross-*compiles* it. This job runs the binary against a
+# real server and PostgreSQL and asserts the install path in the order a real
+# install experiences it: enroll → connect → heartbeat → metrics → remote
+# frames → installed service. See scripts/agent-smoke.sh for the assertions.
+#
+# PostgreSQL comes from the runner, not from job `services:`: Actions does not
+# support service containers on Windows runners, and the macOS runners have no
+# Docker (the licence isn't there). A job that declares services therefore
+# fails at "Initialize containers" on two of the three platforms — which is
+# exactly how the first run of this job died, before a single line of product
+# code ran.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: agent-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ENROLLMENT_SECRET: ${{ github.run_id }}-enrollment-secret
+  JWT_SECRET: ${{ github.run_id }}-${{ github.run_number }}-smoke-secret
+  DATABASE_URL: postgresql://ourway:ourway@localhost:5432/ourway_smoke?sslmode=disable
+  SERVER_PORT: :9090
+  WEB_URL: http://localhost:3000
+  REDIS_ENABLED: 'false'
+
+jobs:
+  smoke:
+    name: Agent smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            go.work.sum
+            server/go.sum
+            agent/go.sum
+
+      - name: Build server and agent
+        # Binaries land in the workspace root. `-C server -o ./ourway-server`
+        # writes them into `server/` (the `-C` directory is the base for `-o`),
+        # and the steps that run them live at the root — the first run of this
+        # job found that as a missing-file error three steps later.
+        run: |
+          # Windows services need an executable *name*: sc.exe rejects a
+          # binPath without an extension (1639), and a Windows binary named
+          # `ourway-agent` is not what the installer installs anyway — the
+          # installer writes `ourway-agent.exe`. Build the name the service can
+          # use.
+          server_out=ourway-server
+          agent_out=ourway-agent
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            server_out=ourway-server.exe
+            agent_out=ourway-agent.exe
+          fi
+          ( cd server && go build -o "../$server_out" . )
+          ( cd agent && go build -o "../$agent_out" . )
+          echo "AGENT_BIN=$agent_out" >> "$GITHUB_ENV"
+        shell: bash
+
+      # ── PostgreSQL, per platform ───────────────────────────────────────────
+      - name: Start PostgreSQL (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          docker run -d --name ourway-pg -p 5432:5432 \
+            -e POSTGRES_USER=ourway -e POSTGRES_PASSWORD=ourway -e POSTGRES_DB=ourway_smoke \
+            postgres:16
+          for i in $(seq 1 40); do
+            docker exec ourway-pg pg_isready -U ourway -q && { echo "pg ready after ${i}s"; exit 0; }
+            sleep 2
+          done
+          echo "::error::PostgreSQL never became ready"
+          exit 1
+
+      - name: Start PostgreSQL (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          brew install postgresql@16
+          brew services start postgresql@16
+          export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
+          for i in $(seq 1 40); do pg_isready -h localhost -q && break; sleep 2; done
+          psql -h localhost -U "$USER" -d postgres -c "CREATE ROLE ourway LOGIN PASSWORD 'ourway';"
+          psql -h localhost -U "$USER" -d postgres -c "CREATE DATABASE ourway_smoke OWNER ourway;"
+
+      - name: Start PostgreSQL (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # The runner ships PostgreSQL, but as a *service* the runner user is
+          # not allowed to start. Run the server's own instance instead:
+          # initdb a workspace data directory and start it with pg_ctl, as the
+          # same user the smoke runs as. Trust auth on loopback, which is the
+          # only thing it will ever answer.
+          $bin = (Get-ChildItem 'C:\Program Files\PostgreSQL\*\bin\initdb.exe' |
+                  Select-Object -First 1).DirectoryName
+          $data = Join-Path $env:RUNNER_TEMP 'pgdata'
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP 'pw.txt') -Value 'postgres'
+          # PowerShell 5.1 does not parse `--flag=(expression)`: pass the value
+          # as its own argument, which is also how initdb documents --pwfile.
+          & (Join-Path $bin 'initdb.exe') -D $data -U postgres --pwfile (Join-Path $env:RUNNER_TEMP 'pw.txt') --auth-local=trust --auth-host=trust | Out-Null
+          & (Join-Path $bin 'pg_ctl.exe') -D $data -o '-p 5432 -h 127.0.0.1' -w -l (Join-Path $env:RUNNER_TEMP 'pglog.txt') start
+          $env:PGPASSWORD = 'postgres'
+          & (Join-Path $bin 'psql.exe') -U postgres -h 127.0.0.1 -c "CREATE ROLE ourway LOGIN PASSWORD 'ourway';"
+          & (Join-Path $bin 'psql.exe') -U postgres -h 127.0.0.1 -c "CREATE DATABASE ourway_smoke OWNER ourway;"
+          # Later steps need the client on PATH.
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+
+      # Linux screen capture shells out to scrot/import on an X display; the
+      # runner has Xvfb but not a display, and scrot is not preinstalled.
+      - name: Prepare a display (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq scrot imagemagick xvfb
+          Xvfb :99 -screen 0 1280x800x24 -ac >/tmp/xvfb.log 2>&1 &
+          sleep 2
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
+      - name: Start server
+        shell: bash
+        run: |
+          nohup ./ourway-server >/tmp/ourway-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:9090/ready >/dev/null && { echo "server ready after ${i}s"; exit 0; }
+            sleep 1
+          done
+          echo "::error::server did not become ready"
+          tail -50 /tmp/ourway-server.log
+          exit 1
+
+      - name: Run agent smoke
+        shell: bash
+        run: |
+          chmod +x scripts/agent-smoke.sh
+          args=(--server http://localhost:9090 --ws ws://localhost:9090
+                --agent "./${AGENT_BIN:-ourway-agent}" --secret "$ENROLLMENT_SECRET" --expect-service)
+          # macOS capture needs a Screen Recording (TCC) grant that cannot be
+          # granted non-interactively; the script prints that it skipped frames
+          # rather than passing them off as a green result.
+          if [ "${{ matrix.os }}" != "macos-latest" ]; then
+            args+=(--expect-frames)
+          fi
+          bash scripts/agent-smoke.sh "${args[@]}"
+
+      - name: Server log (on failure)
+        if: failure()
+        shell: bash
+        run: tail -120 /tmp/ourway-server.log || true
+
+      - name: Service log (on failure)
+        if: failure()
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            sudo journalctl -u ourway-agent --no-pager -n 80 || true
+          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+            launchctl print "gui/$(id -u)/com.ourway.agent" 2>&1 | tail -40 || true
+            tail -60 "$HOME/Library/Logs/ourway-agent.log" 2>/dev/null || true
+          else
+            powershell -Command "Get-Content -Tail 40 'C:\Program Files\OurWay\agent.log' -ErrorAction SilentlyContinue" || true
+          fi

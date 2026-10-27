@@ -42,10 +42,91 @@ GOOS=darwin  GOARCH=arm64 go -C agent build ./...
 # Web (tsc + vite)
 npm ci --prefix web
 npm run build --prefix web
+
+# Coverage floor (2.2-0)
+scripts/coverage.sh
 ```
+
+`scripts/coverage.sh` measures total statement coverage for `server/` and `agent/`
+against `coverage.baseline.json` and fails on a decrease — see `scripts/coverage.sh`
+for the flags. Raise the baseline with `--record` in the same commit that earns it.
 
 The same gate runs in CI (`.github/workflows/build.yml`, `tests` job) and
 Docker images are only pushed when it passes.
+
+## Agent smoke (2.2-0)
+
+`scripts/agent-smoke.sh` runs the **real agent binary** against a running server and
+asserts the install path in order: enroll → device WebSocket (unit goes `online`) →
+heartbeat → metric samples → a remote session reaching `active` (which only happens
+when the agent ships frames) → the installed service reporting heartbeats of its own.
+CI runs it on Linux, Windows and macOS
+(`.github/workflows/agent-smoke.yml`, `--expect-frames --expect-service`).
+
+```sh
+# Linux needs an X display for capture (scrot/import), and scrot is not installed:
+Xvfb :99 -screen 0 1280x800x24 -ac & export DISPLAY=:99
+scripts/agent-smoke.sh --server http://localhost:9090 --agent ./ourway-agent \
+                       --secret "$ENROLLMENT_SECRET" --expect-frames
+```
+
+Notes that cost an hour to learn: `Xvfb` takes `-screen 0 <WxHxD>` (the screen
+*index* first) and `-ac` for access control, and `--expect-service` needs systemd /
+launchd / the Windows SCM, so it is a runner feature, not a container one. On macOS
+the script refuses to assert frames (Screen Recording is a TCC grant that cannot be
+granted non-interactively) and says so out loud.
+
+## End-to-end suite (2.2-0)
+
+The e2e suite drives the **production bundle against a real server and
+PostgreSQL** — no mocks, no dev-server behaviour — so it is the layer that can
+fail a release. It lives in `web/e2e/` and runs in CI
+(`.github/workflows/e2e.yml`).
+
+```sh
+# 1. infrastructure the suite asserts against:
+#    PostgreSQL (and Redis if you use it), then the server against it
+DATABASE_URL=postgresql://ourway:ourway@localhost:5432/ourway?sslmode=disable go -C server run
+# 2. the built console, proxied to that server (vite.config.ts preview.proxy)
+npm run build --prefix web
+npm run preview --prefix web            # :3000, proxies /api and /ws
+# 3. the suite
+npm run test:e2e:install --prefix web   # once, installs Chromium
+npm run test:e2e --prefix web
+```
+
+`OURWAY_E2E_BASE_URL` / `OURWAY_E2E_API_URL` name the console and API origins
+(`http://localhost:3000` and `http://localhost:9090` by default), and the preview
+proxy target follows `OURWAY_PROXY_TARGET`. `vite.config.ts` shares the proxy
+config between `server` and `preview`, and Vitest stays scoped to
+`src/**/*.test.{ts,tsx}` so it never collects Playwright specs.
+
+Three constraints that are easy to get wrong in this suite:
+
+- **Seeding is registration, not SQL** (`e2e/fixtures.ts`), so re-running against
+  a database that already holds a fleet hits the C4 re-registration guard. Point
+  `OURWAY_E2E_API_URL` at a fresh database (what CI does), or set
+  `OURWAY_E2E_RUN_ID=2` to seed a run-scoped fleet — host names and private
+  addresses move with the run, so the units enroll cleanly. A 401 from
+  registration says which guard fired — the harness quotes the server's own
+  reason, because "already enrolled" and "enrollment secret missing" are
+  opposite problems.
+- **A viewer socket *is* a session.** The hub ends the session the moment the
+  viewer that started it disconnects (`server/ws/hub.go:685`). So a test that
+  starts a session from the console overlay and then navigates is watching a
+  session it just ended: start sessions through the API when the assertion is
+  about the ledger, and keep the overlay open when the assertion is about the
+  session itself.
+- **One connection per device key.** The hub accepts a single client per key, so
+  a test that opens a device socket displaces the harness's fake agent for that
+  unit. The support agent re-registers in milliseconds on a clean close; tests
+  that need a connected unit wait for it to report `online`
+  (`expectUnitOnline` in `e2e/sessions.spec.ts`) before they act on it.
+- **Do not `waitForLoadState('networkidle')`.** The console holds a WebSocket open
+  for the whole session, so that event never settles.
+- **Destructive actions are gated by `window.confirm` today** (`buglist.md` M19,
+  task 2.2-9): Playwright dismisses dialogs by default, so a test that ends a
+  session must accept one. That is the smell, not the design.
 
 ## Conventions
 

@@ -117,8 +117,11 @@ nothing. `scripts/release.sh --dry-run 2.1.0` shows what it would do.
 
 ## Where version shows up
 
-- `GET /api/agent/version` → `{"version": "2.1.0", "git_commit": "5f03d77"}`
-  (no auth; drives agent self-update and the console's "server is …" line).
+- `GET /api/agent/version` →
+  `{"version": "2.1.0", "git_commit": "5f03d77", "rate_limit_per_minute": 100, "rate_limit_burst": 10}`
+  (no auth; drives agent self-update, the console's "server is …" line, and the
+  request-budget figure the shift bar prints — `RATE_LIMIT_PER_MINUTE` /
+  `RATE_LIMIT_BURST`, see `configuration.md`).
 - `ourway-agent --version`, `ourway-installer --version` print the stamped
   string, so an enrolled unit reports the fleet's version exactly.
 - Image labels: `org.opencontainers.image.version` and

@@ -18,29 +18,27 @@ import (
 
 const ServiceName = "OurWayAgent"
 
-// Install creates a Windows service using sc.exe.
+// Install registers the agent as a Windows service with the Service Control
+// Manager, sets its recovery actions, lists it in Add/Remove Programs and
+// starts it.
 func Install(cfg *config.Config) error {
-	// Determine executable path
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("get executable path: %w", err)
 	}
-
-	// Create the service
-	if err := runCommand("sc.exe", "create", ServiceName,
-		"binPath=", fmt.Sprintf(`"%s" --server %s --key %s`, exe, cfg.ServerURL, cfg.DeviceKey),
-		"start=", "auto",
-		"display=", "OurWay Agent"); err != nil {
-		return fmt.Errorf("create service: %w", err)
+	if err := validateServiceBinary(exe); err != nil {
+		return err
 	}
+
+	svc, err := createService(ServiceName, "OurWay Agent", serviceBinPath(exe, cfg))
+	if err != nil {
+		return err
+	}
+	windows.CloseServiceHandle(svc)
 	fmt.Println("Service created")
 
-	// Automatic recovery: restart on the 1st-3rd failure (5s/10s/30s)
-	// and reset the failure counter after 1 day of stable uptime, so a
-	// crashed agent comes back without manual intervention.
-	if err := runCommand("sc.exe", "failure", ServiceName,
-		"reset=86400",
-		"actions=restart/5000/restart/10000/restart/30000"); err != nil {
+	// Automatic recovery: a crashed agent comes back on its own.
+	if err := setServiceRecovery(ServiceName); err != nil {
 		fmt.Printf("Warning: could not set service recovery actions: %v\n", err)
 	}
 
@@ -48,8 +46,7 @@ func Install(cfg *config.Config) error {
 		fmt.Printf("Warning: could not add the Add/Remove Programs entry: %v\n", err)
 	}
 
-	// Start the service
-	if err := runCommand("sc.exe", "start", ServiceName); err != nil {
+	if err := startService(ServiceName); err != nil {
 		fmt.Printf("Warning: could not start service: %v\n", err)
 	} else {
 		fmt.Println("Service started")
@@ -112,8 +109,8 @@ func Uninstall() error {
 		return relaunchElevated(exe)
 	}
 
-	runCommand("sc.exe", "stop", ServiceName)
-	runCommand("sc.exe", "delete", ServiceName)
+	stopService(ServiceName)
+	removeService(ServiceName)
 	fmt.Println("Service removed")
 	runCommand("taskkill.exe", "/F", "/IM", "ourway-remote.exe")
 	registry.DeleteKey(registry.LOCAL_MACHINE, arpKey)
@@ -144,11 +141,7 @@ func Uninstall() error {
 
 // IsInstalled checks if the Windows service exists.
 func IsInstalled() (bool, error) {
-	output, err := exec.Command("sc.exe", "query", ServiceName).Output()
-	if err != nil {
-		return false, nil
-	}
-	return len(output) > 0, nil
+	return serviceExists(ServiceName)
 }
 
 func runCommand(name string, args ...string) error {

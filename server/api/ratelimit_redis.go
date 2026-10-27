@@ -48,7 +48,15 @@ type RedisRateLimiter struct {
 
 // NewRedisRateLimiter creates a new Redis-backed rate limiter.
 func NewRedisRateLimiter(rc *cache.RedisClient, window time.Duration, maxCount int) *RedisRateLimiter {
-	burst := maxCount / 10
+	return NewRedisRateLimiterWithBurst(rc, window, maxCount, 0)
+}
+
+// NewRedisRateLimiterWithBurst is NewRedisRateLimiter with an explicit
+// burst; burst <= 0 keeps the default (maxCount/10).
+func NewRedisRateLimiterWithBurst(rc *cache.RedisClient, window time.Duration, maxCount, burst int) *RedisRateLimiter {
+	if burst < 1 {
+		burst = maxCount / 10
+	}
 	if burst < 1 {
 		burst = 1
 	}

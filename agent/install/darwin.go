@@ -35,7 +35,7 @@ func Install(cfg *config.Config) error {
     <string>%s</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/ourway-agent</string>
+        <string>%s</string>
         <string>--server</string>
         <string>%s</string>
         <string>--key</string>
@@ -51,7 +51,7 @@ func Install(cfg *config.Config) error {
     <string>%s/Library/Logs/ourway-agent.log</string>
 </dict>
 </plist>
-`, label, cfg.ServerURL, cfg.DeviceKey, home, home)
+`, label, serviceExecutable(), cfg.ServerURL, cfg.DeviceKey, home, home)
 
 	if err := os.WriteFile(plistPath, []byte(plist), 0644); err != nil {
 		return fmt.Errorf("write plist: %w", err)

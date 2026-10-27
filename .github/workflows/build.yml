@@ -168,6 +168,13 @@ jobs:
           npm test --prefix web -- --run
           npm run build --prefix web
 
+      # 2.2-0: coverage is a floor you cannot silently undo. The baseline lives in
+      # coverage.baseline.json; raising it is a commit decision, not a drift.
+      - name: Coverage ratchet
+        run: |
+          chmod +x scripts/coverage.sh
+          scripts/coverage.sh
+
   # Build and push server Docker image
   build-server-image:
     name: Build Server Image

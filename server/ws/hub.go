@@ -564,10 +564,16 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	}
 
 	conn, err := websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{
-		// Origin is checked manually above; the library check is a pass
-		// through so the handshake succeeds for the agent (no Origin).
-		OriginPatterns: []string{".*"},
-		Subprotocols:   []string{"ourway-auth"},
+		// Origin authorization is enforced above by originAllowed (the
+		// WS_ORIGINS allow-list, same-host, local dev, WEB_URL). The library's
+		// own check is switched off rather than duplicated: OriginPatterns are
+		// matched with filepath.Match, where ".*" is a literal dot followed by
+		// anything, so a single-label origin like "localhost:3100" matched
+		// nothing and every browser on localhost was refused with 403 even when
+		// WS_ORIGINS listed it. Two matchers with different grammars for one
+		// policy is the bug; originAllowed is the policy.
+		InsecureSkipVerify: true,
+		Subprotocols:       []string{"ourway-auth"},
 	})
 	if err != nil {
 		log.Printf("ws: accept failed: %v", err)

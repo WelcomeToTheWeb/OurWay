@@ -148,6 +148,21 @@ export function Layout() {
               <span className="ow-num text-[13px] text-text-primary">{serverVersion?.version || 'dev'}</span>
             </span>
 
+            {typeof serverVersion?.rate_limit_per_minute === 'number' && (
+              <span
+                className="hidden lg:flex items-baseline gap-2"
+                title={t('layout.rateBudgetTitle', {
+                  perMinute: serverVersion.rate_limit_per_minute,
+                  burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,
+                })}
+              >
+                <span className="cap-sm cap text-text-muted">budget</span>
+                <span className="ow-num text-[13px] text-text-primary">
+                  {serverVersion.rate_limit_per_minute}/min
+                </span>
+              </span>
+            )}
+
             {limited && (
               <Stamp tone="due" title="Server rate limit reached — polling rests until the minute budget refills">
                 <span className="inline-flex items-center gap-1.5">

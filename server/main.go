@@ -117,7 +117,7 @@ func main() {
 	defer retentionManager.Stop()
 
 	// Setup API routes (background jobs scope to ctx, cancelled at shutdown)
-	router := api.SetupRouter(ctx, st, jwtAuth, hub, alertEngine, cfg.WebURL, cfg.EnrollSecret)
+	router := api.SetupRouter(ctx, st, jwtAuth, hub, alertEngine, cfg.WebURL, cfg.EnrollSecret, cfg.RateLimitPerMinute, cfg.RateLimitBurst)
 
 	// Start periodic cleanup of staged upload files. This service uses the
 	// same default staging directory (/tmp/ourway-files) as the one created

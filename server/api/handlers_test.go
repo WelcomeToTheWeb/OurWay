@@ -48,7 +48,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *auth.JWTAuth)
 	hub := ws.NewHub("http://localhost:3000", "")
 	engine := alerts.NewEngine(st.Alerts)
 
-	router := SetupRouter(context.Background(), st, jwtAuth, hub, engine, "http://localhost:3000", "")
+	router := SetupRouter(context.Background(), st, jwtAuth, hub, engine, "http://localhost:3000", "", 100, 0)
 	ts := httptest.NewServer(router)
 
 	t.Cleanup(func() {

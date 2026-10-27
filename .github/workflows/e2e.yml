@@ -1,0 +1,142 @@
+name: End-to-End
+
+# 2.2-0: the flows a real deployment must survive, run against a real server,
+# a real PostgreSQL and the production console bundle. Nothing here mocks the
+# product, so a green run means the console works; a red run means it does not.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Console end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ourway
+          POSTGRES_PASSWORD: ourway
+          POSTGRES_DB: ourway
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            go.work.sum
+            server/go.sum
+            agent/go.sum
+
+      - name: Resolve agent dependencies
+        run: go mod tidy -C agent
+
+      - name: Build server
+        run: go -C server build -o /tmp/ourway-server .
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The suite runs against `vite preview` on the built bundle: the same
+      # assets the web image ships, not a dev server with dev-only behaviour.
+      - name: Build console
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
+
+      - name: Install Chromium
+        run: npm run test:e2e:install --prefix web
+
+      - name: Start server
+        env:
+          SERVER_PORT: ':9090'
+          DATABASE_URL: postgresql://ourway:ourway@localhost:5432/ourway?sslmode=disable
+          # A per-run secret: nothing in this repo's committed templates.
+          JWT_SECRET: ${{ github.run_id }}-${{ github.run_number }}-e2e-secret
+          REDIS_ENABLED: 'true'
+          REDIS_URL: redis://localhost:6379/0
+          # The console is served on :3000 and proxies /api and /ws here, so
+          # the origin allow-list must name it. WS_ORIGINS is matched against
+          # the origin host[:port] — a URL value here rejects every browser
+          # WebSocket with 403 (docs/configuration.md).
+          WEB_URL: http://localhost:3000
+          WS_ORIGINS: localhost:3000
+          # The suite reads like an operator with a shift of tabs open: it is
+          # one user making many reads. The budget is a server-side dial
+          # (RATE_LIMIT_PER_MINUTE / RATE_LIMIT_BURST, 2.2-3), so the harness
+          # runs with headroom instead of tripping its own limit.
+          RATE_LIMIT_PER_MINUTE: '600'
+          RATE_LIMIT_BURST: '60'
+          INSTALLERS_DIR: ./dist/agents
+        run: |
+          nohup /tmp/ourway-server > /tmp/ourway-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:9090/ready >/dev/null; then
+              echo "server ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::server did not become ready"; tail -50 /tmp/ourway-server.log; exit 1
+
+      - name: Start console (production bundle)
+        run: |
+          nohup npm run preview --prefix web > /tmp/vite-preview.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/ >/dev/null; then
+              echo "console ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::preview server did not start"; tail -50 /tmp/vite-preview.log; exit 1
+
+      - name: Run end-to-end suite
+        env:
+          OURWAY_E2E_BASE_URL: http://localhost:3000
+          OURWAY_E2E_API_URL: http://localhost:9090
+        run: npm run test:e2e --prefix web -- --reporter=list
+
+      - name: Upload report and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report/
+            web/test-results/
+          retention-days: 7
+
+      - name: Server log (always, for a red run)
+        if: failure()
+        run: tail -120 /tmp/ourway-server.log

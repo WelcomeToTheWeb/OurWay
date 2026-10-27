@@ -26,6 +26,8 @@ The server reads configuration from environment variables. All variables have se
 | `WS_PATH` | WebSocket endpoint path | `/ws` | No |
 | `WS_ORIGINS` | Comma-separated allow-list of browser origins permitted to open WebSocket connections. Matched against the origin **host[:port]**, not a URL — write `localhost:3000`, never `http://localhost:3000` (a URL entry rejects every browser connection with 403 while REST keeps working). Empty falls back to `WEB_URL`. | (falls back to `WEB_URL`) | No |
 | `ENROLLMENT_SECRET` | When set, `POST /api/agent/register` requires it as `X-Enrollment-Secret`, so a hostname and private IP alone are not enough to enroll a device. Re-registration of a known device authenticates with its device key. Empty leaves enrollment open — set it on any network you do not fully control. | (none — enrollment open) | Recommended |
+| `RATE_LIMIT_PER_MINUTE` | Sustained per-user REST budget. The console is designed to live inside it; when a user spends it, reads queue and the console rests visibly (`LIMITED Ns`) instead of erroring. Raise it for big shifts with many open tabs — it is a server-side dial, not a requirement. Applies per user (per IP for unauthenticated calls), and per instance. | `100` | No |
+| `RATE_LIMIT_BURST` | Instantaneous burst allowed before the sustained rate applies. `0` means one tenth of `RATE_LIMIT_PER_MINUTE`. | `0` (a tenth of the budget) | No |
 | `REDIS_URL` | Redis connection URL | (none) | No |
 | `REDIS_ENABLED` | Enable Redis-backed rate limiting and distributed WebSocket pub/sub | `false` | No |
 | `WEB_URL` | Public URL of the web dashboard | `http://localhost:3000` | No |

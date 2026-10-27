@@ -363,3 +363,50 @@ func TestHubHeartbeatUpdatesDeviceAndIPs(t *testing.T) {
 	got, _ := st.Devices.GetByKey("hb-key")
 	t.Fatalf("heartbeat did not update device record: private_ip=%q public_ip=%q", got.PrivateIP, got.PublicIP)
 }
+
+// dialWithOrigin opens the WS handshake as a browser would: subprotocol
+// credential plus an Origin header.
+func dialWithOrigin(tsURL, key, origin string) (*websocket.Conn, *http.Response, error) {
+	wsURL := "ws" + strings.TrimPrefix(tsURL, "http") + "/ws"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{"ourway-auth", key},
+		HTTPHeader:   http.Header{"Origin": {origin}},
+	})
+}
+
+// TestHubBrowserOriginHandshake covers the browser handshake itself, which the
+// originAllowed unit tests above cannot: websocket.Accept runs its own origin
+// check, and its OriginPatterns grammar is filepath.Match, where ".*" is a
+// literal dot followed by anything. A single-label origin like "localhost:3100"
+// matched nothing, so every browser on localhost was refused with 403 even
+// though WS_ORIGINS listed it. originAllowed is the policy; the handshake has
+// to agree with it.
+func TestHubBrowserOriginHandshake(t *testing.T) {
+	ts, st, _ := setupHubTest(t)
+	_ = ts // the shared hub's server is not the one under test here
+	jwtAuth := auth.NewJWTAuth("test-secret-key")
+	hub := NewHub("http://localhost:3000", "localhost:3100")
+	router := gin.New()
+	router.GET("/ws", func(c *gin.Context) { hub.ServeHTTP(c, st, jwtAuth) })
+	allowTS := httptest.NewServer(router)
+	t.Cleanup(allowTS.Close)
+
+	dev := addDevice(t, st, "browser-origin", "browser-origin-key")
+
+	conn, resp, err := dialWithOrigin(allowTS.URL, dev.DeviceKey, "http://localhost:3100")
+	if err != nil {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		t.Fatalf("browser origin http://localhost:3100 was refused (status %d, %v) although WS_ORIGINS lists it", status, err)
+	}
+	conn.Close(websocket.StatusNormalClosure, "done")
+
+	if _, resp, err := dialWithOrigin(allowTS.URL, dev.DeviceKey, "https://evil.example.com"); err == nil {
+		_ = resp
+		t.Fatal("an origin outside WS_ORIGINS was accepted: the allow-list gate is not enforced")
+	}
+}

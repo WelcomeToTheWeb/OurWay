@@ -148,6 +148,114 @@ section so the claims in H8 / M17 are stated rather than discovered.
 
 **Fix:** 2.3.0 (tenancy + audit log), 2.4.0 (thresholds), 2.5.0 (patch parity).
 
+### 🟠 H11. `--install` pointed the service at a binary that is not there
+**Status:** ✅ Fixed 2026-10-26 — `agent/install/linux.go`, `agent/install/darwin.go`, `agent/install/service_path.go`
+**Files:** `agent/install/linux.go` (systemd `ExecStart`), `agent/install/darwin.go` (launchd `ProgramArguments`)
+
+Both installers hardcode `/usr/local/bin/ourway-agent` as the program the service
+runs, while `--install` installs the service **from wherever the agent binary
+currently is**. Run `./ourway-agent --install` from the directory you downloaded
+it into — the way the smoke job, and plenty of people, do it — and systemd
+starts a unit whose `ExecStart` does not exist: `status=203/EXEC`, a restart
+loop every 5 s, and a console showing a unit that never comes online. The
+installer now uses the binary it was invoked from (`os.Executable()`, symlinks
+resolved), the Windows installer's behaviour all along, and warns when that path
+is not one a root-run service should depend on — on macOS the Accessibility grant
+follows the binary's path, so a service running out of a home directory loses
+remote control at the next self-update.
+
+### 🟠 H10. The macOS agent has never been compiled with cgo
+**Status:** ✅ Fixed 2026-10-26 — `agent/session/geometry_darwin.go`, found by the 2.2-0 agent-smoke job on a macOS runner
+**Files:** `agent/session/geometry_darwin.go` (and, by the same logic, every darwin cgo file added later)
+
+`geometry_darwin.go` is guarded `//go:build darwin && cgo` and declares CoreGraphics
+functions with no `#cgo LDFLAGS` for the frameworks, so the file has never
+compiled: `CGDisplayPixelsHeight` sits behind a deployment-target conditional in
+the SDK headers and cgo refuses to evaluate it — `could not determine what
+C.CGDisplayPixelsHeight refers to`. CI never saw it because every darwin build
+was a `CGO_ENABLED=0` cross-compile, which excludes the file by its own build
+tag: the darwin cgo path existed only as source. A macOS build on a Mac
+(`CGO_ENABLED=1`, the default there) failed at the first step of the smoke job.
+Fixed by reading the geometry out of `CGDisplayBounds` through a C helper and
+linking the frameworks. Rule for 2.2-1 and everything after: darwin cgo files
+declare frameworks, keep version-conditioned symbols inside C helpers, and are
+compiled on a macOS runner — a Linux cross-compile cannot check them.
+
+### 🟠 H9. Every browser WebSocket on a `localhost` install was refused
+**Status:** ✅ Fixed 2026-10-26 — `server/ws/hub.go`, regression test `TestHubBrowserOriginHandshake`
+**Files:** `server/ws/hub.go`, found by the 2.2-0 end-to-end harness
+
+The hub checks origins itself (`originAllowed`: `WS_ORIGINS`, same-host, local dev,
+`WEB_URL`) and then called `websocket.Accept` with `OriginPatterns:
+[]string{".*"}`, documented as "a pass through so the handshake succeeds". The
+library matches `OriginPatterns` with `filepath.Match`, where `.` is a **literal
+dot** — so an origin with no dot, i.e. `localhost:3000`, matched nothing and the
+handshake failed with 403 on every browser connection, however `WS_ORIGINS` was
+written. Agents (no `Origin` header) were unaffected, and the existing tests
+called `originAllowed` directly, so nothing exercised the handshake: the console
+worked on a dotted host name and was dead on `localhost`, which is how every
+developer and single-host install runs it.
+
+**Fix:** `AcceptOptions.InsecureSkipVerify: true` — the library's duplicate origin
+check is switched off because `originAllowed` is the policy — plus a test that
+dials the real handshake with a browser `Origin` and requires both the allowed
+origin and the refusal of an origin outside the allow-list.
+
+### 🟡 M18. `POST /api/users` answers 500 for a duplicate username or e-mail
+**Status:** ⚠️ Open
+**Files:** `server/api/users.go`, found by the 2.2-0 harness (`e2e/fixtures.ts`)
+
+L5 gave `Register` and `UpdateProfile` 409s for collision, but the admin route that
+creates a user reports the same collision as `500 failed to create user`. A client
+cannot tell "this user already exists" from "the server is broken", so an idempotent
+operation (seed a viewer, re-run an integration) looks like a server failure. The
+harness works around it by listing users first.
+
+**Fix:** look up username/e-mail before insert in `CreateUser` and return 409 with
+the named field, matching L5's wording.
+
+### 🟡 M19. Ten destructive actions still confirm with a browser dialog
+**Status:** ⚠️ Open — proposed as `2.2-9` in `docs/phase2.2-tasks.md`
+**Files:** `web/src/pages/{Sessions,Settings,Users,Webhooks,SSO,DeviceDetail,PatchPolicies}.tsx`
+
+`DESIGN.md` states the rule outright — "Confirmation is a state of the control,
+not a browser dialog… `window.confirm()` is banned" — and 2.1.0 shipped
+`ConfirmSheet` for exactly this. Ten call sites still use the native dialog
+(`confirm(` / `window.confirm(`), including "End session", "Delete ALL metrics
+history and alerts", and "Permanently delete your account". Native dialogs are
+unthemeable, unlocalised (English-only strings built by string concatenation), and
+are auto-dismissed by automation — the harness has to accept the dialog to end a
+session at all.
+
+**Fix:** finish the `ConfirmSheet` migration in 2.2, with the confirmation copy in
+`en`/`de`/`fr` like every other string.
+
+### 🟡 M20. A unit that cannot capture spams 15 log lines a second and tells the console nothing
+**Status:** ⚠️ Open — the state reporting belongs with 2.2-1 (macOS TCC surfacing)
+**Files:** `agent/session/session.go` (capture loop), found by `scripts/agent-smoke.sh`
+
+`captureLoop` runs at 15 fps; on capture failure it logs `session: capture error: …`
+and `continue`s (`session.go:281-283`). On a unit with no usable display — a headless
+box, a Mac without the Screen Recording grant, an X session the agent cannot reach —
+that is 15 identical lines per second for the whole session (the smoke run produced
+about 1,900 in two minutes), with no backoff, no consolidation, and no signal to the
+server: the technician's session panel stays blank with no reason.
+
+**Fix:** back off after repeated failures, log the first and the recovery, and report
+the capture state (`ok` / `denied-permission` / `no-display` / `error`) through the
+agent status envelope so the console can name the reason. The macOS permission case is
+2.2-1's device-detail surface — same field, one design.
+
+### 🟢 L13. `TestViewerSessionRelay` can fail under container load
+**Status:** ⚠️ Observed once (not reproduced in 4 later runs)
+**Files:** `server/ws/viewer_test.go`
+
+It failed once with `context deadline exceeded` inside a 5 s read deadline while
+the package ran next to the whole `-race` suite on a loaded container; it passed
+3/3 in isolation and the full `./ws/` suite passed afterwards. The test's fixed
+5 s deadlines are tight for a CI runner under load — worth widening before the
+e2e job makes CI noisier.
+
 ---
 
 ## 🔴 Critical
@@ -360,6 +468,43 @@ vs `agent_version`). Presumably dead code — delete it before someone builds on
 it.
 
 ---
+
+### 🟡 M21. The Windows service was managed by shelling out to `sc.exe`
+**Status:** ✅ Fixed 2026-10-27 — `agent/install/windows_service.go`, `agent/install/service_command.go`, tests `TestServiceBinPathQuoting` / `TestValidateServiceBinary`
+**Files:** `agent/install/windows.go` (create/start/stop/delete), `agent/install/windows_service.go`
+
+Install, start, recovery and delete all went through `sc.exe`, whose options
+(`binPath=`, `start=`, `display=`) include the equal sign in the name and are
+parsed from the **raw command line**. Go's `exec.Command` quotes any argument
+with spaces, which hides the option name; quoting the path alone leaves the
+agent's `--server`/`--key` arguments outside the value; the option and its value
+must be one token. Four command-line shapes were tried on the CI Windows runner —
+separate tokens, path-only quoting, whole-value quoting, and a verbatim
+`SysProcAttr.CmdLine` — and all four answered **1639** with a usage dump, a
+number that names nothing. The job also had to work around Windows runners
+shipping PostgreSQL as a service the runner user cannot start.
+
+The service is now managed through the Service Control Manager API
+(`OpenSCManager` / `CreateService` / `ChangeServiceConfig2` / `StartService` /
+`ControlService` / `DeleteService`), which takes the same fields as arguments and
+returns the system's real error. The binary-path rule the SCM enforces (the path
+is quoted when it contains spaces, the agent's arguments stay outside the quotes,
+and a binary with no `.exe` name is refused) is stated in `serviceBinPath` /
+`validateServiceBinary` and pinned by tests.
+
+
+**Status:** ✅ Fixed 2026-10-26 — `agent/install/sc_args.go`, test `TestSCCreateArgsQuoting`
+**Files:** `agent/install/windows.go`
+
+`sc.exe` includes the equal sign in each option name, and a value containing a
+space is only read as that option's value when it travels **with** the option, in
+one argument. The installer passed `binPath=` and the quoted path as two
+arguments, and `display=` and `OurWay Agent` as two more, so `sc.exe` printed its
+usage and exited 1639 (`ERROR_INVALID_NAME`). The Windows agent smoke job found
+it at the last assertion — six checks after the agent had proven it enrolls,
+connects, heartbeats, reports metrics and ships remote-control frames — which is
+the wrong order for a user: the service install is the first thing an install
+does.
 
 ## 🟡 Medium
 
