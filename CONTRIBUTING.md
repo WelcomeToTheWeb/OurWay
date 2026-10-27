@@ -262,6 +262,11 @@ that unit; two surfaces open sit at roughly 15 reads/min against the documented
   `ci:`, `docs:`, `style:`, with an optional scope — `fix(ci):`,
   `feat(auth):`. Imperative subject, no trailing period. Larger changes land
   as one batched commit whose subject enumerates the concerns.
+- **Branch names** are `ourway/<phase>-<slug>` — `ourway/2.2-1-macos-input`,
+  `ourway/2.3-2-maintenance-windows`. The `vibe/` prefix is retired: it carried
+  no information about what the branch was for, and every phase-2.2 branch
+  (`vibe/2.2-1-macos-input` … `vibe/2.2-9-confirm-sheet`) had to be read to be
+  identified. Name the phase the branch delivers and the thing it delivers.
 - **Go formatting** is enforced with `gofmt`; `go vet` cleanliness is itself
   a gate.
 - **Server layering** is `api → store interface → store implementations`.
