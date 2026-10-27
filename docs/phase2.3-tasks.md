@@ -20,7 +20,22 @@ route-level guarantee is the feature.
 
 ---
 
-## 2.3-0 · Schema: clients, device assignment, user scope
+## 2.3-0 · Schema: clients, device assignment, user scope · ✅ delivered
+
+**Delivered:** `server/models/client.go` (`Client`, `NormalizeSlug`, and
+`UnassignedClientID` as the *name* of a NULL — no row is stored for it),
+`server/models/user_client.go` (the scope grant, a row per user+client,
+unique-indexed as a pair), `Device.ClientID` (nullable, indexed), migration
+**8** `clients_and_user_client_scope`, `ClientStoreInterface` + `ClientStore`
+(`server/store/clients.go`), `DeviceStoreInterface.ListScoped`, and the mock
+cascade. Correction to this file as written: the migration number in the **Do**
+and **Acceptance** sections below says 7 — 2.2-1 consumed 7, so this shipped as
+8 (matching the Context paragraph and `migrate.go`).
+
+Measured: server coverage 39.50 % → **40.50 %**, agent 30.50 % → **33.00 %**
+(baseline re-recorded). The 2.2 → 2.3 Postgres upgrade test
+(`TestPostgresMigrationsUpgradeFromV22`) shows every device surviving the
+upgrade, readable, `client_id IS NULL`, with `devices.client_id` indexed.
 
 **Context:** `server/store/migrate.go` keeps an append-only list of contiguous
 versioned migrations; the highest shipped is **version 7**
@@ -28,24 +43,24 @@ versioned migrations; the highest shipped is **version 7**
 edited. This lands as **version 8**.
 
 **Do**
-- [ ] `Client` model (`server/models/client.go`): `id`, `name`, `slug` (unique,
+- [x] `Client` model (`server/models/client.go`): `id`, `name`, `slug` (unique,
       normalized like `NormalizeTags`), `notes`, `disabled`, timestamps.
-- [ ] `Device.ClientID` — nullable UUID, indexed, FK to `clients`.
-- [ ] `UserClient` junction (`user_id`, `client_id`) — the client scope of a
+- [x] `Device.ClientID` — nullable UUID, indexed, FK to `clients`.
+- [x] `UserClient` junction (`user_id`, `client_id`) — the client scope of a
       `manager`/`technician`. `admin` is scope-all by role, with no junction rows.
-- [ ] Migration **7** `clients_and_user_client_scope`: create both tables, add
+- [x] Migration **8** `clients_and_user_client_scope`: create both tables, add
       `devices.client_id`, add the index. No data rewrite.
-- [ ] **Unassigned is `client_id IS NULL`, not a fake row.** The API presents a
+- [x] **Unassigned is `client_id IS NULL`, not a fake row.** The API presents a
       sentinel client (`id: "unassigned"`) in list responses, and assigning a device
       back to unassigned is `client_id: null`. One definition, used everywhere.
-- [ ] Cascade the store interface change to the mocks in `_test.go` files in the
+- [x] Cascade the store interface change to the mocks in `_test.go` files in the
       same change (`CONTRIBUTING.md`): `DeviceStoreInterface` gains
       client-scoped list signatures.
 
 **Acceptance criteria**
 - A 2.2 database migrates forward with every pre-existing device left
   `client_id IS NULL` and appearing under `unassigned` in `GET /api/clients`.
-- Migration 7 is idempotent on re-run (the pattern `store/migrate_test.go` and
+- Migration 8 is idempotent on re-run (the pattern `store/migrate_test.go` and
   `postgres_integration_test.go` already enforce).
 - `slug` collisions return 409, normalized (lower-case, trimmed) like tags.
 - Cross-compiles and the full gate green.

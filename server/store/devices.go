@@ -61,6 +61,30 @@ func (s *DeviceStore) ListAll() ([]models.Device, error) {
 	return devices, nil
 }
 
+// ListScoped returns the devices of the named clients, and the unassigned
+// bucket when asked (2.3-0). The filter is in the WHERE clause: a scoped
+// technician's list is a query over their clients, not a full read trimmed in
+// the handler.
+func (s *DeviceStore) ListScoped(clientIDs []string, includeUnassigned bool) ([]models.Device, error) {
+	if len(clientIDs) == 0 && !includeUnassigned {
+		// A caller with no scope sees nothing. Returning the fleet here would
+		// turn "no rows granted" into "sees everything", which is the leak this
+		// release exists to close.
+		return []models.Device{}, nil
+	}
+	var devices []models.Device
+	q := s.db.Model(&models.Device{})
+	if includeUnassigned {
+		q = q.Where("client_id IS NULL OR client_id IN ?", clientIDs)
+	} else {
+		q = q.Where("client_id IN ?", clientIDs)
+	}
+	if err := q.Find(&devices).Error; err != nil {
+		return nil, err
+	}
+	return devices, nil
+}
+
 // Update persists changes to a device record.
 func (s *DeviceStore) Update(d *models.Device) error {
 	return s.db.Save(d).Error

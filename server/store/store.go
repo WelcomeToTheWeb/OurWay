@@ -16,6 +16,7 @@ type Store struct {
 	DB                *gorm.DB
 	Cache             *cache.RedisClient
 	Devices           DeviceStoreInterface
+	Clients           ClientStoreInterface
 	Users             *UserStore
 	Alerts            *AlertStore
 	Roles             *RoleStore
@@ -44,6 +45,7 @@ func NewWithDB(db *gorm.DB) (*Store, error) {
 	st := &Store{
 		DB:                db,
 		Devices:           &DeviceStore{db: db},
+		Clients:           &ClientStore{db: db},
 		Users:             &UserStore{db: db},
 		Alerts:            &AlertStore{db: db},
 		Roles:             &RoleStore{db: db},
@@ -95,6 +97,7 @@ func New(dsn string) (*Store, error) {
 	st := &Store{
 		DB:                db,
 		Devices:           &DeviceStore{db: db},
+		Clients:           &ClientStore{db: db},
 		Users:             &UserStore{db: db},
 		Alerts:            &AlertStore{db: db},
 		Roles:             &RoleStore{db: db},

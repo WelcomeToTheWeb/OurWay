@@ -62,6 +62,33 @@ func (m *MockDeviceStore) ListAll() ([]models.Device, error) {
 	return result, nil
 }
 
+// ListScoped mirrors the store's tenancy filter (2.3-0): the client set, plus
+// the unassigned bucket when asked. A caller with no client and no unassigned
+// access sees no devices — the mock that returned the fleet here would let a
+// scoping bug pass the test written against it.
+func (m *MockDeviceStore) ListScoped(clientIDs []string, includeUnassigned bool) ([]models.Device, error) {
+	if len(clientIDs) == 0 && !includeUnassigned {
+		return []models.Device{}, nil
+	}
+	inSet := map[string]bool{}
+	for _, id := range clientIDs {
+		inSet[id] = true
+	}
+	result := []models.Device{}
+	for _, d := range m.devices {
+		if d.ClientID == nil {
+			if includeUnassigned {
+				result = append(result, *d)
+			}
+			continue
+		}
+		if inSet[*d.ClientID] {
+			result = append(result, *d)
+		}
+	}
+	return result, nil
+}
+
 func (m *MockDeviceStore) Update(d *models.Device) error {
 	m.devices[d.ID] = d
 	return nil
