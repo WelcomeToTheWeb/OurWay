@@ -14,6 +14,11 @@ web/node_modules/
 # Impeccable design workspace: briefs, screenshots, detector scratch
 .impeccable/
 
+# Local coding-agent workspace (skill definitions the editor keeps in the repo).
+# Nothing in the product reads it, and every file in it is a local path with local
+# settings, so it stays untracked.
+.opencode/
+
 # Playwright e2e artifacts (2.2-0): HTML report, traces/videos, and the
 # generated seed manifest. The manifest holds the seeded fleet's device keys,
 # so it must never be committed.
