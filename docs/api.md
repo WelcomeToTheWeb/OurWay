@@ -15,6 +15,7 @@ Complete reference for the OurWay REST API and WebSocket endpoint.
 - [Authentication Endpoints](#authentication-endpoints)
 - [SSO Endpoints](#sso-endpoints)
 - [Device Endpoints](#device-endpoints)
+- [Client Endpoints (API v2.3)](#client-endpoints-api-v23)
 - [Metric Streaming Endpoints](#metric-streaming-endpoints)
 - [Agent Endpoints](#agent-endpoints)
 - [Alert Endpoints](#alert-endpoints)
@@ -161,13 +162,25 @@ All device endpoints require JWT authentication.
 
 ### GET /api/devices
 
-List all registered devices.
+List the devices the caller may see.
 
 **Headers:**
 
 ```
 Authorization: Bearer <access-token>
 ```
+
+**Scoping (v2.3.0+).** A caller's fleet is the devices of the clients they are
+granted; `admin` is scope-all by role. Every scoped read answers
+`X-OurWay-Client-Scope: <client-id>,<client-id>` (sorted, comma-joined), `all`
+for admin, `none` for a caller with no grants. A caller with **no** grants gets
+an empty list — "no rows granted" never reads as "sees everything" — and devices
+with no client (unassigned) are visible to `admin` only.
+
+`GET /api/devices/:id`, `/metrics` and `/metrics/history` follow the same scope,
+and a device outside the caller's scope answers **404 with the body a
+nonexistent device gets**, byte for byte. A 403 (or a 404 that says "not your
+client") would tell the caller which unit IDs exist in someone else's client.
 
 **Response (200 OK):**
 
@@ -395,6 +408,116 @@ Authorization: Bearer <access-token>
 
 - `401 Unauthorized` — Missing or invalid token
 - `500 Internal Server Error` — Database error
+
+---
+
+## Client Endpoints (API v2.3)
+
+A **client** is a tenant: the unit a device is assigned to, and the axis a
+technician's scope is built from. These endpoints require JWT authentication.
+Reads respect the caller's client scope; every write is `admin`-only, because
+assigning a unit or granting a client is what moves fleets between people.
+
+The scope rules are the device rules, applied to tenants: a client the caller is
+not granted answers **404 with the body a nonexistent client gets**. Slugs
+follow the tag normalization rule (lower-case, trimmed, spaces to dashes), so
+`Acme  Widgets` and `acme-widgets` are one client, and a collision answers 409.
+
+### GET /api/clients
+
+List the clients the caller may see: every client for `admin`, and only the
+granted rows for everyone else.
+
+**Response (200 OK):**
+
+```json
+{
+  "clients": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "name": "Acme Widgets",
+      "slug": "acme-widgets",
+      "notes": "3 sites",
+      "disabled": false,
+      "created_at": "2026-10-27T10:00:00Z",
+      "updated_at": "2026-10-27T10:00:00Z"
+    }
+  ]
+}
+```
+
+### POST /api/clients · admin
+
+Create a client. `name` is required; `slug` defaults to the normalized name.
+
+- `201 Created` → `{"client": {…}}`
+- `400 Bad Request` — `name` missing
+- `409 Conflict` → `{"error":"a client with that slug already exists","slug":"acme-widgets"}`
+- `403 Forbidden` — caller is not `admin`
+
+### GET /api/clients/:id · PUT /api/clients/:id (admin) · DELETE /api/clients/:id (admin)
+
+`PUT` takes the same body as `POST`, plus `disabled`.
+
+`DELETE` **moves the client's devices to unassigned and never deletes them**;
+the grants that named the client go with it. The response states how many units
+moved, so the operator knows the fleet is in the unassigned pool and not gone:
+
+```json
+{"status": "ok", "devices_unassigned": 12}
+```
+
+### PUT /api/clients/:id/devices · admin
+
+Assign a batch of units to a client: `{"device_ids": ["…"]}`. Targets are
+validated **before any write**, and a target outside the caller's scope is
+refused naming the ids:
+
+```json
+{"error": "one or more target devices are outside your client scope", "device_ids": ["…"]}
+```
+
+An empty `device_ids` empties the client — its units go to unassigned. One call,
+two directions, so "assign" and "unassign" cannot drift into two definitions of
+ownership.
+
+### GET /api/clients/:id/rollup
+
+One client's ledger row, computed from the same store reads the fleet ledgers
+use — a rollup a technician cannot reproduce by filtering the fleet to that
+client is a bug, not a rounding difference.
+
+```json
+{
+  "rollup": {
+    "client_id": "550e8400-e29b-41d4-a716-446655440001",
+    "name": "Acme Widgets",
+    "slug": "acme-widgets",
+    "disabled": false,
+    "units": 12,
+    "units_online": 9,
+    "last_seen": "2026-10-27T10:29:40Z",
+    "alerts_open": 3,
+    "alerts_critical": 1,
+    "alerts_warning": 2,
+    "alerts_info": 0,
+    "patch_units": 12,
+    "patch_compliant": 8,
+    "patch_pending": 4,
+    "patch_critical": 1,
+    "patch_reboot_pending": 2,
+    "technicians": 3
+  }
+}
+```
+
+### GET /api/clients/:id/users · admin · PUT /api/clients/:id/users (admin)
+
+The accounts granted this client. `PUT` replaces the set: `{"user_ids": ["…"]}`.
+
+Grants are **rows**, not token claims, so a grant added here is visible on the
+technician's next request, and a grant revoked here stops their access on their
+next request — same access token, no logout, no re-login.
 
 ---
 
