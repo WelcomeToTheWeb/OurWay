@@ -474,3 +474,110 @@ func TestClientsAssignValidatesTargets(t *testing.T) {
 		t.Fatalf("emptying the client left a client on the unit: %+v", restored)
 	}
 }
+
+// TestClientsRollupsIsTheLedger is 2.3-5's single-source criterion: the
+// dashboard's per-client rows and the Clients ledger's rows are the same
+// numbers. The mechanism is that they are the same read of the same function,
+// so the test asserts the list endpoint's row for a client equals what
+// `GET /api/clients/:id/rollup` answers for it, field by field, and that the
+// list costs one read whatever the tenant count.
+func TestClientsRollupsIsTheLedger(t *testing.T) {
+	f := seedFleetFixture(t)
+	admin := f.makeUserWithScope(t, "rollups-admin", "admin")
+	tech := f.makeUserWithScope(t, "rollups-tech", "technician", f.alice.ID)
+
+	code, body, header := f.get(t, "/api/clients/rollups", admin)
+	if code != http.StatusOK {
+		t.Fatalf("rollups = %d: %s", code, body)
+	}
+	if header != "all" {
+		t.Fatalf("admin rollups scope = %q, want all", header)
+	}
+	var env struct {
+		Rollups []clientRollup `json:"rollups"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("decode rollups: %v", err)
+	}
+
+	byID := map[string]clientRollup{}
+	for _, r := range env.Rollups {
+		byID[r.ClientID] = r
+	}
+
+	// Every tenant the admin may see has a row, and the row is the per-client
+	// endpoint's row.
+	for _, cl := range []models.Client{*f.alice, *f.bob} {
+		row, ok := byID[cl.ID]
+		if !ok {
+			t.Fatalf("rollups has no row for %s: %+v", cl.Name, env.Rollups)
+		}
+		code, single, _ := f.get(t, "/api/clients/"+cl.ID+"/rollup", admin)
+		if code != http.StatusOK {
+			t.Fatalf("single rollup = %d", code)
+		}
+		var singleEnv struct {
+			Rollup clientRollup `json:"rollup"`
+		}
+		if err := json.Unmarshal(single, &singleEnv); err != nil {
+			t.Fatalf("decode single rollup: %v", err)
+		}
+		if a, b := row, singleEnv.Rollup; a.Units != b.Units || a.UnitsOnline != b.UnitsOnline ||
+			a.AlertsOpen != b.AlertsOpen || a.AlertsCritical != b.AlertsCritical ||
+			a.PatchUnits != b.PatchUnits || a.PatchCompliant != b.PatchCompliant ||
+			a.PatchPending != b.PatchPending || a.PatchCritical != b.PatchCritical ||
+			a.PatchRebootPending != b.PatchRebootPending || a.Technicians != b.Technicians {
+			t.Fatalf("rollups row for %s is not the ledger row:\n list   %+v\n single %+v", cl.Name, a, b)
+		}
+	}
+
+	// The unassigned bucket exists for the caller who can see it, and it is
+	// named like the sentinel every other surface uses.
+	free, ok := byID[models.UnassignedClientID]
+	if !ok {
+		t.Fatalf("admin rollups has no unassigned row: %+v", env.Rollups)
+	}
+	if free.Slug != models.UnassignedClientID || free.Units != 1 {
+		t.Fatalf("unassigned row = %+v, want slug unassigned and 1 unit", free)
+	}
+
+	// A scoped caller gets exactly their tenants: no other tenant's row, and no
+	// unassigned row, because a grant is a grant over a client's units.
+	code, body, header = f.get(t, "/api/clients/rollups", tech)
+	if code != http.StatusOK {
+		t.Fatalf("scoped rollups = %d: %s", code, body)
+	}
+	if header == "all" || header == "" || header == "none" {
+		t.Fatalf("technician rollups scope = %q, want the granted ids", header)
+	}
+	var scoped struct {
+		Rollups []clientRollup `json:"rollups"`
+	}
+	if err := json.Unmarshal(body, &scoped); err != nil {
+		t.Fatalf("decode scoped rollups: %v", err)
+	}
+	if len(scoped.Rollups) != 1 {
+		t.Fatalf("technician sees %d tenant rows, want exactly 1: %+v", len(scoped.Rollups), scoped.Rollups)
+	}
+	if scoped.Rollups[0].ClientID != f.alice.ID {
+		t.Fatalf("technician row is %q, want the granted client", scoped.Rollups[0].ClientID)
+	}
+}
+
+// TestClientsGrantsCountIsOneQuery is the scale rule behind the ledger column
+// (2.3-8's N+1): the grant count of every tenant arrives in one grouped read.
+func TestClientsGrantsCountIsOneQuery(t *testing.T) {
+	f := newScopeFixture(t)
+	if _, err := f.st.Clients.Create(&models.Client{ID: models.NewClientID(), Name: "Delta", Slug: "delta"}); err != nil {
+		t.Fatalf("create delta: %v", err)
+	}
+	f.makeUserWithScope(t, "grants-tech", "technician", f.alice.ID, f.bob.ID)
+
+	counts, err := f.st.Clients.GrantsCount()
+	if err != nil {
+		t.Fatalf("grants count: %v", err)
+	}
+	if counts[f.alice.ID] != 1 || counts[f.bob.ID] != 1 {
+		t.Fatalf("grant counts = %+v, want one grant on each seeded client", counts)
+	}
+}

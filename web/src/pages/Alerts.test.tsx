@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { Alerts } from './Alerts';
 import type { Alert } from '../types/alert';
 import type { UserWithRoles } from '../auth/types';
@@ -9,14 +10,30 @@ vi.mock('../api/devices', () => ({
   resolveAlert: vi.fn(),
   acknowledgeAlert: vi.fn(),
   assignAlert: vi.fn(),
+  // 2.3-5: the alerts ledger now subscribes to the shared fleet collection, so
+  // the store's devices poller is live in this file too.
+  getDevices: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock('../api/users', () => ({
   getUsers: vi.fn(),
 }));
+// The tenant facet asks the session who the caller is (2.3-5): the admin's
+// filter row offers "Unassigned", and a scoped caller's does not.
+vi.mock('../auth/context', () => ({
+  useAuth: () => ({ accessToken: 't', hasAnyRole: () => true, hasRole: () => true }),
+}));
 
-import { getAlerts, resolveAlert, acknowledgeAlert, assignAlert } from '../api/devices';
+import { getAlerts, resolveAlert, acknowledgeAlert, assignAlert, getDevices } from '../api/devices';
 import { getUsers } from '../api/users';
-import { resetFleetPoller } from '../stores/fleet';
+import { resetFleetPoller, useFleetStore } from '../stores/fleet';
+import { getClients } from '../api/clients';
+import type { Client } from '../api/clients';
+import type { Device } from '../types/device';
+
+vi.mock('../api/clients', () => ({
+  getClients: vi.fn(() => Promise.resolve([])),
+  getClientRollups: vi.fn(() => Promise.resolve([])),
+}));
 
 const mockedGetAlerts = vi.mocked(getAlerts);
 const mockedResolve = vi.mocked(resolveAlert);
@@ -65,7 +82,7 @@ describe('Alerts page', () => {
       makeAlert({ id: 'a2', severity: 'warning', message: 'RAM high', metric: 'ram' }),
       makeAlert({ id: 'a3', resolved: true, message: 'disk ok now', metric: 'disk' }),
     ]);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
 
     expect(await screen.findByText('CPU above threshold')).toBeInTheDocument();
     expect(screen.getByText('RAM high')).toBeInTheDocument();
@@ -81,7 +98,7 @@ describe('Alerts page', () => {
 
   it('shows the empty state when there are no alerts', async () => {
     mockedGetAlerts.mockResolvedValue([]);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
 
     await waitFor(() =>
       expect(screen.getByText(/no alerts match the current filters/i)).toBeInTheDocument(),
@@ -96,7 +113,7 @@ describe('Alerts page', () => {
       makeAlert({ id: 'a2', message: 'acknowledged signal', acknowledged: true }),
       makeAlert({ id: 'a3', message: 'closed signal', acknowledged: true, resolved: true }),
     ]);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
     await screen.findByText('unacknowledged signal');
 
     expect(await screen.findByText(/2 open · 3 on the sheet/)).toBeInTheDocument();
@@ -117,7 +134,7 @@ describe('Alerts page', () => {
       makeAlert({ id: 'a1', device_name: 'web-01', message: 'CPU above threshold' }),
       makeAlert({ id: 'a2', device_name: 'db-01', message: 'Disk almost full' }),
     ]);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
     await screen.findByText('CPU above threshold');
 
     fireEvent.change(screen.getByPlaceholderText(/search alerts/i), { target: { value: 'db-01' } });
@@ -135,7 +152,7 @@ describe('Alerts page', () => {
       makeAlert({ device_name: 'web-01', message: 'CPU above threshold' }),
       makeAlert({ id: 'a2', device_name: 'db-01', message: 'Disk almost full' }),
     ]);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
 
     await screen.findByText('CPU above threshold');
     const search = screen.getByPlaceholderText(/search alerts/i);
@@ -149,7 +166,7 @@ describe('Alerts page', () => {
       .mockResolvedValueOnce([makeAlert({})])
       .mockResolvedValue([makeAlert({ resolved: true })]);
     mockedResolve.mockResolvedValue({} as never);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
 
     // The row action is "Resolve"; the count chip is "0 Resolved".
     const resolveBtn = await screen.findByRole('button', { name: /^resolve$/i });
@@ -170,7 +187,7 @@ describe('Alerts page', () => {
       .mockResolvedValueOnce([makeAlert({})])
       .mockResolvedValue([makeAlert({ acknowledged: true })]);
     mockedAck.mockResolvedValue({} as never);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
 
     // The ack button's label is the short "Ack" (title is the long form).
     const ackBtn = await screen.findByRole('button', { name: /^ack$/i });
@@ -187,7 +204,7 @@ describe('Alerts page', () => {
       .mockResolvedValueOnce([makeAlert({})])
       .mockResolvedValue([makeAlert({ assigned_to: 'alice' })]);
     mockedAssign.mockResolvedValue({} as never);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
 
     const assignBtn = await screen.findByRole('button', { name: /^assign$/i });
     fireEvent.click(assignBtn);
@@ -205,7 +222,7 @@ describe('Alerts page', () => {
       makeAlert({ id: 'a1', severity: 'critical', message: 'CPU above threshold' }),
       makeAlert({ id: 'a2', severity: 'warning', message: 'RAM high' }),
     ]);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
     await screen.findByText('CPU above threshold');
 
     fireEvent.change(screen.getByLabelText(/filter by severity/i), { target: { value: 'warning' } });
@@ -218,7 +235,7 @@ describe('Alerts page', () => {
       makeAlert({ id: 'a1', message: 'still open' }),
       makeAlert({ id: 'a2', message: 'closed', resolved: true }),
     ]);
-    render(<Alerts />);
+    render(<MemoryRouter><Alerts /></MemoryRouter>);
     await screen.findByText('still open');
 
     fireEvent.change(screen.getByLabelText(/filter by status/i), { target: { value: 'resolved' } });
@@ -228,5 +245,66 @@ describe('Alerts page', () => {
     fireEvent.change(screen.getByLabelText(/filter by status/i), { target: { value: 'unresolved' } });
     await waitFor(() => expect(screen.queryByText('closed')).not.toBeInTheDocument());
     expect(screen.getByText('still open')).toBeInTheDocument();
+  });
+});
+
+describe('Alerts page - tenant filter (2.3-5)', () => {
+  // A page mount reads the fleet store through the api layer's read-slot queue
+  // (the limiter that keeps a dashboard fan-out from burning the server's
+  // burst), so the first row lands later than testing-library's default 1s.
+  const FIND = 5000;
+  const tenants: Client[] = [
+    { id: 'c-a', name: 'Alpha Co', slug: 'alpha-co', notes: '', disabled: false, created_at: '', updated_at: '' },
+    { id: 'c-b', name: 'Beta Co', slug: 'beta-co', notes: '', disabled: false, created_at: '', updated_at: '' },
+  ];
+  const fleet = (id: string, name: string, client_id: string | null): Device =>
+    ({
+      id, name, hostname: `${name}.lan`, os: 'linux', arch: 'amd64', agent_version: '1', status: 'online',
+      last_seen: new Date().toISOString(), public_ip: '', private_ip: '', created_at: '', updated_at: '',
+      tags: [], client_id,
+    }) as Device;
+
+  const alertRows = [
+    makeAlert({ id: 'al-a', device_id: 'd-a1', device_name: 'alpha-web', message: 'alpha cpu' }),
+    makeAlert({ id: 'al-b', device_id: 'd-b1', device_name: 'beta-web', message: 'beta cpu' }),
+    makeAlert({ id: 'al-free', device_id: 'd-free', device_name: 'loose-box', message: 'unplaced cpu' }),
+  ];
+
+  beforeEach(() => {
+    // The tenant block is its own `describe`, so the shared fixture above does
+    // not apply to it: the ledger's reads are all restated here. The fleet
+    // store is module state with a freshness window, so the previous test's
+    // fetch is what a mount would otherwise read — reset first, then seed.
+    resetFleetPoller();
+    vi.mocked(getUsers).mockResolvedValue(users);
+    vi.mocked(getClients).mockResolvedValue(tenants);
+    const fleetRows = [fleet('d-a1', 'alpha-web', 'c-a'), fleet('d-b1', 'beta-web', 'c-b'), fleet('d-free', 'loose-box', null)];
+    vi.mocked(getDevices).mockResolvedValue(fleetRows);
+    useFleetStore.getState().setCollection('clients', tenants);
+    useFleetStore.getState().setCollection('devices', fleetRows);
+    useFleetStore.getState().setCollection('alerts', alertRows);
+    mockedGetAlerts.mockResolvedValue(alertRows);
+  });
+
+  it('filters the ledger by tenant from the URL', async () => {
+    render(<MemoryRouter initialEntries={['/alerts?client=alpha-co']}><Alerts /></MemoryRouter>);
+    await waitFor(() => screen.getByText('alpha cpu'), { timeout: FIND });
+    expect(screen.queryByText('beta cpu')).toBeNull();
+    expect(screen.queryByText('unplaced cpu')).toBeNull();
+  });
+
+  it('filters to the unplaced units for the admin who owns that question', async () => {
+    render(<MemoryRouter initialEntries={['/alerts?client=unassigned']}><Alerts /></MemoryRouter>);
+    await waitFor(() => screen.getByText('unplaced cpu'), { timeout: FIND });
+    expect(screen.queryByText('alpha cpu')).toBeNull();
+  });
+
+  it('switches tenants from the facet and writes the choice into the URL', async () => {
+    render(<MemoryRouter initialEntries={['/alerts']}><Alerts /></MemoryRouter>);
+    await waitFor(() => screen.getByText('alpha cpu'), { timeout: FIND });
+    const facet = await waitFor(() => screen.getByLabelText('Filter by tenant'), { timeout: FIND });
+    fireEvent.change(facet, { target: { value: 'beta-co' } });
+    await waitFor(() => expect(screen.queryByText('alpha cpu')).toBeNull());
+    expect(screen.getByText('beta cpu')).toBeInTheDocument();
   });
 });

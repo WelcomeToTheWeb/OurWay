@@ -128,6 +128,39 @@ journalctl -u ourway-server -f
 3. Check metrics are updating
 4. Test API endpoints
 
+### Tenancy arrives with 2.3
+
+2.3 adds the `clients` table, the `user_clients` grant table, and a
+`client_id` on every device (migration 8). **No device changes hands during the
+upgrade**: every unit in the installation comes back with `client_id IS NULL`,
+which the console calls **Unassigned**. That is the state to expect on the first
+login after upgrading, not a migration bug.
+
+The one thing to know before rolling technicians onto a 2.3 console:
+
+- An account with **no client grants sees an empty fleet.** Admin is the
+  exception — it is scope-all by role, and reads no grant rows. A technician who
+  logged in and saw the whole fleet on 2.2 sees nothing on 2.3 until an admin
+  creates their tenant, assigns the units, and grants them the client. Do that
+  first: the upgrade guide's Step 7 ("verify devices are showing") is a
+  technician-account check as much as a server check.
+- Grants are **rows, read on every request**. Adding a grant takes effect on the
+  technician's next request; revoking one stops their access on their next
+  request, with the same access token and no logout.
+- A device the caller cannot see answers **404 with the exact body of a device
+  that does not exist**. That is deliberate: the API does not confirm that a
+  unit exists in a tenant the caller is not granted. "The console is broken, my
+  unit is missing" and "you are not granted that tenant" look identical from
+  the API, and the shift bar's scope readout is what tells them apart.
+- Bulk commands validate every target **before writing anything** and refuse the
+  whole request naming the out-of-scope ids. A partially-applied deploy is not a
+  behaviour this release has.
+- Deleting a client does not delete units: they go back to Unassigned, and the
+  delete sheet says so before it acts.
+- The tenant filter is URL state (`/devices?client=<slug>`, and `client=unassigned`
+  for the units nobody owns), so a filtered view is a link you can paste into a
+  ticket.
+
 ### The audit ledger arrives with 2.3
 
 Upgrading to 2.3 adds the `audit_log` table (migration 9) and starts recording

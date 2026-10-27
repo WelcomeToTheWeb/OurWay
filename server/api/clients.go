@@ -390,26 +390,8 @@ func (h *ClientHandler) ClientRollup(c *gin.Context) {
 		return
 	}
 	deviceIDs := make([]string, 0, len(devices))
-	online, rebootPending := 0, 0
-	var lastSeen *time.Time
 	for _, d := range devices {
 		deviceIDs = append(deviceIDs, d.ID)
-		if d.Status == "online" {
-			online++
-		}
-		if d.RebootPending {
-			rebootPending++
-		}
-		seen := d.LastSeen
-		if !seen.IsZero() && (lastSeen == nil || seen.After(*lastSeen)) {
-			lastSeen = &seen
-		}
-	}
-
-	rollup := clientRollup{
-		ClientID: client.ID, Name: client.Name, Slug: client.Slug, Disabled: client.Disabled,
-		Units: len(devices), UnitsOnline: online, LastSeen: lastSeen,
-		PatchUnits: len(devices), PatchRebootPending: rebootPending,
 	}
 
 	// Alerts, in scope. An empty fleet answers zero, and `ListScoped` is the
@@ -419,8 +401,58 @@ func (h *ClientHandler) ClientRollup(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count alerts"})
 		return
 	}
-	rollup.AlertsOpen = len(alerts)
+
+	// Patch compliance, computed inside the client - the same open-status set
+	// the fleet overview uses.
+	updates, err := h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, deviceIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count updates"})
+		return
+	}
+
+	// The technicians this client is granted to. Admin-only visibility on the
+	// grant list, so a manager reading their own client sees the colleagues
+	// who share it.
+	technicians, err := h.store.Clients.UsersForClient(client.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count technicians"})
+		return
+	}
+
+	rollup := rollupOf(*client, devices, alerts, updates, len(technicians))
+
+	c.JSON(http.StatusOK, gin.H{"rollup": rollup})
+}
+
+// rollupOf is the one arithmetic behind every per-client figure. Units, alerts
+// and open updates arrive already scoped to this client's fleet, so the ledger
+// row, the dashboard row and the detail read cannot drift: they are the same
+// function over the same rows (2.2-4's single-source rule, extended to the
+// tenant axis by 2.3-5).
+func rollupOf(client models.Client, devices []models.Device, alerts []models.Alert, updates []models.SoftwareUpdate, technicians int) clientRollup {
+	rollup := clientRollup{
+		ClientID: client.ID, Name: client.Name, Slug: client.Slug, Disabled: client.Disabled,
+		Units: len(devices),
+	}
+
+	var lastSeen *time.Time
+	for _, d := range devices {
+		if d.Status == "online" {
+			rollup.UnitsOnline++
+		}
+		if d.RebootPending {
+			rollup.PatchRebootPending++
+		}
+		seen := d.LastSeen
+		if !seen.IsZero() && (lastSeen == nil || seen.After(*lastSeen)) {
+			lastSeen = &seen
+		}
+	}
+	rollup.LastSeen = lastSeen
+	rollup.PatchUnits = len(devices)
+
 	for _, a := range alerts {
+		rollup.AlertsOpen++
 		switch a.Severity {
 		case "critical":
 			rollup.AlertsCritical++
@@ -431,13 +463,6 @@ func (h *ClientHandler) ClientRollup(c *gin.Context) {
 		}
 	}
 
-	// Patch compliance, computed inside the client — the same open-status set
-	// the fleet overview uses.
-	updates, err := h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, deviceIDs)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count updates"})
-		return
-	}
 	withOpen := map[string]bool{}
 	for _, u := range updates {
 		withOpen[u.DeviceID] = true
@@ -447,18 +472,126 @@ func (h *ClientHandler) ClientRollup(c *gin.Context) {
 	}
 	rollup.PatchPending = len(updates)
 	rollup.PatchCompliant = len(devices) - len(withOpen)
+	rollup.Technicians = technicians
+	return rollup
+}
 
-	// The technicians this client is granted to. Admin-only visibility on the
-	// grant list, so a manager reading their own client sees the colleagues
-	// who share it.
-	technicians, err := h.store.Clients.UsersForClient(client.ID)
+// ClientRollups answers every client the caller may see, in one read.
+// GET /api/clients/rollups
+//
+// The dashboard's per-client rows and the Clients ledger's rows must be the
+// same numbers (2.3-5, 2.2-4's single-source rule), and the only way to
+// guarantee that is one arithmetic over one set of reads. Asked per client, an
+// installation with 40 tenants costs 40 rollup reads on the dashboard mount;
+// asked once, it costs one read per collection - devices, alerts, updates,
+// clients, grants - whatever the tenant count.
+//
+// `admin` also gets the `unassigned` bucket: the units no tenant owns are the
+// list a 2.2 upgrade lands its fleet in, and an operator needs to see that it
+// is empty before they trust the scoping. A scoped caller has no unassigned
+// units, so the bucket does not exist for them.
+func (h *ClientHandler) ClientRollups(c *gin.Context) {
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+	scope.ApplyScopeHeader(c)
+
+	all, err := h.store.Clients.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list clients"})
+		return
+	}
+	clients := all
+	if !scope.all {
+		granted := map[string]bool{}
+		for _, id := range scope.ClientIDs() {
+			granted[id] = true
+		}
+		clients = make([]models.Client, 0, len(all))
+		for _, cl := range all {
+			if granted[cl.ID] {
+				clients = append(clients, cl)
+			}
+		}
+	}
+
+	// Admin reads the fleet whole; a scoped caller reads their client set.
+	// `ListScoped` answers *nothing* for an empty client set - that is the rule
+	// that stops "no rows granted" from reading as "sees everything" - so an
+	// admin rollup built through it would report an installation with no units.
+	var devices []models.Device
+	if scope.All() {
+		devices, err = h.store.Devices.ListAll()
+	} else {
+		devices, err = h.store.Devices.ListScoped(scope.ClientIDs(), scope.IncludeUnassigned())
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list the caller's units"})
+		return
+	}
+	deviceIDs := make([]string, 0, len(devices))
+	clientOf := map[string]string{}
+	byClient := map[string][]models.Device{}
+	for _, d := range devices {
+		deviceIDs = append(deviceIDs, d.ID)
+		key := models.UnassignedClientID
+		if d.ClientID != nil {
+			key = *d.ClientID
+		}
+		clientOf[d.ID] = key
+		byClient[key] = append(byClient[key], d)
+	}
+
+	// Alerts and open updates are read once for the whole scope, then grouped
+	// by the tenant their unit belongs to - the same grouping the ledger's
+	// client column shows, so a row on the dashboard and a row on the ledger
+	// are counts of the same array.
+	alerts, err := h.store.Alerts.ListScoped(deviceIDs, nil, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count alerts"})
+		return
+	}
+	alertsByClient := map[string][]models.Alert{}
+	for _, a := range alerts {
+		if key, ok := clientOf[a.DeviceID]; ok {
+			alertsByClient[key] = append(alertsByClient[key], a)
+		}
+	}
+
+	updates, err := h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, deviceIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count updates"})
+		return
+	}
+	updatesByClient := map[string][]models.SoftwareUpdate{}
+	for _, u := range updates {
+		if key, ok := clientOf[u.DeviceID]; ok {
+			updatesByClient[key] = append(updatesByClient[key], u)
+		}
+	}
+
+	// One grouped read for every tenant's grant count, not one per tenant.
+	grants, err := h.store.Clients.GrantsCount()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count technicians"})
 		return
 	}
-	rollup.Technicians = len(technicians)
 
-	c.JSON(http.StatusOK, gin.H{"rollup": rollup})
+	out := make([]clientRollup, 0, len(clients)+1)
+	for _, cl := range clients {
+		out = append(out, rollupOf(cl, byClient[cl.ID], alertsByClient[cl.ID], updatesByClient[cl.ID], grants[cl.ID]))
+	}
+	if units := byClient[models.UnassignedClientID]; scope.all && len(units) > 0 {
+		// The sentinel row is named like the sentinel the client list answers,
+		// so the dashboard, the ledger and the unit view all call the same
+		// bucket the same thing.
+		out = append(out, rollupOf(models.UnassignedPseudoClient(), units,
+			alertsByClient[models.UnassignedClientID], updatesByClient[models.UnassignedClientID], 0))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"rollups": out})
 }
 
 // ListClientUsers answers who is granted a client. Admin only.

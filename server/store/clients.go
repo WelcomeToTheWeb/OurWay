@@ -59,6 +59,10 @@ type ClientStoreInterface interface {
 	DeviceIDsNotIn(clientIDs []string, includeUnassigned bool, deviceIDs []string) ([]string, error)
 	// UsersForClient lists the accounts granted this client.
 	UsersForClient(clientID string) ([]models.User, error)
+	// GrantsCount is every client's grant count in one grouped read: the
+	// per-client ledger prints "technicians" for every tenant, and a ledger of
+	// 40 tenants must not cost 40 queries to render (2.3-5).
+	GrantsCount() (map[string]int, error)
 
 	// Client scope of a user.
 	ClientIDsForUser(userID string) ([]string, error)
@@ -284,6 +288,26 @@ func (s *ClientStore) UsersForClient(clientID string) ([]models.User, error) {
 		return nil, err
 	}
 	return users, nil
+}
+
+// GrantsCount answers "how many accounts is each client granted to" for every
+// client at once, as one grouped read. The per-client ledger prints this
+// number on every row, so a per-client call would make the ledger's cost scale
+// with the tenant count - the N+1 the scale task (2.3-8) is written to catch.
+func (s *ClientStore) GrantsCount() (map[string]int, error) {
+	var rows []struct {
+		ClientID string
+		N        int
+	}
+	if err := s.db.Model(&models.UserClient{}).
+		Select("client_id, count(*) AS n").Group("client_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]int, len(rows))
+	for _, r := range rows {
+		out[r.ClientID] = r.N
+	}
+	return out, nil
 }
 
 func (s *ClientStore) RemoveUserClient(userID, clientID string) error {

@@ -46,30 +46,28 @@ export interface ClientUser {
   email: string;
 }
 
-/** The scope the server last said it applied, shared across the console. */
-let lastScope = '';
+/**
+ * The scope the server last said it applied is captured in `api/client.ts`,
+ * on the response interceptor: every scoped read carries the header, so the
+ * shift bar's answer does not depend on which page happened to read last.
+ */
+export { scopeHeader } from './client';
 
-export function scopeHeader(): string {
-  return lastScope;
-}
+export const getClients = () => client.get<{ clients: Client[] }>('/clients').then((r) => r.data.clients);
 
-function rememberScope(headers: Record<string, unknown> | unknown) {
-  const h = headers as Record<string, unknown>;
-  const value = h?.['x-ourway-client-scope'];
-  if (typeof value === 'string' && value !== '') lastScope = value;
-}
-
-export const getClients = () =>
-  client.get<{ clients: Client[] }>('/clients').then((r) => {
-    rememberScope(r.headers);
-    return r.data.clients;
-  });
+/**
+ * Every per-client figure in one read (2.3-5).
+ *
+ * Asked per client, a 40-tenant installation costs the dashboard 40 reads on
+ * mount. Asked once, it costs the same handful of reads whatever the tenant
+ * count - and the dashboard's rows are then the Clients ledger's rows by
+ * construction, which is 2.2-4's single-source rule applied to the tenant axis.
+ */
+export const getClientRollups = () =>
+  client.get<{ rollups: ClientRollup[] }>('/clients/rollups').then((r) => r.data.rollups);
 
 export const getClientRollup = (id: string) =>
-  client.get<{ rollup: ClientRollup }>(`/clients/${id}/rollup`).then((r) => {
-    rememberScope(r.headers);
-    return r.data.rollup;
-  });
+  client.get<{ rollup: ClientRollup }>(`/clients/${id}/rollup`).then((r) => r.data.rollup);
 
 export const createClient = (data: { name: string; slug?: string; notes?: string }) =>
   client.post<{ client: Client }>('/clients', data).then((r) => r.data.client);

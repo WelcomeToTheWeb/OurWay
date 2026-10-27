@@ -11,6 +11,12 @@ export interface Device {
   private_ip: string;
   device_key?: string;
   tags?: string[];
+  /**
+   * The tenant this unit belongs to (2.3-0), `null` when no tenant owns it.
+   * The console never infers a tenant from anything else: this field is the
+   * definition, and the client filter follows it.
+   */
+  client_id?: string | null;
   reboot_pending?: boolean;
   /** Reported by the agent: can remote input land here? Never assume granted. */
   input_capability?: 'granted' | 'denied' | 'unavailable' | 'unknown';

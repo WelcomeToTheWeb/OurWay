@@ -15,6 +15,8 @@ import { useTranslation } from 'react-i18next';
 import type { Device } from '../types/device';
 import type { FileTransfer } from '../types/file';
 import { isRateLimited } from '../api/client';
+import { useClientScope } from '../hooks/useClientScope';
+import { ClientFacet } from '../components/ClientFacet';
 import { Stamp } from '../components/Stamp';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 
@@ -48,6 +50,12 @@ export function FileTransfer() {
   const [loading, setLoading] = useState(true);
   const [dragOver, setDragOver] = useState(false);
   const [search, setSearch] = useState('');
+  // Tenant facet (2.3-5). A transfer names a device, so the tenant filter is
+  // the tenant's unit set; a transfer with no unit yet is kept, because it
+  // carries no unit data to scope and the server keeps it visible for the same
+  // reason (2.3-2).
+  const scope = useClientScope();
+  const scopedDevices = scope.slug === '' ? devices : devices.filter((d) => scope.scopedDeviceIds.has(d.id));
 
   // Push state
   const [pushing, setPushing] = useState(false);
@@ -177,6 +185,7 @@ export function FileTransfer() {
   const guide = useGuideWords(transfers.length);
 
   const filtered = transfers.filter((t) => {
+    if (scope.slug !== '' && t.device_id && !scope.scopedDeviceIds.has(t.device_id)) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!t.filename.toLowerCase().includes(q)) return false;
@@ -202,13 +211,19 @@ export function FileTransfer() {
             className="select"
           >
             <option value="">—</option>
-            {devices.map((d) => (
+            {scopedDevices.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name} · {d.hostname}
               </option>
             ))}
           </select>
         </label>
+        <ClientFacet
+          clients={scope.clients}
+          value={scope.slug}
+          onChange={scope.setSlug}
+          includeUnassigned={scope.includeUnassigned}
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

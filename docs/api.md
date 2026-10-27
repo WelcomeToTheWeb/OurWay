@@ -511,6 +511,27 @@ client is a bug, not a rounding difference.
 }
 ```
 
+### GET /api/clients/rollups
+
+Every tenant the caller can see, as ledger rows, in **one** read — the dashboard's
+per-client panel and the Clients ledger are the same numbers because the server
+computes both with the same function over the same scoped reads. `technicians`
+is a grouped count, not a query per tenant; `units_online` is computed on the
+server so a client clock cannot change it.
+
+Admin also receives the `unassigned` row — the units the 2.2 upgrade left
+unplaced, which is the state every installation is in on the day tenancy
+arrives. A scoped caller never sees it, because they have no such units.
+
+```json
+{
+  "rollups": [
+    { "client_id": "550e8400-e29b-41d4-a716-446655440001", "name": "Acme Widgets", "slug": "acme-widgets", "units": 12, "units_online": 9, "alerts_open": 3, "patch_compliant": 8, "patch_units": 12, "technicians": 3 }
+  ],
+  "scope": "all"
+}
+```
+
 ### GET /api/clients/:id/users · admin · PUT /api/clients/:id/users (admin)
 
 The accounts granted this client. `PUT` replaces the set: `{"user_ids": ["…"]}`.

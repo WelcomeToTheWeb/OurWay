@@ -23,6 +23,10 @@ vi.mock('../api/patching', () => ({
   listPolicies: vi.fn(() => Promise.resolve([])),
   getPatchOverview: vi.fn(() => Promise.resolve(null)),
 }));
+vi.mock('../api/clients', () => ({
+  getClients: vi.fn(() => Promise.resolve([])),
+  getClientRollups: vi.fn(() => Promise.resolve([])),
+}));
 vi.mock('../auth/context', () => ({
   useAuth: () => ({ accessToken: 'token', hasAnyRole: () => true }),
 }));
@@ -32,6 +36,9 @@ import { fetchInstallers } from '../api/installers';
 import { listPolicies, getPatchOverview } from '../api/patching';
 import { DeviceDetail } from './DeviceDetail';
 import type { Device } from '../types/device';
+import type { Client } from '../api/clients';
+import { getClients } from '../api/clients';
+import { resetFleetPoller, useFleetStore } from '../stores/fleet';
 
 const mk = (o: Partial<Device> = {}): Device => ({
   id: 'dev-1',
@@ -118,5 +125,39 @@ describe('Device detail · remote-control capability (2.2-1)', () => {
       expect(document.body.textContent).not.toMatch(/devices\.(input|hint)[A-Za-z]*Denied|devices\.input|devices\.hint/);
       unmount();
     }
+  });
+});
+
+describe('Device detail · whose machine this is (2.3-5)', () => {
+  const tenants: Client[] = [
+    { id: 'c-a', name: 'Alpha Co', slug: 'alpha-co', notes: '', disabled: false, created_at: '', updated_at: '' },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetFleetPoller();
+    vi.mocked(getDevice).mockResolvedValue(mk({ client_id: 'c-a' }) as never);
+    vi.mocked(getMetricsHistory).mockResolvedValue([] as never);
+    vi.mocked(getClients).mockResolvedValue(tenants as never);
+    useFleetStore.getState().setCollection('clients', tenants);
+    useFleetStore.getState().setCollection('patchPolicies', []);
+  });
+
+  it('names the tenant on the unit record, and links to that tenant\'s filtered fleet', async () => {
+    renderDetail();
+    // The record paints after its read, so the header is awaited like every
+    // other assertion in this file.
+    const link = (await screen.findByLabelText('Show the Alpha Co fleet')) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/devices?client=alpha-co');
+  });
+
+  it('says "unassigned" for a unit no tenant owns, and links to the admin\'s unplaced filter', async () => {
+    // The 2.2 upgrade leaves every device unplaced, so this is the state every
+    // installation is in on the day tenancy arrives. An admin must be able to
+    // find exactly these units, which is why the link carries `unassigned`.
+    vi.mocked(getDevice).mockResolvedValue(mk({ client_id: null }) as never);
+    renderDetail();
+    const link = (await screen.findByLabelText('Show the Unassigned fleet')) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/devices?client=unassigned');
   });
 });
