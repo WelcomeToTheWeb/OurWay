@@ -202,6 +202,11 @@ together would make one review that cannot say which half a comment is about.
 The enrollment-token pairing is a **third** piece — it is an authentication
 surface, and it deserves its own gate, not a ride along with a ledger.
 
+**A harness fact worth keeping:** `scripts/e2e-stack.sh` serves `vite preview`
+over `web/dist` — it does not build. A console change is invisible to the suite
+until `npm run build` runs, and the failure looks like a missing control, not a
+stale bundle.
+
 Shipped: `server/api/clients.go` — CRUD, `PUT /api/clients/:id/devices`
 (assign batch and empty-out), `GET /api/clients/:id/rollup`, and
 `GET`/`PUT /api/clients/:id/users` for the grants. Routes in
@@ -219,9 +224,13 @@ Tests: `server/api/clients_test.go` (6 tests over the real router).
 - [ ] Assign a client at enrollment via the enrollment flow when
       `ENROLLMENT_SECRET` is paired with a client (a per-client enrollment token);
       otherwise a new unit lands in `unassigned`.
-- [ ] Console: Clients ledger (units, alerts by severity, patch compliance, last
+- [x] Console: Clients ledger (units, alerts by severity, patch compliance, last
       seen), client detail with unit list, assign/unassign, per-client technician
-      assignment.
+      assignment (`web/src/pages/Clients.tsx`, `web/src/api/clients.ts`, nav
+      entry, `/clients` route).
+- [x] Client filter as URL state (`?client=<slug>`) on the Clients ledger — the
+      2.1.0 view-in-URL pattern, so the filtered view is linkable and survives a
+      reload. On the other ledgers it is 2.3-5.
 
 **Acceptance criteria**
 - [x] Deleting a client leaves every device intact and `client_id IS NULL`,
@@ -236,8 +245,15 @@ Tests: `server/api/clients_test.go` (6 tests over the real router).
   (`TestClientsRollupMatchesTheLedgers` recomputes units, units online, alerts by
   severity and patch compliance from `ListScoped` / `ListByStatusesScoped` and
   compares them field by field).
-- Every string in `en`/`de`/`fr` in lockstep, and `scripts/i18n-parity.py` (2.2-5)
-  is green.
+- [x] Every string in `en`/`de`/`fr` in lockstep, and `scripts/i18n-parity.py`
+  (2.2-5) is green (436 → 474 key paths with 2.3-4).
+- [x] Deleting a client confirms through `ConfirmSheet`, and the sheet states what
+      the server actually does — the units survive, unassigned
+      (`confirm.deleteClient.*`, the 11th destructive act migrated off
+      `window.confirm`).
+- [x] `web/e2e/clients.spec.ts` walks the MSP story in the console: create,
+      assign, grant, then the technician's own console showing exactly that
+      fleet, with the server's scope header asserting they are not scope-all.
 
 ---
 

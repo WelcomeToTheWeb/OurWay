@@ -511,6 +511,48 @@
       "title": "API-Schlüssel „{{name}}“ widerrufen?",
       "body": "Der Schlüssel funktioniert sofort nicht mehr. Sein Datensatz bleibt hier, damit die Ablösung sichtbar ist.",
       "action": "Schlüssel widerrufen"
+    },
+    "deleteClient": {
+      "title": "Mandant „{{name}}“ löschen?",
+      "body": "Seine {{units}} Geräte bleiben ohne Zuordnung. Nichts wird gelöscht, und kein Gerät hört auf zu berichten. Techniker, die nur diesem Mandanten zugewiesen sind, sehen mit der nächsten Anfrage eine leere Flotte. Das lässt sich nicht rückgängig machen.",
+      "action": "Mandant löschen"
     }
+  },
+  "clients": {
+    "title": "Mandanten",
+    "subtitle": "die Mandanten-Achse: welche Flotte, und wer sie sehen darf",
+    "newClient": "Neuer Mandant",
+    "name": "Name",
+    "slug": "Kurzname",
+    "slugPlaceholder": "Kurzname (optional)",
+    "slugHint": "Namen, die nur durch Groß-/Kleinschreibung oder Leerzeichen abweichen, sind derselbe Mandant.",
+    "units": "Geräte",
+    "unitsOnline": "Aktiv",
+    "alerts": "Alarme",
+    "patch": "Patches",
+    "technicians": "Zugriff",
+    "lastSeen": "Zuletzt gesehen",
+    "neverSeen": "nie",
+    "disabled": "pausiert",
+    "enable": "Fortsetzen",
+    "disable": "Pausieren",
+    "none": "Noch keine Mandanten. Ein Mandant ist eine Flotte, die jemand sehen darf.",
+    "needName": "Gib dem Mandanten einen Namen.",
+    "deletedNotice": "{{name}} ist gelöscht. Seine Geräte sind ohne Zuordnung und berichten weiterhin.",
+    "filterLabel": "Mandant",
+    "filterAll": "Alle",
+    "unitsTitle": "Geräte in diesem Mandanten",
+    "noUnits": "Noch keine Geräte. Weise sie aus dem Pool ohne Zuordnung zu.",
+    "saveUnits": "Geräte speichern",
+    "assignHint_one": "{{count}} Gerät wird in diesem Mandanten sein.",
+    "assignHint_other": "{{count}} Geräte werden in diesem Mandanten sein.",
+    "accessTitle": "Wer darf diesen Mandanten sehen",
+    "noUsers": "Noch keine Konten zum Zuweisen.",
+    "saveAccess": "Zugriff speichern",
+    "accessHint": "Ein entzogener Techniker verliert diese Flotte mit der nächsten Anfrage, ohne Abmelden.",
+    "online": "aktiv",
+    "rebootPending": "Neustart ausstehend",
+    "openRow": "Detail von {{name}} öffnen",
+    "create": "Mandant anlegen"
   }
 }
