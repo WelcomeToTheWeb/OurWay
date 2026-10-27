@@ -527,6 +527,11 @@ Alert endpoints require JWT authentication.
 
 List alerts, with optional filtering.
 
+"Open" means **unresolved** (`resolved = false`): acknowledged alerts are open,
+because acknowledging is a sign-off and not a close. That is the definition every
+console count uses — the dashboard tile, the ledger header and the count chips
+are the same population (2.2-4, `server/store/alerts_open_test.go`).
+
 **Headers:**
 
 ```

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Metrics } from '../types/device';
 import { useMetricsStore } from '../stores/metrics';
-import { useFleetStore } from '../stores/fleet';
+import { invalidateFleet, useFleetStore } from '../stores/fleet';
 
 // Raw message as sent by the server: {type, payload}
 interface RawWSMessage {
@@ -98,7 +98,11 @@ export function useWebSocket(token: string | null) {
               updateDeviceStatus(msg.device_id, 'online');
               break;
             case 'alert':
-              // Let mounted pages (Alerts) refresh immediately.
+              // The ledger counts move on the event that changed them, not on
+              // the ledger's next poll (2.2-4). One central invalidation: the
+              // shared collection re-reads, and every surface rendering it —
+              // the ledger, the dashboard tile — moves on the same read.
+              invalidateFleet('alerts');
               window.dispatchEvent(
                 new CustomEvent('ourway:alert', { detail: msg })
               );

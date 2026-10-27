@@ -4,13 +4,14 @@ import { act, renderHook } from '@testing-library/react';
 // 2.2-2: the point of the shared fleet model is measurable, and these are the
 // measurements. A second subscriber must not add a request, and a collection
 // nobody is looking at must not poll.
-vi.mock('../api/devices', () => ({ getDevices: vi.fn() }));
+vi.mock('../api/devices', () => ({ getDevices: vi.fn(), getAlerts: vi.fn() }));
 vi.mock('../api/patching', () => ({
   getPatchOverview: vi.fn(),
   listPolicies: vi.fn(),
 }));
 vi.mock('../api/sessions', () => ({ listSessions: vi.fn() }));
 vi.mock('../api/client', () => ({ isRateLimited: vi.fn(() => false) }));
+vi.mock('../api/users', () => ({ getUsers: vi.fn() }));
 
 import { getDevices } from '../api/devices';
 
@@ -24,9 +25,12 @@ async function settled(times = 6) {
 }
 import { getPatchOverview, listPolicies } from '../api/patching';
 import { listSessions } from '../api/sessions';
+import { getAlerts } from '../api/devices';
 import { isRateLimited } from '../api/client';
 import { acquireFleet, fleetReads, invalidateFleet, resetFleetPoller, useFleetStore } from './fleet';
 import { useFleet } from '../hooks/useFleet';
+import { filterAlerts, isAlertOpen, openAlertCount } from '../utils/alerts';
+import type { Alert } from '../types/alert';
 import type { Device } from '../types/device';
 
 const device = (name: string): Device => ({
@@ -55,6 +59,7 @@ describe('fleet read model (2.2-2)', () => {
     vi.mocked(getPatchOverview).mockResolvedValue({ devices: [], totals: undefined } as never);
     vi.mocked(listPolicies).mockResolvedValue([]);
     vi.mocked(listSessions).mockResolvedValue([]);
+    vi.mocked(getAlerts).mockResolvedValue([]);
     vi.mocked(isRateLimited).mockReturnValue(false);
   });
 
@@ -201,6 +206,52 @@ describe('fleet read model (2.2-2)', () => {
     expect(getPatchOverview).toHaveBeenCalledTimes(1);
   });
 
+  it('the alert collection is one read for the ledger and the dashboard tile', async () => {
+    // The count drift 2.2-4 closes lived in the counts, not in the reads — but
+    // the fix is the shared collection, so the read model has to hold for
+    // alerts exactly as it holds for units.
+    const ledger = renderHook(() => useFleet('alerts', { owner: true }));
+    const dashboard = acquireFleet('alerts');
+    await settled();
+    expect(getAlerts).toHaveBeenCalledTimes(1);
+    ledger.unmount();
+    dashboard();
+  });
+
+  it('acknowledging is open: one count, acknowledged included', () => {
+    // Three surfaces called "open alerts" three populations. The shared
+    // definition: open is unresolved, and a sign-off does not close a signal.
+    const alerts = [
+      alert('a', { acknowledged: false, resolved: false }),
+      alert('b', { acknowledged: true, resolved: false }),
+      alert('c', { acknowledged: true, resolved: true }),
+    ];
+    expect(openAlertCount(alerts)).toBe(2);
+    expect(alerts.filter(isAlertOpen).map((a) => a.id)).toEqual(['a', 'b']);
+  });
+
+  it('the chips count the same array the rows render', () => {
+    // The ledger's old failure: chips counted the server-filtered page while
+    // the dashboard tile counted the fleet. Filters are client-side over one
+    // collection, so a chip and its rows are the same predicate.
+    const alerts = [
+      alert('a', { severity: 'critical' }),
+      alert('b', { severity: 'warning' }),
+      alert('c', { severity: 'critical', resolved: true }),
+      alert('d', { severity: 'critical', message: 'disk full on E2E-SERVER-01' }),
+    ];
+    const all = filterAlerts(alerts, {});
+    const critical = filterAlerts(alerts, { severity: 'critical' });
+    const searched = filterAlerts(alerts, { search: 'disk full on E2E-SERVER' });
+    expect(all).toHaveLength(4);
+    expect(critical).toHaveLength(3);
+    expect(critical.filter(isAlertOpen)).toHaveLength(2);
+    expect(searched).toHaveLength(1);
+    // A status chip narrows the rows and the chips measure the searched set,
+    // so switching a chip moves the rows without moving what is measured.
+    expect(filterAlerts(searched, { status: 'unresolved' })).toHaveLength(1);
+  });
+
   it('does not subscribe for a collection the role may not read', async () => {
     const viewer = renderHook(() => useFleet('patchOverview', { enabled: false }));
     act(() => viewer.unmount());
@@ -212,4 +263,21 @@ describe('fleet read model (2.2-2)', () => {
 /** Release a batch of subscriptions (test sugar: releases are plain functions). */
 function releaseC(...releases: (() => void)[]) {
   for (const release of releases) release();
+}
+
+function alert(id: string, over: Partial<Alert> = {}): Alert {
+  return {
+    id,
+    device_id: 'dev-' + id,
+    device_name: id.toUpperCase(),
+    metric: 'disk',
+    severity: 'critical',
+    value: 95,
+    threshold: 90,
+    message: `${id} is full`,
+    resolved: false,
+    acknowledged: false,
+    created_at: new Date().toISOString(),
+    ...over,
+  } as Alert;
 }

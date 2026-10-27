@@ -58,7 +58,9 @@
     "recentAlerts": "Alertes récentes",
     "deviceHealth": "Santé des appareils",
     "noDevices": "Aucun appareil connecté",
-    "noAlerts": "Aucune alerte active"
+    "noAlerts": "Aucune alerte active",
+    "activeAlertsHint": "non résolues · acquittées comprises",
+    "activeAlertsHintNone": "aucun seuil dépassé"
   },
   "devices": {
     "title": "Appareils",

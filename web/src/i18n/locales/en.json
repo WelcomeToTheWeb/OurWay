@@ -58,7 +58,9 @@
     "recentAlerts": "Recent Alerts",
     "deviceHealth": "Device Health",
     "noDevices": "No devices connected yet",
-    "noAlerts": "No active alerts"
+    "noAlerts": "No active alerts",
+    "activeAlertsHint": "unresolved · acknowledged included",
+    "activeAlertsHintNone": "no thresholds breached"
   },
   "devices": {
     "title": "Devices",
