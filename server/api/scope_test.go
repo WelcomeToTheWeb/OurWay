@@ -30,6 +30,9 @@ type scopeFixture struct {
 	inAlice    string
 	inBob      string
 	unassigned string
+	// extra carries the ids of the entities seeded on top of the fleet by
+	// `seedFleetFixture` — alerts, updates, deployments, transfers.
+	extra map[string]string
 }
 
 // newScopeFixture seeds two clients, a unit in each, a unit nobody has assigned,
@@ -111,18 +114,37 @@ func (f *scopeFixture) makeUserWithScope(t *testing.T, username, role string, cl
 
 func (f *scopeFixture) get(t *testing.T, path, token string) (int, []byte, string) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, f.baseURL+path, nil)
+	return f.do(t, http.MethodGet, f.baseURL+path, token, nil)
+}
+
+// do issues a request with the caller's bearer token and returns status, body
+// and the scope header. Body is JSON when non-nil, so the matrix of route kinds
+// can drive GETs and POSTs through one door.
+func (f *scopeFixture) do(t *testing.T, method, url, token string, body any) (int, []byte, string) {
+	t.Helper()
+	var payload io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		payload = bytes.NewReader(encoded)
+	}
+	req, err := http.NewRequest(method, url, payload)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("get %s: %v", path, err)
+		t.Fatalf("%s %s: %v", method, url, err)
 	}
 	defer res.Body.Close()
-	body, _ := io.ReadAll(res.Body)
-	return res.StatusCode, body, res.Header.Get("X-OurWay-Client-Scope")
+	out, _ := io.ReadAll(res.Body)
+	return res.StatusCode, out, res.Header.Get("X-OurWay-Client-Scope")
 }
 
 // The acceptance, byte-for-byte: the answer for a device in another client is

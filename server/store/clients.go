@@ -53,6 +53,10 @@ type ClientStoreInterface interface {
 	// anything (2.3-3). `includeUnassigned` is what makes "unassigned"
 	// queryable like any other bucket.
 	DeviceIDsIn(clientIDs []string, includeUnassigned bool, deviceIDs []string) ([]string, error)
+	// DeviceIDsNotIn is the complement — the bulk route's "name the targets
+	// this caller may not touch", so a partial bulk fails as 400 naming ids
+	// instead of writing to the ones it may.
+	DeviceIDsNotIn(clientIDs []string, includeUnassigned bool, deviceIDs []string) ([]string, error)
 
 	// Client scope of a user.
 	ClientIDsForUser(userID string) ([]string, error)
@@ -192,6 +196,24 @@ func (s *ClientStore) DeviceIDsIn(clientIDs []string, includeUnassigned bool, de
 	default:
 		return s.devicesWithQuery("client_id IN ?", deviceIDs, clientIDs)
 	}
+}
+
+func (s *ClientStore) DeviceIDsNotIn(clientIDs []string, includeUnassigned bool, deviceIDs []string) ([]string, error) {
+	in, err := s.DeviceIDsIn(clientIDs, includeUnassigned, deviceIDs)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]bool, len(in))
+	for _, id := range in {
+		allowed[id] = true
+	}
+	out := make([]string, 0, len(deviceIDs)-len(in))
+	for _, id := range deviceIDs {
+		if !allowed[id] {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 func (s *ClientStore) devicesWithQuery(clause string, deviceIDs []string, args ...any) ([]string, error) {

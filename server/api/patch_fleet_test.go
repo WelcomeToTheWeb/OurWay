@@ -34,6 +34,16 @@ func fleetFixture(t *testing.T) (*gin.Engine, *store.Store) {
 	hub := ws.NewHub("http://localhost:3000", "")
 	h := NewPatchHandler(st, patching.NewScanner(st, hub), patching.NewDeployer(st, hub), patching.NewRollbackManager(st, hub))
 	r := gin.New()
+	// 2.3-2: the fleet handlers resolve the caller's client scope, and they are
+	// only reachable behind the auth middleware in production. A bare router
+	// that reaches them with no identity is testing a state the product cannot
+	// produce, so the fixture states the identity — an admin, whose scope is
+	// the unrestricted read these tests describe.
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", "fleet-test-admin")
+		c.Set("roles", []string{"admin"})
+		c.Next()
+	})
 	r.GET("/overview", h.PatchOverview)
 	r.GET("/updates", h.ListFleetUpdates)
 	r.POST("/approve", h.BulkApprove)

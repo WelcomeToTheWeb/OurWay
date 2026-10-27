@@ -104,3 +104,14 @@ func (s *SessionStore) ListActiveByUser(userID string) ([]models.Session, error)
 	}
 	return sessions, nil
 }
+
+// Count reports how many rows exist. The scoping tests use it as the store spy:
+// a refused bulk request must leave the count unmoved, which is the 2.3-3 atomicity
+// rule measured where it can be measured.
+func (s *SessionStore) Count() (int64, error) {
+	var n int64
+	if err := s.db.Model(&models.Session{}).Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
+}

@@ -105,6 +105,51 @@ func (s clientScope) AllowsDevice(d *models.Device) bool {
 // ClientIDs is the caller's client set, for store-level list scoping.
 func (s clientScope) ClientIDs() []string { return s.ids }
 
+// VisibleDeviceIDs answers "which units may this caller see" for the entities
+// that reference a unit — alerts, detected updates, transfers, sessions. Those
+// tables carry a `device_id` and no client of their own, so scoping them is
+// membership in the caller's unit set, and this is the one store read that
+// answers it for the request.
+//
+// `restricted` is the useful half: for admin it is false and callers keep their
+// current unrestricted read, so scope costs no query at all for the role that
+// needs none. For a scoped caller it costs exactly one, whatever the number of
+// entities the response contains (2.3-8's rule).
+func (s clientScope) VisibleDeviceIDs(st *store.Store) (ids []string, restricted bool, err error) {
+	if s.all {
+		return nil, false, nil
+	}
+	devices, err := st.Devices.ListScoped(s.ids, s.IncludeUnassigned())
+	if err != nil {
+		return nil, true, err
+	}
+	ids = make([]string, 0, len(devices))
+	for _, d := range devices {
+		ids = append(ids, d.ID)
+	}
+	return ids, true, nil
+}
+
+// AllowsDeviceID checks an entity's unit. `restricted` callers must name a unit
+// they can see; admin passes. An entity whose device is missing is out of scope
+// for a restricted caller and visible to admin, which is what an orphaned row
+// means for each role.
+func (s clientScope) AllowsDeviceID(deviceID string, st *store.Store) (bool, error) {
+	if s.all {
+		return true, nil
+	}
+	ids, _, err := s.VisibleDeviceIDs(st)
+	if err != nil {
+		return false, err
+	}
+	for _, id := range ids {
+		if id == deviceID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // IncludeUnassigned is always false for a scoped caller: a client grant is a
 // grant over that client's units, not over the pool nobody has assigned. Admin
 // reads the fleet through `ListAll`, so this never applies to them.
@@ -140,6 +185,41 @@ const RoleAdmin = "admin"
 // writes its own "not authorized" text is a leak, and this is the only door.
 func DeviceNotFound(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "device not found"})
+}
+
+// ScopeError answers a request whose scope could not be resolved — 403, with a
+// body that names the server's problem and no fact about the fleet. Scope
+// resolution failing must not read as "see everything".
+func ScopeError(c *gin.Context) {
+	c.JSON(http.StatusForbidden, gin.H{"error": "caller scope unavailable"})
+}
+
+// ScopedDevice is the door every by-device route of every kind walks through:
+// resolve the caller, load the device, answer 404 identically for absent and
+// out-of-scope, state the scope on the response. `ok` is false once a response
+// has been written, so the caller returns.
+//
+// One door is the point. Alerts, sessions, updates, files, tags, streams and
+// reboots each take a device id, and a leak in any one of them is the leak the
+// release is measured by — so they share this, and 2.3-2's test matrix runs the
+// same byte-comparison over all of them.
+func ScopedDevice(c *gin.Context, st *store.Store) (*models.Device, bool) {
+	device, err := st.Devices.GetByID(c.Param("id"))
+	if err != nil {
+		DeviceNotFound(c)
+		return nil, false
+	}
+	scope, err := ClientScope(c, st)
+	if err != nil {
+		ScopeError(c)
+		return nil, false
+	}
+	scope.ApplyScopeHeader(c)
+	if !scope.AllowsDevice(device) {
+		DeviceNotFound(c)
+		return nil, false
+	}
+	return device, true
 }
 
 // ApplyScopeHeader states the scope on the response. Called by every scoped

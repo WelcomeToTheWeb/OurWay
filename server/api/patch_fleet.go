@@ -31,12 +31,21 @@ type deviceCompliance struct {
 // installing or failed updates.
 // GET /api/patch/overview
 func (h *PatchHandler) PatchOverview(c *gin.Context) {
-	devices, err := h.store.Devices.ListAll()
+	// The overview is the fleet's compliance picture, so it is the caller's
+	// scope: a manager who owns two clients must not see the installation's
+	// counts, because the counts are the other clients' patch debt.
+	scope, visible, restricted, err := h.fleetScope(c)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+
+	devices, err := h.scopedDevices(scope)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list devices"})
 		return
 	}
-	open, err := h.store.SoftwareUpdates.ListByStatuses(openStatuses)
+	open, err := h.scopedOpenUpdates(scope, visible, restricted)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list updates"})
 		return
@@ -119,7 +128,13 @@ type fleetUpdate struct {
 // single approval can cover every device that needs it.
 // GET /api/patch/updates
 func (h *PatchHandler) ListFleetUpdates(c *gin.Context) {
-	open, err := h.store.SoftwareUpdates.ListByStatuses(openStatuses)
+	scope, visible, restricted, err := h.fleetScope(c)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+
+	open, err := h.scopedOpenUpdates(scope, visible, restricted)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list updates"})
 		return
@@ -173,6 +188,16 @@ func (h *PatchHandler) bulkSet(c *gin.Context, status string) {
 		c.JSON(400, gin.H{"error": "update_ids required"})
 		return
 	}
+
+	// Bulk targets are validated before anything is written: approving updates
+	// on a unit outside the caller's scope fails as 400 naming the update ids,
+	// and no update changes status. Approving is what makes an install reach a
+	// machine, so a bulk call that quietly skipped the foreign ids would leave
+	// the caller believing they had acted on the list they selected.
+	if code, body := h.validateUpdateTargets(c, req.UpdateIDs); code != 0 {
+		c.JSON(code, body)
+		return
+	}
 	n, err := h.store.SoftwareUpdates.SetStatusIfDetected(req.UpdateIDs, status)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to update"})
@@ -195,15 +220,33 @@ func (h *PatchHandler) ScanMany(c *gin.Context) {
 		DeviceIDs []string `json:"device_ids"`
 	}
 	_ = c.ShouldBindJSON(&req)
+	// Explicit targets are validated; an empty list means "everything this
+	// caller can reach", which for a scoped caller is their clients' units and
+	// never the installation. A scan is a command into the machine, so the
+	// scoping rule is 400-and-name-the-ids: a partial scan leaves the caller
+	// with a count that quietly excludes the units they may not touch.
+	if code, body := h.validateDeviceTargets(c, req.DeviceIDs); code != 0 {
+		c.JSON(code, body)
+		return
+	}
 	ids := req.DeviceIDs
 	if len(ids) == 0 {
-		devices, err := h.store.Devices.ListAll()
+		_, visible, restricted, err := h.fleetScope(c)
 		if err != nil {
-			c.JSON(500, gin.H{"error": "failed to list devices"})
+			ScopeError(c)
 			return
 		}
-		for _, d := range devices {
-			ids = append(ids, d.ID)
+		if restricted {
+			ids = visible
+		} else {
+			devices, err := h.store.Devices.ListAll()
+			if err != nil {
+				c.JSON(500, gin.H{"error": "failed to list devices"})
+				return
+			}
+			for _, d := range devices {
+				ids = append(ids, d.ID)
+			}
 		}
 	}
 	c.JSON(200, gin.H{"scans_sent": h.scanner.ScanDeviceIDs(ids)})

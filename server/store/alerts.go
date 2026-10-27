@@ -19,6 +19,32 @@ func (s *AlertStore) Create(a *models.Alert) error {
 	return s.db.Create(a).Error
 }
 
+// ListScoped returns alerts whose **unit** is in `deviceIDs` — the caller's
+// visible fleet. An empty set answers no rows: a caller with no scope has no
+// alerts, and reading the whole table to trim it in the handler is both the leak
+// and the cost this release is meant to remove (2.3-2's criterion is that the
+// client filter is in the SQL).
+//
+// `deviceIDs` is the unit set, not a client set: alerts store a `device_id` and
+// no client, so the client meaning is resolved once, by the caller, into units.
+func (s *AlertStore) ListScoped(deviceIDs []string, deviceID *string, unresolvedOnly bool) ([]models.Alert, error) {
+	if len(deviceIDs) == 0 {
+		return []models.Alert{}, nil
+	}
+	query := s.db.Order("created_at DESC").Where("device_id IN ?", deviceIDs)
+	if deviceID != nil && *deviceID != "" {
+		query = query.Where("device_id = ?", *deviceID)
+	}
+	if unresolvedOnly {
+		query = query.Where("resolved = ?", false)
+	}
+	var alerts []models.Alert
+	if err := query.Find(&alerts).Error; err != nil {
+		return nil, err
+	}
+	return alerts, nil
+}
+
 // List returns alerts, optionally filtered by device or resolved status.
 func (s *AlertStore) List(deviceID *string, unresolvedOnly bool) ([]models.Alert, error) {
 	query := s.db.Order("created_at DESC")

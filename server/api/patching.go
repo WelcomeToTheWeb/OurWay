@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,7 +36,13 @@ func NewPatchHandler(store *store.Store, scanner *patching.Scanner, deployer *pa
 // ListUpdates returns software updates for a device.
 // GET /api/devices/:id/updates
 func (h *PatchHandler) ListUpdates(c *gin.Context) {
-	deviceID := c.Param("id")
+	// A unit's outstanding updates name its software and its version gaps, so
+	// they are scoped with the unit.
+	device, ok := ScopedDevice(c, h.store)
+	if !ok {
+		return
+	}
+	deviceID := device.ID
 
 	updates, err := h.store.SoftwareUpdates.ListByDevice(deviceID)
 	if err != nil {
@@ -49,17 +56,11 @@ func (h *PatchHandler) ListUpdates(c *gin.Context) {
 // ScanDevice triggers an update scan on a device.
 // POST /api/devices/:id/updates/scan
 func (h *PatchHandler) ScanDevice(c *gin.Context) {
-	deviceID := c.Param("id")
-
-	// Verify device exists
-	if _, err := h.store.Devices.GetByID(deviceID); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"error": "device not found"})
-			return
-		}
-		c.JSON(500, gin.H{"error": "failed to get device"})
+	device, ok := ScopedDevice(c, h.store)
+	if !ok {
 		return
 	}
+	deviceID := device.ID
 
 	// Scan just this device.
 	h.scanner.ScanDeviceIDs([]string{deviceID})
@@ -79,6 +80,14 @@ func (h *PatchHandler) ApproveUpdate(c *gin.Context) {
 			return
 		}
 		c.JSON(500, gin.H{"error": "failed to get update"})
+		return
+	}
+
+	// Approval is what lets an install reach a machine, so it is scoped through
+	// the unit the update belongs to — and the out-of-scope answer is the
+	// update-not-found answer, not "not your client".
+	if code, body := h.checkUpdateScope(c, update); code != 0 {
+		c.JSON(code, body)
 		return
 	}
 
@@ -104,13 +113,73 @@ func (h *PatchHandler) ApproveUpdate(c *gin.Context) {
 // ListPolicies returns all patch policies.
 // GET /api/patch/policies
 func (h *PatchHandler) ListPolicies(c *gin.Context) {
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+	scope.ApplyScopeHeader(c)
+
 	policies, err := h.store.PatchPolicies.ListAll()
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list policies"})
 		return
 	}
 
+	// A policy is a standing instruction to install software on units, so a
+	// scoped caller sees the policies that can reach their units: a policy over
+	// the whole installation reaches them, and a tag- or device-scoped policy
+	// reaches them when one of their units is in its targets. A policy aimed at
+	// another client's units says nothing about the fleet they manage, and
+	// listing it would disclose the other client's naming and layout.
+	if !scope.all {
+		devices, err := h.store.Devices.ListScoped(scope.ClientIDs(), scope.IncludeUnassigned())
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed to resolve client scope"})
+			return
+		}
+		policies = policiesReachingDevices(policies, devices)
+	}
+
 	c.JSON(200, gin.H{"policies": policies})
+}
+
+// policiesReachingDevices keeps the policies that can act on `devices`.
+func policiesReachingDevices(policies []models.PatchPolicy, devices []models.Device) []models.PatchPolicy {
+	tags := map[string]bool{}
+	ids := map[string]bool{}
+	for _, d := range devices {
+		ids[d.ID] = true
+		for _, tag := range d.Tags {
+			tags[tag] = true
+		}
+	}
+	kept := make([]models.PatchPolicy, 0, len(policies))
+	for _, p := range policies {
+		switch p.Scope {
+		case "all", "":
+			kept = append(kept, p)
+		case "tags":
+			for _, tag := range strings.Split(p.ScopeValue, ",") {
+				if tags[strings.TrimSpace(tag)] {
+					kept = append(kept, p)
+					break
+				}
+			}
+		case "devices":
+			for _, id := range strings.Split(p.ScopeValue, ",") {
+				if ids[strings.TrimSpace(id)] {
+					kept = append(kept, p)
+					break
+				}
+			}
+		default:
+			// An unrecognised scope reaches nothing we can prove, so it is not
+			// offered: the safe answer for a scoped caller is the smaller list.
+			continue
+		}
+	}
+	return kept
 }
 
 // policyRequest is the writable shape of a patch policy.
@@ -262,10 +331,19 @@ func (h *PatchHandler) ListDeployments(c *gin.Context) {
 	// deployment stuck in "running" past its deadline).
 	h.deployer.FinalizeTimedOut()
 
+	_, visible, restricted, err := h.fleetScope(c)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+
 	deployments, err := h.store.PatchDeployments.ListAll()
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list deployments"})
 		return
+	}
+	if restricted {
+		deployments = keepDeploymentsOnVisibleDevices(deployments, visible)
 	}
 
 	c.JSON(200, gin.H{"deployments": deployments})
@@ -275,6 +353,11 @@ func (h *PatchHandler) ListDeployments(c *gin.Context) {
 // and rollback phases) for one deployment.
 // GET /api/patch/deployments/:id/results
 func (h *PatchHandler) ListDeploymentResults(c *gin.Context) {
+	// Per-device outcomes name the units and what was installed on them, so the
+	// deployment's unit set is checked before any of it is read.
+	if _, ok := h.scopedDeployment(c); !ok {
+		return
+	}
 	results, err := h.store.DeploymentResults.ListByDeployment(c.Param("id"))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list deployment results"})
@@ -295,6 +378,13 @@ func (h *PatchHandler) DeployNow(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	// A deployment installs onto machines, so every target is validated before
+	// anything is created.
+	if code, body := h.validateDeviceTargets(c, req.DeviceIDs); code != 0 {
+		c.JSON(code, body)
 		return
 	}
 
@@ -345,10 +435,19 @@ func (h *PatchHandler) RollbackDeployment(c *gin.Context) {
 	// Bind is optional - if no body or no device_ids, rollback to all devices
 	c.ShouldBindJSON(&req)
 
-	// Verify deployment exists
-	deployment, err := h.store.PatchDeployments.GetByID(deploymentID)
-	if err != nil || deployment == nil {
-		c.JSON(404, gin.H{"error": "deployment not found"})
+	// A rollback runs commands on the units in the deployment, so the
+	// deployment is scoped through all of them: a deployment spanning two
+	// clients is not a deployment the manager of one of them can roll back.
+	deployment, ok := h.scopedDeployment(c)
+	if !ok {
+		return
+	}
+
+	// An explicit device list is validated on top of that — a caller who names
+	// units outside this deployment's reach must fail naming them, not quietly
+	// roll back the subset they were allowed to name.
+	if code, body := h.validateDeviceTargets(c, req.DeviceIDs); code != 0 {
+		c.JSON(code, body)
 		return
 	}
 

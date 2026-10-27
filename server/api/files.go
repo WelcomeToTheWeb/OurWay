@@ -122,6 +122,14 @@ func (h *FileHandler) PushFile(c *gin.Context) {
 	// Get transfer details. The transfer must already exist (created by
 	// /api/files/upload); we do not fabricate a phantom transfer here,
 	// which would point the agent at a file that is never stored.
+	// Pushing a file onto units is writing to those units: every target is
+	// validated before the first write, and a foreign target fails the whole
+	// request naming its ids. A partial push is the case the plan refuses.
+	if code, body := h.validateDeviceTargets(c, req.DeviceIDs); code != 0 {
+		c.JSON(code, body)
+		return
+	}
+
 	transfer, err := h.service.GetTransfer(req.TransferID)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "transfer not found"})
@@ -156,6 +164,12 @@ func (h *FileHandler) PullFile(c *gin.Context) {
 		return
 	}
 
+	// Pulling reads a unit's filesystem.
+	if code, body := h.validateDeviceTargets(c, []string{req.DeviceID}); code != 0 {
+		c.JSON(code, body)
+		return
+	}
+
 	transfer, err := h.service.PullFile(c.Request.Context(), req.DeviceID, req.SourcePath)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -163,6 +177,29 @@ func (h *FileHandler) PullFile(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"transfer_id": transfer.ID, "status": "pull_initiated"})
+}
+
+// validateDeviceTargets is the bulk scoping check the file routes need: every
+// id the caller names must be a unit they can see. Returns code 0 when the
+// request may proceed. Unknown ids are as unanswerable as foreign ones — the
+// caller is told which ids failed, which is the 2.3-2 rule for bulk targets.
+func (h *FileHandler) validateDeviceTargets(c *gin.Context, deviceIDs []string) (int, gin.H) {
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		return http.StatusForbidden, gin.H{"error": "caller scope unavailable"}
+	}
+	scope.ApplyScopeHeader(c)
+	if scope.all {
+		return 0, nil
+	}
+	foreign, err := h.store.Clients.DeviceIDsNotIn(scope.ClientIDs(), scope.IncludeUnassigned(), deviceIDs)
+	if err != nil {
+		return http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"}
+	}
+	if len(foreign) > 0 {
+		return http.StatusBadRequest, gin.H{"error": "one or more target devices are outside your client scope", "device_ids": foreign}
+	}
+	return 0, nil
 }
 
 // authorizeAgentDevice validates the X-Device-Key header and returns the
@@ -278,23 +315,75 @@ func (h *AgentFileHandler) UploadFromAgent(c *gin.Context) {
 // ListTransfers returns recent file transfers.
 // GET /api/files/transfers
 func (h *FileHandler) ListTransfers(c *gin.Context) {
-	transfers, err := h.service.ListTransfers()
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+	scope.ApplyScopeHeader(c)
+
+	if scope.all {
+		transfers, err := h.service.ListTransfers()
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"transfers": transfers})
+		return
+	}
+
+	visible, _, err := scope.VisibleDeviceIDs(h.store)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
+		return
+	}
+	// The unit filter is the store's SQL. A transfer with no unit yet — an
+	// upload staged before it is pushed — carries no unit's data, so it stays
+	// visible: scoping is about units, and hiding a caller's own staged file
+	// would be scoping the wrong thing.
+	transfers, err := h.store.FileTransfers.ListScoped(visible)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(200, gin.H{"transfers": transfers})
+}
+
+// scopedTransfer loads a transfer and answers for it when the caller may not see
+// the unit it moved data to/from. The 404 is the transfer-not-found answer, for
+// the same reason devices answer one 404: a body that says "that transfer
+// exists, on a unit you cannot see" is a directory of another client's files.
+func (h *FileHandler) scopedTransfer(c *gin.Context) (*models.FileTransfer, bool) {
+	transfer, err := h.service.GetTransfer(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "transfer not found"})
+		return nil, false
+	}
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return nil, false
+	}
+	scope.ApplyScopeHeader(c)
+	if transfer.DeviceID != "" {
+		ok, err := scope.AllowsDeviceID(transfer.DeviceID, h.store)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
+			return nil, false
+		}
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "transfer not found"})
+			return nil, false
+		}
+	}
+	return transfer, true
 }
 
 // GetTransfer returns details for a specific transfer.
 // GET /api/files/transfers/:id
 func (h *FileHandler) GetTransfer(c *gin.Context) {
-	transferID := c.Param("id")
-
-	transfer, err := h.service.GetTransfer(transferID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "transfer not found"})
+	transfer, ok := h.scopedTransfer(c)
+	if !ok {
 		return
 	}
 
@@ -306,10 +395,13 @@ func (h *FileHandler) GetTransfer(c *gin.Context) {
 func (h *FileHandler) DownloadFile(c *gin.Context) {
 	transferID := c.Param("transfer_id")
 
-	// Get transfer for filename
-	transfer, err := h.service.GetTransfer(transferID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "transfer not found"})
+	// The file a pull retrieved *is* that unit's data, so downloading it is
+	// reading the unit. `scopedTransfer` reads the `:id` param, so this route's
+	// `:transfer_id` is copied onto it: two param names for one id is how a
+	// scoping check ends up reading the wrong one.
+	c.Params = gin.Params{{Key: "id", Value: transferID}}
+	transfer, ok := h.scopedTransfer(c)
+	if !ok {
 		return
 	}
 

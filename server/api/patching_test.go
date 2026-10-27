@@ -50,14 +50,22 @@ func setupPatchTest(t *testing.T) (*httptest.Server, *store.Store, string) {
 	agentHandler := NewAgentPatchHandler(st, deployer)
 
 	// Register routes
-	router.POST("/api/devices/:id/updates/scan", patchHandler.ScanDevice)
-	router.GET("/api/devices/:id/updates", patchHandler.ListUpdates)
-	router.POST("/api/patch/policies", patchHandler.CreatePolicy)
-	router.GET("/api/patch/policies", patchHandler.ListPolicies)
-	router.POST("/api/patch/deploy", patchHandler.DeployNow)
-	router.GET("/api/patch/deployments", patchHandler.ListDeployments)
-	router.GET("/api/patch/deployments/:id/results", patchHandler.ListDeploymentResults)
-	router.POST("/api/patch/deployments/:id/rollback", patchHandler.RollbackDeployment)
+	// 2.3-2: the patch handlers resolve the caller's client scope, so the
+	// user-facing routes run behind the real auth middleware. This fixture used
+	// to send a bearer token that nothing validated, so the handlers never saw
+	// an identity — a fixture that bypasses the middleware its handlers depend
+	// on tests a request shape the server cannot receive. The agent route stays
+	// outside it, as it is in production: the agent authenticates with
+	// X-Device-Key and has no JWT.
+	apiRoutes := router.Group("/api", AuthMiddleware(jwtAuth))
+	apiRoutes.POST("/devices/:id/updates/scan", patchHandler.ScanDevice)
+	apiRoutes.GET("/devices/:id/updates", patchHandler.ListUpdates)
+	apiRoutes.POST("/patch/policies", patchHandler.CreatePolicy)
+	apiRoutes.GET("/patch/policies", patchHandler.ListPolicies)
+	apiRoutes.POST("/patch/deploy", patchHandler.DeployNow)
+	apiRoutes.GET("/patch/deployments", patchHandler.ListDeployments)
+	apiRoutes.GET("/patch/deployments/:id/results", patchHandler.ListDeploymentResults)
+	apiRoutes.POST("/patch/deployments/:id/rollback", patchHandler.RollbackDeployment)
 	router.POST("/api/agent/deployments/result", agentHandler.ReportDeploymentResult)
 
 	ts := httptest.NewServer(router)

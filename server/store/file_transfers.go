@@ -40,6 +40,23 @@ func (s *FileTransferStore) ListByDevice(deviceID string) ([]models.FileTransfer
 	return transfers, err
 }
 
+// ListScoped returns transfers whose unit is in `deviceIDs`, plus transfers that
+// have no unit yet (an upload staged before it is pushed — it carries no unit's
+// data, so scoping it would be scoping the wrong thing).
+func (s *FileTransferStore) ListScoped(deviceIDs []string) ([]models.FileTransfer, error) {
+	query := s.db.Order("created_at DESC")
+	if len(deviceIDs) == 0 {
+		query = query.Where("device_id = ''")
+	} else {
+		query = query.Where("device_id IN ? OR device_id = ''", deviceIDs)
+	}
+	var transfers []models.FileTransfer
+	if err := query.Find(&transfers).Error; err != nil {
+		return nil, err
+	}
+	return transfers, nil
+}
+
 // ListAll returns all file transfers, most recent first.
 func (s *FileTransferStore) ListAll() ([]models.FileTransfer, error) {
 	var transfers []models.FileTransfer

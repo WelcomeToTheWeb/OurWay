@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"ourway/server/events"
+	"ourway/server/models"
 	"ourway/server/store"
 )
 
@@ -31,7 +32,29 @@ func (h *AlertHandler) ListAlerts(c *gin.Context) {
 
 	unresolvedOnly := resolved == "false"
 
-	alerts, err := h.store.Alerts.List(deviceID, unresolvedOnly)
+	// An alert is a statement about a unit, so it is scoped with the unit: the
+	// disk-full page on a client you were removed from must disappear from this
+	// list. The client filter is in the SQL (`AlertStore.ListScoped`), not a
+	// trim of the full table in the handler — 2.3-2's criterion, and the
+	// difference between a scoped request and an unscoped one at fleet size.
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return
+	}
+	scope.ApplyScopeHeader(c)
+
+	var alerts []models.Alert
+	if scope.all {
+		alerts, err = h.store.Alerts.List(deviceID, unresolvedOnly)
+	} else {
+		visible, _, scopeErr := scope.VisibleDeviceIDs(h.store)
+		if scopeErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
+			return
+		}
+		alerts, err = h.store.Alerts.ListScoped(visible, deviceID, unresolvedOnly)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list alerts"})
 		return
@@ -52,12 +75,45 @@ func (h *AlertHandler) ListAlerts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"alerts": alerts})
 }
 
+// AlertNotFound is the single 404 for an alert route, for an alert that does
+// not exist and for one whose unit is out of the caller's scope. Same rule as
+// devices (see scope.go): a body that distinguishes them is a directory of
+// another client's incidents.
+func AlertNotFound(c *gin.Context) {
+	c.JSON(http.StatusNotFound, gin.H{"error": "alert not found"})
+}
+
+// scopedAlert loads an alert and answers for it when the caller may not see the
+// unit it belongs to.
+func (h *AlertHandler) scopedAlert(c *gin.Context) (*models.Alert, bool) {
+	alert, err := h.store.Alerts.GetByID(c.Param("id"))
+	if err != nil {
+		AlertNotFound(c)
+		return nil, false
+	}
+	scope, err := ClientScope(c, h.store)
+	if err != nil {
+		ScopeError(c)
+		return nil, false
+	}
+	scope.ApplyScopeHeader(c)
+	ok, err := scope.AllowsDeviceID(alert.DeviceID, h.store)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
+		return nil, false
+	}
+	if !ok {
+		AlertNotFound(c)
+		return nil, false
+	}
+	return alert, true
+}
+
 // ResolveAlert marks an alert as resolved.
 func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 	id := c.Param("id")
-	alert, err := h.store.Alerts.GetByID(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "alert not found"})
+	alert, ok := h.scopedAlert(c)
+	if !ok {
 		return
 	}
 	if err := h.store.Alerts.MarkResolved(id); err != nil {
@@ -77,6 +133,9 @@ func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 // AcknowledgeAlert marks an alert as acknowledged.
 func (h *AlertHandler) AcknowledgeAlert(c *gin.Context) {
 	id := c.Param("id")
+	if _, ok := h.scopedAlert(c); !ok {
+		return
+	}
 	userID, _ := c.Get("user_id")
 	if err := h.store.Alerts.Acknowledge(id, userID.(string)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to acknowledge alert"})
@@ -88,6 +147,9 @@ func (h *AlertHandler) AcknowledgeAlert(c *gin.Context) {
 // AssignAlert assigns an alert to a user.
 func (h *AlertHandler) AssignAlert(c *gin.Context) {
 	id := c.Param("id")
+	if _, ok := h.scopedAlert(c); !ok {
+		return
+	}
 
 	var req struct {
 		UserID string `json:"user_id" binding:"required"`
