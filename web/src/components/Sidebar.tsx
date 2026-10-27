@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Server,
+  Building2,
   Bell,
   Settings,
   MonitorSmartphone,
@@ -36,6 +37,7 @@ const groups: { heading: string; items: GroupItem[] }[] = [
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, go: 'g h' },
       { to: '/devices', label: 'Devices', icon: Server, go: 'g d' },
+      { to: '/clients', label: 'Clients', icon: Building2, go: 'g c' }, // 2.3-4: the tenant axis
       { to: '/alerts', label: 'Alerts', icon: Bell, go: 'g a' },
     ],
   },

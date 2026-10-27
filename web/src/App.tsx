@@ -17,6 +17,7 @@ const FileTransfer = lazy(() => import('./pages/FileTransfer').then((m) => ({ de
 const Sessions = lazy(() => import('./pages/Sessions').then((m) => ({ default: m.Sessions })));
 const SSO = lazy(() => import('./pages/SSO').then((m) => ({ default: m.SSO })));
 const Webhooks = lazy(() => import('./pages/Webhooks').then((m) => ({ default: m.Webhooks })));
+const Clients = lazy(() => import('./pages/Clients').then((m) => ({ default: m.Clients })));
 
 function RouteFallback() {
   return (
@@ -115,6 +116,16 @@ export function App() {
                   <PatchPolicies />
                 </Suspense>
               </RoleRoute>
+            }
+          />
+          {/* 2.3-4: every role reads the clients its scope names; the server
+              answers the ledger, and admin-only writes are refused there. */}
+          <Route
+            path="clients"
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <Clients />
+              </Suspense>
             }
           />
           <Route

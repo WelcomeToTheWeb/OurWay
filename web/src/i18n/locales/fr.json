@@ -511,6 +511,48 @@
       "title": "Révoquer la clé d’API « {{name}} » ?",
       "body": "La clé cesse immédiatement de fonctionner. Son enregistrement reste ici, pour que le remplacement reste visible.",
       "action": "Révoquer la clé"
+    },
+    "deleteClient": {
+      "title": "Supprimer le client « {{name}} » ?",
+      "body": "Ses {{units}} appareils restent sans affectation. Rien n’est supprimé et aucun appareil ne cesse de remonter. Les techniciens affectés uniquement à ce client voient une flotte vide dès leur prochaine requête. Cette action est irréversible.",
+      "action": "Supprimer le client"
     }
+  },
+  "clients": {
+    "title": "Clients",
+    "subtitle": "l’axe client : quelle flotte, et qui peut la voir",
+    "newClient": "Nouveau client",
+    "name": "Nom",
+    "slug": "Identifiant",
+    "slugPlaceholder": "identifiant (facultatif)",
+    "slugHint": "Les noms qui ne diffèrent que par la casse ou les espaces désignent le même client.",
+    "units": "Appareils",
+    "unitsOnline": "Actifs",
+    "alerts": "Alertes",
+    "patch": "Correctifs",
+    "technicians": "Accès",
+    "lastSeen": "Vu pour la dernière fois",
+    "neverSeen": "jamais",
+    "disabled": "en pause",
+    "enable": "Reprendre",
+    "disable": "Mettre en pause",
+    "none": "Aucun client pour le moment. Un client est une flotte que quelqu’un a le droit de voir.",
+    "needName": "Donnez un nom au client.",
+    "deletedNotice": "{{name}} a disparu. Ses appareils sont sans affectation et continuent de remonter.",
+    "filterLabel": "Client",
+    "filterAll": "Tous",
+    "unitsTitle": "Appareils de ce client",
+    "noUnits": "Aucun appareil pour l’instant. Affectez-les depuis le pool sans affectation.",
+    "saveUnits": "Enregistrer les appareils",
+    "assignHint_one": "{{count}} appareil sera dans ce client.",
+    "assignHint_other": "{{count}} appareils seront dans ce client.",
+    "accessTitle": "Qui peut voir ce client",
+    "noUsers": "Aucun compte à affecter pour le moment.",
+    "saveAccess": "Enregistrer l’accès",
+    "accessHint": "Un technicien révoqué perd cette flotte dès sa prochaine requête, sans déconnexion.",
+    "online": "actifs",
+    "rebootPending": "Redémarrage en attente",
+    "openRow": "Ouvrir le détail de {{name}}",
+    "create": "Ajouter le client"
   }
 }

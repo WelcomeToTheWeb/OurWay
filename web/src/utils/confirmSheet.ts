@@ -19,6 +19,7 @@ export type ConfirmAction =
   | 'deleteWebhook'
   | 'deleteSsoBinding'
   | 'deletePolicy'
+  | 'deleteClient'
   | 'purgeMetrics'
   | 'deleteAccount'
   | 'deleteApiKey'

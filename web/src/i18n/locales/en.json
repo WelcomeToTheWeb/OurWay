@@ -511,6 +511,48 @@
       "title": "Revoke API key {{name}}?",
       "body": "The key stops working at once. Its record stays here, so the rotation is visible.",
       "action": "Revoke key"
+    },
+    "deleteClient": {
+      "title": "Delete {{name}}?",
+      "body": "Its {{units}} units stay, unassigned. Nothing is deleted and no unit stops reporting. Technicians granted only this client see an empty fleet on their next request. This cannot be undone.",
+      "action": "Delete client"
     }
+  },
+  "clients": {
+    "title": "Clients",
+    "subtitle": "the tenant axis: which fleet, and who may see it",
+    "newClient": "New client",
+    "name": "Name",
+    "slug": "Slug",
+    "slugPlaceholder": "slug (optional)",
+    "slugHint": "Names that differ only by case or spacing are the same client.",
+    "units": "Units",
+    "unitsOnline": "Awake",
+    "alerts": "Alerts",
+    "patch": "Patched",
+    "technicians": "Access",
+    "lastSeen": "Last seen",
+    "neverSeen": "never",
+    "disabled": "paused",
+    "enable": "Resume",
+    "disable": "Pause",
+    "none": "No clients yet. A client is a fleet someone is allowed to see.",
+    "needName": "Give the client a name.",
+    "deletedNotice": "{{name}} is gone. Its units are unassigned and still reporting.",
+    "filterLabel": "Client",
+    "filterAll": "All",
+    "unitsTitle": "Units in this client",
+    "noUnits": "No units yet. Assign them from the unassigned pool.",
+    "saveUnits": "Save units",
+    "assignHint_one": "{{count}} unit will be in this client.",
+    "assignHint_other": "{{count}} units will be in this client.",
+    "accessTitle": "Who may see this client",
+    "noUsers": "No accounts to grant yet.",
+    "saveAccess": "Save access",
+    "accessHint": "A revoked technician loses this fleet on their next request, no logout.",
+    "online": "awake",
+    "rebootPending": "Reboot pending",
+    "openRow": "Open {{name}} detail",
+    "create": "Add client"
   }
 }
