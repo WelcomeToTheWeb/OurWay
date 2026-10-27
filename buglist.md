@@ -469,7 +469,30 @@ it.
 
 ---
 
-### 🟡 M21. `sc.exe create` was given its options as separate arguments
+### 🟡 M21. The Windows service was managed by shelling out to `sc.exe`
+**Status:** ✅ Fixed 2026-10-27 — `agent/install/windows_service.go`, `agent/install/service_command.go`, tests `TestServiceBinPathQuoting` / `TestValidateServiceBinary`
+**Files:** `agent/install/windows.go` (create/start/stop/delete), `agent/install/windows_service.go`
+
+Install, start, recovery and delete all went through `sc.exe`, whose options
+(`binPath=`, `start=`, `display=`) include the equal sign in the name and are
+parsed from the **raw command line**. Go's `exec.Command` quotes any argument
+with spaces, which hides the option name; quoting the path alone leaves the
+agent's `--server`/`--key` arguments outside the value; the option and its value
+must be one token. Four command-line shapes were tried on the CI Windows runner —
+separate tokens, path-only quoting, whole-value quoting, and a verbatim
+`SysProcAttr.CmdLine` — and all four answered **1639** with a usage dump, a
+number that names nothing. The job also had to work around Windows runners
+shipping PostgreSQL as a service the runner user cannot start.
+
+The service is now managed through the Service Control Manager API
+(`OpenSCManager` / `CreateService` / `ChangeServiceConfig2` / `StartService` /
+`ControlService` / `DeleteService`), which takes the same fields as arguments and
+returns the system's real error. The binary-path rule the SCM enforces (the path
+is quoted when it contains spaces, the agent's arguments stay outside the quotes,
+and a binary with no `.exe` name is refused) is stated in `serviceBinPath` /
+`validateServiceBinary` and pinned by tests.
+
+
 **Status:** ✅ Fixed 2026-10-26 — `agent/install/sc_args.go`, test `TestSCCreateArgsQuoting`
 **Files:** `agent/install/windows.go`
 

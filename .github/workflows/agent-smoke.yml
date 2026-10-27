@@ -150,26 +150,6 @@ jobs:
           tail -50 /tmp/ourway-server.log
           exit 1
 
-      # Diagnostic for the Windows service-install failure (sc.exe 1639):
-      # register the same service shape with sc.exe directly and print what
-      # each form answers.
-      - name: Probe sc.exe service creation (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $forms = @(
-            @{ n='DiagA'; b='C:\Windows\System32\cmd.exe' },
-            @{ n='DiagB'; b='C:\Windows\System32\cmd.exe -a b' },
-            @{ n='DiagC'; b=("$PWD\ourway-agent.exe --server ws://localhost:9090 --key probe-key") }
-          )
-          foreach ($f in $forms) {
-            $line = "create $($f.n) binPath= `"$($f.b)`" start= demand display= `"Probe Service`""
-            "sc.exe $line"
-            & sc.exe $line.Split(' ')
-            "  exit: $LASTEXITCODE"
-            & sc.exe qc $f.n | Out-String
-            & sc.exe delete $f.n | Out-Null
-          }
       - name: Run agent smoke
         shell: bash
         run: |
