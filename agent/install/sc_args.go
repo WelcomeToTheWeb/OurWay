@@ -36,6 +36,20 @@ func validateServiceBinary(exe string) error {
 	return nil
 }
 
+// scCreateCommandLine composes the command line exactly as an operator would
+// type it in cmd.exe.
+//
+// sc.exe parses the *raw* command line for its equal-sign options: it looks for
+// a token beginning `binPath=`, and a token beginning `display=`. Go's
+// exec.Command quotes any argument containing spaces — which turns the token
+// into `"binPath= ..."` — and sc.exe no longer recognises the option at all.
+// That is why the installer must hand CreateProcess the line verbatim
+// (SysProcAttr.CmdLine): the two shapes sc.exe accepts, and the shapes Go will
+// build for you, are not the same strings.
+func scCreateCommandLine(service, exe string, cfg *config.Config) string {
+	return "sc.exe " + strings.Join(scCreateArgs(service, exe, cfg), " ")
+}
+
 func scCreateArgs(service, exe string, cfg *config.Config) []string {
 	// The whole value is quoted, not just the path. sc.exe takes everything
 	// after `binPath=` as the service's command line, and quotes the path alone

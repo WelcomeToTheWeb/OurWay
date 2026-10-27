@@ -57,3 +57,24 @@ func TestValidateServiceBinary(t *testing.T) {
 		t.Errorf("the message must name the fix, got: %v", err)
 	}
 }
+
+// TestSCCreateCommandLine: sc.exe reads its equal-sign options from the raw
+// command line, so the line must start each option with its name — no quoting
+// around the token, which is what Go's own argument escaping would do.
+func TestSCCreateCommandLine(t *testing.T) {
+	cfg := &config.Config{ServerURL: "ws://example.test:9090/ws", DeviceKey: "key-123"}
+	line := scCreateCommandLine("OurWayAgent", `C:\Program Files\OurWay\ourway-agent.exe`, cfg)
+
+	want := `sc.exe create OurWayAgent binPath= "C:\Program Files\OurWay\ourway-agent.exe --server ws://example.test:9090/ws --key key-123" start= auto display= "OurWay Agent"`
+	if line != want {
+		t.Errorf("command line mismatch\n got: %s\nwant: %s", line, want)
+	}
+	for _, token := range []string{"binPath=", "start=", "display="} {
+		if !strings.Contains(line, " "+token) {
+			t.Errorf("option %s must start a token in the command line: %s", token, line)
+		}
+	}
+	if strings.Contains(line, `"binPath=`) {
+		t.Error("the binPath token must not be wrapped in quotes: sc.exe stops recognising the option")
+	}
+}

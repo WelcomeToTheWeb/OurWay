@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 
 	"golang.org/x/sys/windows"
@@ -31,22 +30,23 @@ func Install(cfg *config.Config) error {
 	if err := validateServiceBinary(exe); err != nil {
 		return err
 	}
-	args := scCreateArgs(ServiceName, exe, cfg)
-	if err := runCommand("sc.exe", args...); err != nil {
+	line := scCreateCommandLine(ServiceName, exe, cfg)
+	if err := runCommandLine("sc.exe", line); err != nil {
 		// sc.exe reports 1639 for a dozen shapes of bad argument and prints
 		// nothing useful about which one. Name the command line that produced
 		// the failure — the operator has to fix it, and so does the next
 		// person to touch this file.
-		return fmt.Errorf("create service: %w (command was: sc.exe %s)", err, strings.Join(args, " "))
+		return fmt.Errorf("create service: %w (command was: %s)", err, line)
 	}
 	fmt.Println("Service created")
 
 	// Automatic recovery: restart on the 1st-3rd failure (5s/10s/30s)
 	// and reset the failure counter after 1 day of stable uptime, so a
 	// crashed agent comes back without manual intervention.
-	if err := runCommand("sc.exe", "failure", ServiceName,
-		"reset=86400",
-		"actions=restart/5000/restart/10000/restart/30000"); err != nil {
+	// Same parser, same rule: sc.exe reads `reset=` and `actions=` from the
+	// raw command line.
+	if err := runCommandLine("sc.exe", "sc.exe failure "+ServiceName+
+		" reset=86400 actions=restart/5000/restart/10000/restart/30000"); err != nil {
 		fmt.Printf("Warning: could not set service recovery actions: %v\n", err)
 	}
 
@@ -159,6 +159,17 @@ func IsInstalled() (bool, error) {
 
 func runCommand(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// runCommandLine hands the process the command line verbatim. sc.exe parses
+// its own options out of the raw line, so Go's argument quoting is not
+// available to it — see scCreateCommandLine.
+func runCommandLine(name, line string) error {
+	cmd := exec.Command(name)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: line}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
