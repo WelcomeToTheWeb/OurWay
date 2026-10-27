@@ -163,7 +163,7 @@ Generic OIDC widens exactly this surface, so it ships with the contract, not aft
       mapping, domain allow-list, verified-email toggle, link policy, enabled order.
 - [ ] Login page renders providers in configured order; a provider the operator
       disabled disappears without a console rebuild.
-- [ ] All strings in `en`/`de`/`fr` lockstep, with `scripts/i18n-parity.sh`
+- [ ] All strings in `en`/`de`/`fr` lockstep, with `scripts/i18n-parity.py`
       (2.2-5) green.
 
 **Acceptance criteria**
@@ -253,7 +253,7 @@ one place an operator can read.
   `attempt: 2`.
 - Test-send produces a delivery row an operator can point at.
 - Email templates exist in all three locales; a missing locale string fails
-  `scripts/i18n-parity.sh`.
+  `scripts/i18n-parity.py`.
 
 ---
 
@@ -339,7 +339,7 @@ GOOS=windows GOARCH=amd64 go -C agent build ./...
 GOOS=darwin  GOARCH=arm64 go -C agent build ./...
 npm ci --prefix web && npm run build --prefix web && npm run test:run --prefix web
 npm run typecheck --prefix web
-scripts/i18n-parity.sh
+scripts/i18n-parity.py
 scripts/release.sh --check 2.4.0
 ```
 

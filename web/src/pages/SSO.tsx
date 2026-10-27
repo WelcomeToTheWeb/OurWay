@@ -8,7 +8,9 @@ import {
   type SSOProviderFull,
 } from '../api/sso';
 import { Stamp } from '../components/Stamp';
+import { ConfirmSheet } from '../components/ConfirmSheet';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
+import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
 
 const PROVIDERS = [
   { name: 'google', label: 'Google', type: 'oauth2' },
@@ -28,6 +30,7 @@ export function SSO() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [form, setForm] = useState<Partial<SSOProviderFull>>({
     name: 'google',
     type: 'oauth2',
@@ -70,13 +73,13 @@ export function SSO() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm(t('sso.deleteConfirm'))) return;
+  async function handleDelete(p: SSOProviderFull) {
     try {
-      await deleteSSOProvider(id);
+      await deleteSSOProvider(p.id);
       loadProviders();
     } catch (err) {
-      console.error('Failed to delete SSO provider', err);
+      setFormError((err as Error).message);
+      setPending(null);
     }
   }
 
@@ -194,7 +197,11 @@ export function SSO() {
                   </td>
                   <td className="text-right">
                     <button
-                      onClick={() => handleDelete(p.id)}
+                      onClick={() =>
+                        setPending(
+                          pendingConfirm(t, 'deleteSsoBinding', () => void handleDelete(p), { name: p.name })
+                        )
+                      }
                       className="btn-quiet btn text-[var(--stamp)]"
                       title={t('common.delete')}
                     >
@@ -208,6 +215,12 @@ export function SSO() {
           </div>
         </section>
       )}
+
+      <ConfirmSheet
+        request={pending?.request ?? null}
+        onCancel={() => setPending(null)}
+        onConfirm={() => pending?.run()}
+      />
     </div>
   );
 }

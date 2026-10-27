@@ -28,6 +28,8 @@ import {
   rotateAPIKey,
   type APIKey as APIKeyType,
 } from '../api/api-keys';
+import { ConfirmSheet } from '../components/ConfirmSheet';
+import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
 
 function parseScopes(scopes: string): string {
   try {
@@ -59,35 +61,36 @@ export function Settings() {
   const [clearingData, setClearingData] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [dangerError, setDangerError] = useState<string | null>(null);
+  const [dangerNote, setDangerNote] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
 
   async function handleClearData() {
-    if (!window.confirm('Delete ALL metrics history and alerts? This cannot be undone.')) {
-      return;
-    }
     setClearingData(true);
     setDangerError(null);
+    setDangerNote(null);
     try {
       const res = await clearMonitoringData();
-      window.alert(`Cleared ${res.metrics_cleared} metrics and ${res.alerts_cleared} alerts.`);
+      // The result is a line on the sheet, not a browser alert: a dialog is
+      // unthemeable, unlocalisable, and auto-dismissed by automation.
+      setDangerNote(t('settings.dangerZone.clearDataDone', { metrics: res.metrics_cleared, alerts: res.alerts_cleared }));
     } catch (err) {
-      setDangerError(err instanceof Error ? err.message : 'Failed to clear monitoring data');
+      setDangerError(err instanceof Error ? err.message : t('settings.dangerZone.clearDataFailed'));
     } finally {
       setClearingData(false);
+      setPending(null);
     }
   }
 
   async function handleDeleteAccount() {
-    if (!window.confirm('Permanently delete your account? This cannot be undone.')) {
-      return;
-    }
     setDeletingAccount(true);
     setDangerError(null);
     try {
       await deleteAccount();
       logout();
     } catch (err) {
-      setDangerError(err instanceof Error ? err.message : 'Failed to delete account');
+      setDangerError(err instanceof Error ? err.message : t('settings.dangerZone.deleteAccountFailed'));
       setDeletingAccount(false);
+      setPending(null);
     }
   }
 
@@ -132,23 +135,25 @@ export function Settings() {
     }
   }
 
-  async function handleDeleteKey(id: string) {
-    if (!confirm('Delete this API key?')) return;
+  async function handleDeleteKey(key: APIKeyType) {
     try {
-      await deleteAPIKey(id);
+      await deleteAPIKey(key.id);
       loadAPIKeys();
     } catch (err) {
-      console.error('Failed to delete API key', err);
+      setDangerError(err instanceof Error ? err.message : t('settings.api.deleteKeyFailed'));
+    } finally {
+      setPending(null);
     }
   }
 
-  async function handleRevokeKey(id: string) {
-    if (!confirm('Revoke this API key?')) return;
+  async function handleRevokeKey(key: APIKeyType) {
     try {
-      await revokeAPIKey(id);
+      await revokeAPIKey(key.id);
       loadAPIKeys();
     } catch (err) {
-      console.error('Failed to revoke API key', err);
+      setDangerError(err instanceof Error ? err.message : t('settings.api.revokeKeyFailed'));
+    } finally {
+      setPending(null);
     }
   }
 
@@ -663,7 +668,9 @@ export function Settings() {
                   {!key.revoked_at && (
                     <button
                       type="button"
-                      onClick={() => handleRevokeKey(key.id)}
+                      onClick={() =>
+                        setPending(pendingConfirm(t, 'revokeApiKey', () => void handleRevokeKey(key), { name: key.name }))
+                      }
                       title={t('settings.api.revokeKey')}
                       className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-[var(--due)]"
                     >
@@ -672,7 +679,9 @@ export function Settings() {
                   )}
                   <button
                     type="button"
-                    onClick={() => handleDeleteKey(key.id)}
+                    onClick={() =>
+                      setPending(pendingConfirm(t, 'deleteApiKey', () => void handleDeleteKey(key), { name: key.name }))
+                    }
                     title={t('settings.api.deleteKey')}
                     className="rounded p-1 text-text-muted hover:bg-bg-secondary hover:text-[var(--error)]"
                   >
@@ -701,6 +710,9 @@ export function Settings() {
           {dangerError && (
             <p className="text-xs text-[var(--error)]">{dangerError}</p>
           )}
+          {dangerNote && (
+            <p className="text-xs text-text-secondary">{dangerNote}</p>
+          )}
           {hasRole('admin') && (
             <div className="flex items-center justify-between border border-rule bg-[var(--field)] p-3">
               <div>
@@ -709,7 +721,7 @@ export function Settings() {
               </div>
               <button
                 type="button"
-                onClick={handleClearData}
+                onClick={() => setPending(pendingConfirm(t, 'purgeMetrics', () => void handleClearData()))}
                 disabled={clearingData}
                 className="btn text-[var(--error)] disabled:opacity-50"
               >
@@ -725,7 +737,7 @@ export function Settings() {
             </div>
             <button
               type="button"
-              onClick={handleDeleteAccount}
+              onClick={() => setPending(pendingConfirm(t, 'deleteAccount', () => void handleDeleteAccount()))}
               disabled={deletingAccount}
               className="btn bg-[var(--stamp)] text-[var(--stamp-ink)] hover:opacity-90 disabled:opacity-50"
             >
@@ -735,6 +747,13 @@ export function Settings() {
           </div>
         </div>
       </div>
+
+      <ConfirmSheet
+        request={pending?.request ?? null}
+        busy={clearingData || deletingAccount}
+        onCancel={() => setPending(null)}
+        onConfirm={() => pending?.run()}
+      />
     </div>
   );
 }

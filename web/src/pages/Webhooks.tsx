@@ -13,7 +13,9 @@ import {
   type WebhookDelivery,
 } from '../api/webhooks';
 import { Stamp } from '../components/Stamp';
+import { ConfirmSheet } from '../components/ConfirmSheet';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
+import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
 
 const EVENT_TYPES = [
   { key: 'alert', value: 'alert' },
@@ -47,6 +49,7 @@ export function Webhooks() {
   const [selectedWebhook, setSelectedWebhook] = useState<WebhookType | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
   const guide = useGuideWords(webhooks.length);
 
   async function loadWebhooks() {
@@ -81,13 +84,13 @@ export function Webhooks() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm(`${t('common.delete')} webhook?`)) return;
+  async function handleDelete(w: WebhookType) {
     try {
-      await deleteWebhook(id);
+      await deleteWebhook(w.id);
       loadWebhooks();
     } catch (err) {
-      console.error('Failed to delete webhook', err);
+      setActionError((err as Error).message);
+      setPending(null);
     }
   }
 
@@ -293,7 +296,9 @@ export function Webhooks() {
                           <ExternalLink className="h-3.5 w-3.5" />
                         </button>
                         <button
-                          onClick={() => handleDelete(w.id)}
+                          onClick={() =>
+                            setPending(pendingConfirm(t, 'deleteWebhook', () => void handleDelete(w), { name: w.name }))
+                          }
                           className="btn-quiet btn text-[var(--stamp)]"
                           title={t('common.delete')}
                         >
@@ -391,6 +396,12 @@ export function Webhooks() {
           </div>
         </div>
       )}
+
+      <ConfirmSheet
+        request={pending?.request ?? null}
+        onCancel={() => setPending(null)}
+        onConfirm={() => pending?.run()}
+      />
     </div>
   );
 }

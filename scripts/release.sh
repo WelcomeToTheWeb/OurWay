@@ -98,6 +98,14 @@ step "gate: web"
 npm ci --prefix web
 npm test --prefix web -- --run
 npm run build --prefix web
+
+step "gate: 2.2 checks"
+# The floors 2.2 added, in the order the plan lists them: coverage may not
+# drift down, the three locales may not drift apart, and the console may not
+# confirm with a browser dialog (DESIGN.md §6).
+scripts/coverage.sh
+python3 scripts/i18n-parity.py
+scripts/browser-dialogs-check.sh
 fi
 
 if [[ "$CHECK_ONLY" == "1" ]]; then

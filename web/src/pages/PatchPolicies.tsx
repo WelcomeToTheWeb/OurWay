@@ -18,6 +18,8 @@ import {
 } from '../api/patching';
 import { useTranslation } from 'react-i18next';
 import { Stamp } from '../components/Stamp';
+import { ConfirmSheet } from '../components/ConfirmSheet';
+import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import { listTags, type TagCount } from '../api/tags';
 import { useAuth } from '../auth/context';
@@ -67,6 +69,7 @@ export function PatchPolicies() {
   const [resultsFor, setResultsFor] = useState<string | null>(null);
   const guide = useGuideWords(deployments.length);
   const [results, setResults] = useState<DeploymentResult[]>([]);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
 
@@ -121,12 +124,13 @@ export function PatchPolicies() {
   }
 
   async function handleDelete(policy: PatchPolicy) {
-    if (!window.confirm(`Delete policy"${policy.name}"? Queued deployments for it are dropped.`)) return;
     try {
       await deletePolicy(policy.id);
       await load();
     } catch {
       // ignore
+    } finally {
+      setPending(null);
     }
   }
 
@@ -445,7 +449,11 @@ export function PatchPolicies() {
                       <td className="text-right">
                         {isAdmin && (
                           <button
-                            onClick={() => handleDelete(policy)}
+                            onClick={() =>
+                              setPending(
+                                pendingConfirm(t, 'deletePolicy', () => void handleDelete(policy), { name: policy.name })
+                              )
+                            }
                             className="btn-quiet btn text-[var(--stamp)]"
                             aria-label={`Delete policy ${policy.name}`}
                           >
@@ -612,6 +620,12 @@ export function PatchPolicies() {
           </section>
         )}
       </div>
+
+      <ConfirmSheet
+        request={pending?.request ?? null}
+        onCancel={() => setPending(null)}
+        onConfirm={() => pending?.run()}
+      />
     </div>
   );
 }

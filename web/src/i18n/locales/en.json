@@ -205,7 +205,9 @@
       "expiresOn": "expires {{date}}",
       "rotateKey": "Rotate key",
       "revokeKey": "Revoke key",
-      "deleteKey": "Delete key"
+      "deleteKey": "Delete key",
+      "deleteKeyFailed": "Deleting the API key failed.",
+      "revokeKeyFailed": "Revoking the API key failed."
     },
     "dangerZone": {
       "title": "Danger Zone",
@@ -217,7 +219,10 @@
       "deleteAccount": "Delete account",
       "deleteAccountDesc": "Permanently delete your account and all devices",
       "deleteAccountButton": "Delete Account",
-      "deleting": "Deleting…"
+      "deleting": "Deleting…",
+      "clearDataDone": "Cleared {{metrics}} metrics and {{alerts}} alerts.",
+      "clearDataFailed": "Clearing the monitoring data failed.",
+      "deleteAccountFailed": "Deleting the account failed."
     }
   },
   "auth": {
@@ -454,5 +459,58 @@
   "layout": {
     "versionTitle": "Server {{server}} (commit {{commit}}) · console build {{console}}",
     "rateBudgetTitle": "Per-user request budget: {{perMinute}} reads per minute, instantaneous burst {{burst}}. Polling rests when it is spent."
+  },
+  "confirm": {
+    "cancel": "Cancel",
+    "endSession": {
+      "title": "End session {{id}}?",
+      "body": "The unit stops streaming and the technician at it is disconnected. The session record stays in the ledger.",
+      "action": "End session"
+    },
+    "deleteDevice": {
+      "title": "Delete unit {{name}}?",
+      "body": "Its metrics history, alerts, sessions and queued patch deployments are deleted. This cannot be undone.",
+      "action": "Delete unit"
+    },
+    "deleteUser": {
+      "title": "Delete user {{name}}?",
+      "body": "Their sign-in stops working at once. Alerts they signed off keep their name in the ledger. This cannot be undone.",
+      "action": "Delete user"
+    },
+    "deleteWebhook": {
+      "title": "Delete webhook {{name}}?",
+      "body": "Matching events stop being delivered. Deliveries already sent are not recalled.",
+      "action": "Delete webhook"
+    },
+    "deleteSsoBinding": {
+      "title": "Delete the {{name}} binding?",
+      "body": "The provider stops mapping to a console account, so anyone signing in through it is bounced back to the login screen.",
+      "action": "Delete binding"
+    },
+    "deletePolicy": {
+      "title": "Delete policy {{name}}?",
+      "body": "Queued deployments for it are dropped. Patches already installed on units stay installed.",
+      "action": "Delete policy"
+    },
+    "purgeMetrics": {
+      "title": "Delete all metrics history and alerts?",
+      "body": "Every stored sample, chart history and alert record is deleted. Units keep reporting — the history is what goes. This cannot be undone.",
+      "action": "Delete history"
+    },
+    "deleteAccount": {
+      "title": "Permanently delete your account?",
+      "body": "Your sign-in, API keys and webhooks are deleted. Units and their records stay on the server. This cannot be undone.",
+      "action": "Delete account"
+    },
+    "deleteApiKey": {
+      "title": "Delete API key {{name}}?",
+      "body": "Scripts using it stop working at once, and the record leaves this list.",
+      "action": "Delete key"
+    },
+    "revokeApiKey": {
+      "title": "Revoke API key {{name}}?",
+      "body": "The key stops working at once. Its record stays here, so the rotation is visible.",
+      "action": "Revoke key"
+    }
   }
 }

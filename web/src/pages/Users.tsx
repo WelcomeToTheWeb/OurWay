@@ -3,7 +3,9 @@ import { getUsers, getRoles, updateUserRoles, createUser, deleteUser } from '../
 import type { Role, UserWithRoles } from '../auth/types';
 import { useTranslation } from 'react-i18next';
 import { Stamp } from '../components/Stamp';
+import { ConfirmSheet } from '../components/ConfirmSheet';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
+import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
 
 export function Users() {
   const { t } = useTranslation();
@@ -16,6 +18,7 @@ export function Users() {
   const [newForm, setNewForm] = useState({ username: '', email: '', password: '' });
   const [newRoles, setNewRoles] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
   const guide = useGuideWords(users.length);
 
   const load = async () => {
@@ -82,12 +85,12 @@ export function Users() {
   };
 
   const handleDelete = async (user: UserWithRoles) => {
-    if (!confirm(`${t('common.delete')} ${user.username}?`)) return;
     try {
       await deleteUser(user.id);
       await load();
     } catch (e) {
       setFormError(e instanceof Error ? e.message : t('common.error'));
+      setPending(null);
     }
   };
 
@@ -165,7 +168,9 @@ export function Users() {
                         {t('common.edit')} roles
                       </button>
                       <button
-                        onClick={() => handleDelete(user)}
+                        onClick={() =>
+                          setPending(pendingConfirm(t, 'deleteUser', () => void handleDelete(user), { name: user.username }))
+                        }
                         className="btn-quiet btn text-[var(--stamp)]"
                       >
                         {t('common.delete')}
@@ -301,6 +306,12 @@ export function Users() {
           </div>
         </div>
       )}
+
+      <ConfirmSheet
+        request={pending?.request ?? null}
+        onCancel={() => setPending(null)}
+        onConfirm={() => pending?.run()}
+      />
     </div>
   );
 }

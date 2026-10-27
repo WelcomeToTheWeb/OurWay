@@ -173,9 +173,32 @@ Four constraints that are easy to get wrong in this suite:
   test's precondition never holds there — and put the assertion where it runs.
 - **Do not `waitForLoadState('networkidle')`.** The console holds a WebSocket open
   for the whole session, so that event never settles.
-- **Destructive actions are gated by `window.confirm` today** (`buglist.md` M19,
-  task 2.2-9): Playwright dismisses dialogs by default, so a test that ends a
-  session must accept one. That is the smell, not the design.
+- **Destructive actions confirm in the page, never in a dialog** (2.2-9): the
+  suite drives `ConfirmSheet` like an operator does — click, read the sheet,
+  press the verb. No spec registers a `page.on('dialog')` handler any more; a
+  native dialog is auto-dismissed by Playwright, which is how the suite used to
+  end a session at all.
+
+## Destructive confirmation (2.2-9)
+
+`DESIGN.md` §6 bans browser dialogs, and `scripts/browser-dialogs-check.sh` fails
+CI on any `confirm(` / `alert(` / `prompt(` call in `web/src` — in the `tests` job and
+in `scripts/release.sh`. The ban is not style: a native dialog is unthemeable, its
+copy is a string built in English (so a German operator is asked to destroy data in
+English), and automation dismisses it.
+
+The pattern:
+
+- `web/src/components/ConfirmSheet.tsx` renders the sheet: the target is named in the
+  title, the consequence is the body, and the verb is the confirm control. Escape
+  cancels; focus opens on Cancel (never armed) and returns to the control that asked.
+- `web/src/utils/confirmSheet.ts` — `confirmRequest(t, action, vars)` builds the copy
+  from `confirm.<action>.*`; a page holds one `PendingConfirm` (`{ request, run }`), so
+  a sheet can only ever confirm the act that opened it, and the write happens in `run`.
+- Every act's copy is in `en`/`de`/`fr` with the target **interpolated**
+  (`{{name}}`, `{{id}}`), never concatenated in JavaScript. `scripts/i18n-parity.py`
+  is what keeps the three locales in lockstep, and the component test asserts words
+  in all three — an unresolved key renders its own path on screen.
 
 ## Alert counts (2.2-4)
 
