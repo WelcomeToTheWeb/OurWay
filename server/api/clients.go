@@ -152,7 +152,7 @@ func (h *ClientHandler) CreateClient(c *gin.Context) {
 
 	// A client is a tenant: creating one is creating a boundary between
 	// people's fleets, so it is recorded with the slug that becomes the scope.
-	defer auditForAnswer(c, h.store, models.AuditClientCreate, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+	defer auditForAnswer(c, h.store, models.AuditClientCreate, ClientTarget(client.ID), map[string]any{
 		"name": client.Name,
 		"slug": client.Slug,
 	})
@@ -207,7 +207,7 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 
 	// `disabled` is in the record: pausing a tenant is the act that locks
 	// technicians out of a fleet, and the row has to say it happened here.
-	defer auditForAnswer(c, h.store, models.AuditClientUpdate, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+	defer auditForAnswer(c, h.store, models.AuditClientUpdate, ClientTarget(client.ID), map[string]any{
 		"name":     client.Name,
 		"slug":     client.Slug,
 		"disabled": client.Disabled,
@@ -252,7 +252,7 @@ func (h *ClientHandler) DeleteClient(c *gin.Context) {
 	// Deleting a tenant moves its units to unassigned, which makes them
 	// invisible to every non-admin. The count is in the record, because "the
 	// fleet disappeared" is the question that follows this act.
-	defer auditForAnswer(c, h.store, models.AuditClientDelete, AuditTarget{Type: "client", ID: id}, map[string]any{
+	defer auditForAnswer(c, h.store, models.AuditClientDelete, ClientTarget(id), map[string]any{
 		"devices_unassigned": len(devices),
 	})
 	if err := h.store.Clients.Delete(id); err != nil {
@@ -306,7 +306,7 @@ func (h *ClientHandler) AssignDevices(c *gin.Context) {
 		for _, d := range mine {
 			ids = append(ids, d.ID)
 		}
-		defer auditForAnswer(c, h.store, models.AuditDeviceAssign, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+		defer auditForAnswer(c, h.store, models.AuditDeviceAssign, ClientTarget(client.ID), map[string]any{
 			"unassign": ids,
 		})
 		n, err := h.store.Clients.AssignDevices("", ids)
@@ -338,7 +338,7 @@ func (h *ClientHandler) AssignDevices(c *gin.Context) {
 
 	// Assignment is the act that decides which technician sees which fleet, so
 	// the record carries the whole list it was given.
-	defer auditForAnswer(c, h.store, models.AuditDeviceAssign, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+	defer auditForAnswer(c, h.store, models.AuditDeviceAssign, ClientTarget(client.ID), map[string]any{
 		"device_ids": req.DeviceIDs,
 	})
 	n, err := h.store.Clients.AssignDevices(client.ID, req.DeviceIDs)
@@ -667,7 +667,7 @@ func (h *ClientHandler) SetClientUsers(c *gin.Context) {
 	}
 	// Grants are recorded with the set they replace: a scope change that does
 	// not say what it removed is not a record of the change.
-	defer auditForAnswer(c, h.store, models.AuditClientGrant, AuditTarget{Type: "client", ID: client.ID}, map[string]any{
+	defer auditForAnswer(c, h.store, models.AuditClientGrant, ClientTarget(client.ID), map[string]any{
 		"user_ids": req.UserIDs,
 		"was":      currentIDs(current),
 	})

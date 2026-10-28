@@ -216,6 +216,20 @@ func DeviceTarget(d *models.Device) AuditTarget {
 	return target
 }
 
+// ClientTarget is the tenant-axis case of the same rule: when the act is *on a
+// client* — create, rename, pause, delete, assign its units, grant its access —
+// the tenant of the record is that client, named at the time of the act.
+//
+// Leaving `ClientID` empty here is not a neutral choice. The ledger scopes a
+// manager's read with `client_id IN (their clients)`, and an empty column never
+// matches, so a tenant's own acts — including the grant that decides which
+// technician can see it — are readable by the admin alone and invisible to the
+// tenant filter. "Who changed access to my client?" is a question a client's
+// manager is entitled to ask of their own ledger.
+func ClientTarget(clientID string) AuditTarget {
+	return AuditTarget{Type: "client", ID: clientID, ClientID: clientID}
+}
+
 // recordAudit writes the row. `status` is the status code the handler is about
 // to answer with, and the outcome column is derived from it — one rule, so the
 // ledger's outcomes are comparable and never a free-text reason.

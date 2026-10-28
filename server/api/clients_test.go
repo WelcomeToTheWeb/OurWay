@@ -182,12 +182,28 @@ func TestClientsDeleteMovesDevicesToUnassigned(t *testing.T) {
 
 // jsonHasArrayNamed checks the envelope's array length without the caller
 // needing a typed decode.
+//
+// It decodes the envelope as raw JSON, not as `map[string][]json.RawMessage`:
+// an envelope that also carries scalars (`limit`, `total`, a nested `retention`)
+// fails that shape, and the helper answered *false* — which reads as "the array
+// is not the length I expected" for an assertion that wanted zero rows, so a
+// scoped-empty assertion passes for the wrong reason and a scoped-one assertion
+// fails for the wrong reason. A missing key is false too: an envelope without
+// the array is a contract breach, not an empty result.
 func jsonHasArrayNamed(body []byte, key string, want int) bool {
-	var env map[string][]json.RawMessage
+	var env map[string]json.RawMessage
 	if err := json.Unmarshal(body, &env); err != nil {
 		return false
 	}
-	return len(env[key]) == want
+	raw, ok := env[key]
+	if !ok {
+		return false
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return false
+	}
+	return len(items) == want
 }
 
 // The grant endpoints, and the criterion that decides how grants are stored:
