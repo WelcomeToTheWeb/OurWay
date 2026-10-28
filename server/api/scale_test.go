@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -39,26 +41,65 @@ import (
 // with the size of the fleet the caller is scoped to, or with the number of
 // targets in a bulk command.
 
+// queryCounter counts the statements gorm runs on `db`.
+//
+// The counter is shared by every goroutine the fixture's router owns — the
+// request's own goroutine, the hub, and `SetupRouter`'s background jobs — so it
+// is guarded. `go test -race` is the CI server suite, and a measurement harness
+// whose numbers come from a data race is not a measurement: the same rule that
+// makes the scale tool's workers sample privately.
 type queryCounter struct {
+	mu          sync.Mutex
 	statements  int
 	deviceReads int
 	maxVars     int
 	log         []string
 }
 
-// registerQueryCounter counts the statements gorm runs on `db`.
 func registerQueryCounter(db *gorm.DB, c *queryCounter) {
 	db.Callback().Query().After("gorm:find").Register("ourway:scale:count", func(tx *gorm.DB) {
-		c.statements++
 		sql := tx.Statement.SQL.String()
+		vars := len(tx.Statement.Vars)
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.statements++
 		if strings.Contains(sql, "FROM devices") {
 			c.deviceReads++
 		}
-		if len(tx.Statement.Vars) > c.maxVars {
-			c.maxVars = len(tx.Statement.Vars)
+		if vars > c.maxVars {
+			c.maxVars = vars
 		}
-		c.log = append(c.log, fmt.Sprintf("%d vars :: %s", len(tx.Statement.Vars), sql))
+		c.log = append(c.log, fmt.Sprintf("%d vars :: %s", vars, sql))
 	})
+}
+
+type countSnapshot struct {
+	statements  int
+	deviceReads int
+	maxVars     int
+}
+
+func (c *queryCounter) snapshot() countSnapshot {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return countSnapshot{statements: c.statements, deviceReads: c.deviceReads, maxVars: c.maxVars}
+}
+
+// reset clears the counters, so a test measures one request and not the
+// fixture's own seeding.
+func (c *queryCounter) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.statements = 0
+	c.deviceReads = 0
+	c.maxVars = 0
+	c.log = nil
+}
+
+func (c *queryCounter) history() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.log...)
 }
 
 type scaleFixture struct {
@@ -88,9 +129,21 @@ func newScaleFixture(t *testing.T) *scaleFixture {
 	jwtAuth := auth.NewJWTAuth("test-secret-key")
 	hub := ws.NewHub("http://localhost:3000", "")
 	engine := alerts.NewEngine(st.Alerts)
-	router := SetupRouter(context.Background(), st, jwtAuth, hub, engine, "http://localhost:3000", "", 100, 0)
+	// The router's context is cancellable and is cancelled **before** the
+	// database closes. `SetupRouter` starts background jobs on it (webhook retry,
+	// the patch scanner, the policy engine), so a fixture that hands them
+	// `context.Background()` leaves them polling the store for the rest of the
+	// process: the log fills with `sql: database is closed`, and every statement
+	// they issue lands in the counter this test is measuring. The measurement is
+	// of a request, so the fixture stops everything that is not the request.
+	ctx, cancel := context.WithCancel(context.Background())
+	router := SetupRouter(ctx, st, jwtAuth, hub, engine, "http://localhost:3000", "", 100, 0)
 	ts := httptest.NewServer(router)
 	t.Cleanup(func() {
+		cancel()
+		// A short grace lets a tick already in flight finish against a database
+		// that is still open.
+		time.Sleep(150 * time.Millisecond)
 		ts.Close()
 		if sqlDB, err := db.DB(); err == nil {
 			sqlDB.Close()
@@ -194,12 +247,32 @@ func (f *scaleFixture) do(t *testing.T, method, path, token string, body any) (i
 	return resp.StatusCode, payloadOut, resp.Header.Get("X-OurWay-Client-Scope")
 }
 
-// measure runs `fn` and returns how many statements it cost.
-func (f *scaleFixture) measure(t *testing.T, fn func()) int {
+// cheapest runs `fn` `runs` times on a cleared counter and returns the smallest
+// values seen. Statements are counted on the store the whole fixture shares, and
+// the server's own background jobs (the sessions gateway, the policy engine, the
+// webhook retry loop) issue them too: a tick landing inside one window and not
+// the next is not a property of the request, and extra statements only ever
+// *add* to a window. The minimum is therefore the request's own cost; a
+// comparison of maxima compares a request with a tick, which is how a
+// measurement of a constant shape reads as a flake.
+func (f *scaleFixture) cheapest(t *testing.T, runs int, fn func()) countSnapshot {
 	t.Helper()
-	before := f.count.statements
-	fn()
-	return f.count.statements - before
+	best := countSnapshot{statements: 1 << 30, deviceReads: 1 << 30, maxVars: 1 << 30}
+	for i := 0; i < runs; i++ {
+		f.count.reset()
+		fn()
+		s := f.count.snapshot()
+		if s.statements < best.statements {
+			best.statements = s.statements
+		}
+		if s.deviceReads < best.deviceReads {
+			best.deviceReads = s.deviceReads
+		}
+		if s.maxVars < best.maxVars {
+			best.maxVars = s.maxVars
+		}
+	}
+	return best
 }
 
 // TestScopedListQueryCountIsConstant is the acceptance criterion "the request
@@ -214,15 +287,15 @@ func TestScopedListQueryCountIsConstant(t *testing.T) {
 	smallToken := f.makeScaleManager(t, "scale-small", small)
 	bigToken := f.makeScaleManager(t, "scale-big", big)
 
-	// Each request is measured as a delta: the counter is cumulative over the
-	// fixture's own seeding, and a comparison of totals compares the fixture
-	// with a request.
-	smallReads := f.measure(t, func() {
+	// Each request is measured as the cheapest of three: the fixture's own
+	// seeding is already in the counter, and the server's background jobs add
+	// statements to some windows and not others.
+	smallReads := f.cheapest(t, 3, func() {
 		if code := f.get(t, "/api/alerts", smallToken); code != http.StatusOK {
 			t.Fatalf("small alerts = %d", code)
 		}
 	})
-	bigReads := f.measure(t, func() {
+	bigReads := f.cheapest(t, 3, func() {
 		if code := f.get(t, "/api/alerts", bigToken); code != http.StatusOK {
 			t.Fatalf("big alerts = %d", code)
 		}
@@ -230,9 +303,9 @@ func TestScopedListQueryCountIsConstant(t *testing.T) {
 
 	// 20 units × 3 alerts vs 400 units × 3 alerts: same statements. If scoping
 	// ever resolves a unit per row, `bigReads` jumps and this fails.
-	if bigReads != smallReads {
+	if bigReads.statements != smallReads.statements {
 		t.Fatalf("scoped alert list cost %d statements for a 400-unit tenant, %d for a 20-unit tenant: %s",
-			bigReads, smallReads, strings.Join(f.count.log, "\n"))
+			bigReads.statements, smallReads.statements, strings.Join(f.count.history(), "\n"))
 	}
 }
 
@@ -245,16 +318,16 @@ func TestScopedListQueryIsOverTheClientSet(t *testing.T) {
 	clientID := f.seedTenant(t, "wide", 400)
 	token := f.makeScaleManager(t, "scale-wide", clientID)
 
-	f.count.maxVars = 0
-	f.count.log = nil
-	if code := f.get(t, "/api/alerts", token); code != http.StatusOK {
-		t.Fatalf("alerts = %d", code)
-	}
+	wide := f.cheapest(t, 3, func() {
+		if code := f.get(t, "/api/alerts", token); code != http.StatusOK {
+			t.Fatalf("alerts = %d", code)
+		}
+	})
 	// A client grant, a scope header, and the constants of the statement itself.
 	// Anything proportional to 400 units means the units went into the SQL.
-	if f.count.maxVars > 8 {
+	if wide.maxVars > 8 {
 		t.Fatalf("scoped alert list carried %d bind parameters for a 400-unit tenant: %s",
-			f.count.maxVars, strings.Join(f.count.log, "\n"))
+			wide.maxVars, strings.Join(f.count.history(), "\n"))
 	}
 }
 
@@ -277,14 +350,14 @@ func TestBulkTargetChecksCostOneFleetRead(t *testing.T) {
 	}
 
 	one := func(ids []string) int {
-		f.count.deviceReads = 0
-		code, _, _ := f.do(t, http.MethodPost, "/api/devices/tags/bulk", token, map[string]any{
-			"device_ids": ids, "add": []string{"scoped"}, "remove": []string{},
-		})
-		if code != http.StatusOK {
-			t.Fatalf("bulk tags = %d", code)
-		}
-		return f.count.deviceReads
+		return f.cheapest(t, 3, func() {
+			code, _, _ := f.do(t, http.MethodPost, "/api/devices/tags/bulk", token, map[string]any{
+				"device_ids": ids, "add": []string{"scoped"}, "remove": []string{},
+			})
+			if code != http.StatusOK {
+				t.Fatalf("bulk tags = %d", code)
+			}
+		}).deviceReads
 	}
 
 	oneRead := one(all[:1])
@@ -294,6 +367,6 @@ func TestBulkTargetChecksCostOneFleetRead(t *testing.T) {
 	// constant; per-target resolution is 200.
 	if oneRead > 2 || fullRead > 2 {
 		t.Fatalf("bulk target checks cost %d fleet reads for 1 target and %d for 200 (want a constant ≤ 2): %s",
-			oneRead, fullRead, strings.Join(f.count.log, "\n"))
+			oneRead, fullRead, strings.Join(f.count.history(), "\n"))
 	}
 }
