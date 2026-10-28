@@ -588,9 +588,18 @@ credential names.
 The audit ledger: every mutating act, its actor, its target, and what the
 server answered (2.3-6).
 
-**Query params** (all optional): `action`, `client_id`, `actor`, `from` and
-`to` (RFC3339), `limit` (default 200, capped at 1000), `offset`, and
+**Query params** (all optional): `action`, `client_id`, `actor`, `target`,
+`from` and `to` (RFC3339), `limit` (default 200, capped at 1000), `offset`, and
 `format=csv` for the export.
+
+`target` is the record of **one unit** — the deep link from a unit view — and
+`actor` is one account's acts, the deep link from the operator's own profile.
+They are filters, not scope: the caller's tenant filter runs on top of them, so
+a manager asking for a unit in a client they are not granted reads an empty
+ledger, not the rows. `target` selects by record target rather than by tenant,
+which is what "what happened to this machine" asks for — a unit that has moved
+between clients keeps one continuous history. `TestAuditDeepLinkFiltersByTarget
+AndActor` pins both halves.
 
 **Response:**
 

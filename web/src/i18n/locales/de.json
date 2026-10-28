@@ -101,7 +101,9 @@
     "hintCaptureError": "Die Bildaufnahme auf diesem Gerät schlägt fehl, daher zeigt die Fernsitzung keine Bilder.",
     "colClient": "Mandant",
     "tenantCap": "Mandant",
-    "tenantAria": "Flotte von {{name}} zeigen"
+    "tenantAria": "Flotte von {{name}} zeigen",
+    "auditLink": "Das Logbuch dieses Geräts",
+    "auditLinkAria": "Audit-Logbuch für {{name}} öffnen"
   },
   "alerts": {
     "title": "Alarme",
@@ -226,7 +228,9 @@
       "clearDataDone": "{{metrics}} Messwerte und {{alerts}} Alarme gelöscht.",
       "clearDataFailed": "Das Löschen der Überwachungsdaten ist fehlgeschlagen.",
       "deleteAccountFailed": "Das Löschen des Kontos ist fehlgeschlagen."
-    }
+    },
+    "profile.auditLink": "Meine Handlungen im Logbuch",
+    "profile.auditLinkAria": "Audit-Logbuch für {{name}} öffnen"
   },
   "auth": {
     "signOut": "Abmelden",
@@ -629,7 +633,11 @@
       "notFound": "nicht gefunden",
       "error": "fehlgeschlagen",
       "unknown": "unbekannt"
-    }
+    },
+    "filterTargetFor": "Gerätelogbuch: {{target}}",
+    "filterTargetClear": "Alle Geräte",
+    "filterActorFor": "Handlungen von: {{actor}}",
+    "filterActorClear": "Alle Konten"
   },
   "sessions": {
     "colTenant": "Mandant"

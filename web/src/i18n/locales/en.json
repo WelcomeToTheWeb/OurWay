@@ -101,7 +101,9 @@
     "hintCaptureError": "Capture is failing on this unit, so a remote session shows no frames.",
     "colClient": "Tenant",
     "tenantCap": "tenant",
-    "tenantAria": "Show the {{name}} fleet"
+    "tenantAria": "Show the {{name}} fleet",
+    "auditLink": "This unit's record",
+    "auditLinkAria": "Open the audit ledger for {{name}}"
   },
   "alerts": {
     "title": "Alerts",
@@ -226,7 +228,9 @@
       "clearDataDone": "Cleared {{metrics}} metrics and {{alerts}} alerts.",
       "clearDataFailed": "Clearing the monitoring data failed.",
       "deleteAccountFailed": "Deleting the account failed."
-    }
+    },
+    "profile.auditLink": "My acts in the ledger",
+    "profile.auditLinkAria": "Open the audit ledger for {{name}}"
   },
   "auth": {
     "signOut": "Sign out",
@@ -629,7 +633,11 @@
       "notFound": "not found",
       "error": "failed",
       "unknown": "unknown"
-    }
+    },
+    "filterTargetFor": "Unit record: {{target}}",
+    "filterTargetClear": "All units",
+    "filterActorFor": "Acts by: {{actor}}",
+    "filterActorClear": "All accounts"
   },
   "sessions": {
     "colTenant": "Tenant"

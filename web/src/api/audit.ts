@@ -58,6 +58,8 @@ export interface AuditQuery {
   to?: string;
   limit?: number;
   offset?: number;
+  /** "The record of this unit" — the ledger's deep link from a unit view. */
+  target?: string;
 }
 
 function params(q: AuditQuery): URLSearchParams {
@@ -65,6 +67,7 @@ function params(q: AuditQuery): URLSearchParams {
   if (q.action) p.set('action', q.action);
   if (q.clientId) p.set('client_id', q.clientId);
   if (q.actor) p.set('actor', q.actor);
+  if (q.target) p.set('target', q.target);
   if (q.from) p.set('from', q.from);
   if (q.to) p.set('to', q.to);
   p.set('limit', String(q.limit ?? 200));
@@ -126,6 +129,13 @@ export function auditQueryFromSearch(search: string): AuditQuery {
     clientId: p.get('client') ?? '',
     from: p.get('from') ?? '',
     to: p.get('to') ?? '',
+    // The deep link (2.3-6's follow-up): `?target=<unit id>` is "the record of
+    // this unit", so the link from a unit view is a link the operator can paste
+    // into a ticket, and a reload keeps it. Same rule as every other filter in
+    // this release — the view is URL state, not component state.
+    target: p.get('target') ?? '',
+    // The deep link from the operator's own profile: "my acts in the ledger".
+    actor: p.get('actor') ?? '',
   };
 }
 
@@ -139,6 +149,8 @@ export function withAuditParams(search: string, q: AuditQuery): string {
   set('client', q.clientId);
   set('from', q.from);
   set('to', q.to);
+  set('target', q.target);
+  set('actor', q.actor);
   const out = p.toString();
   return out ? `?${out}` : '';
 }

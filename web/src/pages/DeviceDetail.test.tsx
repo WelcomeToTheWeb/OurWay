@@ -151,6 +151,16 @@ describe('Device detail · whose machine this is (2.3-5)', () => {
     expect(link.getAttribute('href')).toBe('/devices?client=alpha-co');
   });
 
+  // The role gate (the link is shown only to `admin`/`manager`, the roles that can
+  // read `GET /api/audit`) is asserted in `tenancy.spec.ts`, where the console is
+  // signed in as a real technician: this file's auth store is built at import, so
+  // a per-test role change here would test the mock, not the gate.
+  it('links this unit to its own record in the ledger (2.3-6 deep link)', async () => {
+    renderDetail();
+    const link = (await screen.findByLabelText('Open the audit ledger for mac-01')) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/audit?target=dev-1');
+  });
+
   it('says "unassigned" for a unit no tenant owns, and links to the admin\'s unplaced filter', async () => {
     // The 2.2 upgrade leaves every device unplaced, so this is the state every
     // installation is in on the day tenancy arrives. An admin must be able to

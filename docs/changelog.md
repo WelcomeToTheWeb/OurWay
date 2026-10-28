@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PUT /api/clients/:id/devices`, `GET/PUT /api/clients/:id/users`,
   `GET /api/clients/:id/rollup` and `GET /api/clients/rollups` (the dashboard's
   per-tenant rows, one read, the same `rollupOf` arithmetic as the ledger).
+- Audit ledger deep links: a unit's page opens *this unit's record* in the ledger
+  (`GET /api/audit?target=<unit id>`), and your own Settings opens *my acts*
+  (`?actor=<user id>`). The filters are URL state, so the landing URL is a link you
+  can paste into a ticket, each arriving as a stated chip with a one-click clear. The
+  tenant grant is applied on top of them, so a target outside your clients reads an
+  empty ledger. The links are offered to the roles that can read the ledger —
+  `admin` and `manager`.
 - **Per-client enrollment tokens** (2.3-4c) — `client_enrollment_tokens`
   (migration 11), `GET/POST /api/clients/:id/tokens` and
   `DELETE /api/clients/:id/tokens/:tokenId` (admin-only, reads included), the

@@ -82,9 +82,16 @@ Tests: `server/api/scope_test.go`.
 - [x] Out-of-scope device → `404` with the same body as a nonexistent device
       (`{"error":"device not found"}`). Same shape, same status: scoping must not
       leak which IDs exist.
-- [ ] Scope changes to a user are audited (2.3-6) and take effect without
-      re-authentication. *(The take-effect half is delivered; the audit half is
-      2.3-6, which needs this resolver's `CallerUserID`.)*
+- [x] Scope changes to a user are audited (2.3-6) and take effect without
+      re-authentication. *Both halves: `TestClientsGrantUsers` asserts the grant is
+      live on the **next request with the same access token** (no logout, no
+      re-login), and `TestAuditRecordsClientGrant` asserts the grant is a row —
+      naming the tenant (`client_id`, `target_id`), the granted account and the
+      `was` set it replaced, the technician's refused attempt as a
+      `refused` row written by `RequireAnyRole` (which aborts before any handler,
+      so no handler-side writer could have recorded it), and the tenant scoping of
+      the rows themselves: the granted client's manager reads exactly their
+      client's grant rows, and a manager of another tenant reads none.*
 
 **Acceptance criteria**
 - A technician scoped to client A requesting `GET /api/devices/<B's id>` gets
@@ -378,9 +385,11 @@ there is no table, no writer, and no UI. This lands as migration **9**.
       lesson is that a delete method with no caller is not a retention policy).
 - [x] `GET /api/audit` (admin; managers see their clients' rows) with
       actor/action/client/date filters + CSV export.
-- [x] Console: Audit ledger with filters. **Entry points from the unit view and
-      the operator's own profile are not built** — the ledger filters by unit id
-      from its own page, and the deep link is the follow-up noted below.
+- [x] Console: Audit ledger with filters, **including the entry points**: the unit
+      view carries *This unit's record* (`/audit?target=<id>`) and the operator's
+      Settings carries *My acts in the ledger* (`/audit?actor=<id>`), both shown
+      only to the roles that can read the ledger. Follow-up closed; see the note
+      below.
 
 **Acceptance criteria**
 - **Coverage test, not a promise:** a test walks `SetupRouter`'s route list, filters
@@ -453,11 +462,19 @@ The decisions the code records, in the order they were forced:
   `Audit.test.tsx` builds its guard from the locale file's real key paths. A
   test that fails on correct output is a test that gets switched off.
 
-**Follow-up, not shipped in this pass:** the plan's "entry points from device
-detail (*this unit's record*) and from the user's own profile". The ledger
-filters by action, client and date from its own page and the filters are URL
-state, so the deep link is a link; the buttons on the unit view and the profile
-are not built.
+**Follow-up closed (the deep links).** The ledger's filters are URL state, so the
+deep link is a link: `?target=<unit id>` is that machine's record and `?actor=<user
+id>` is one account's acts, each arriving as a stated chip with a one-click clear.
+`target` selects by **record target**, not by tenant, so a unit that has moved
+between clients keeps one continuous history — that is what "what happened to this
+machine" asks for. The filters are filters: the caller's tenant filter runs on top,
+so `?target=` for a unit outside the grant reads an empty ledger
+(`TestAuditDeepLinkFiltersByTargetAndActor`, which also asserts the target filter
+and the actor filter never leak a foreign row). The unit view offers the link only
+to `admin`/`manager` — a technician's `GET /api/audit` is a 403, and a link that
+lands on a refusal is worse than no link — asserted from the technician's own
+sign-in in `tenancy.spec.ts`, with the positive half followed through the admin's
+click in `audit.spec.ts` (link → chip → URL → every row names the unit).
 
 ---
 
@@ -589,11 +606,23 @@ scripts/release.sh --check 2.3.0
 
 Plus, non-negotiable for this release:
 
-- [ ] The scoping matrix (2.3-2) and the atomicity tests (2.3-3) are green — they
-      are the release.
-- [ ] The audit coverage test fails the build when a mutating route is un-audited
-      (2.3-6).
-- [ ] 2.2 → 2.3 Postgres upgrade test green, with devices preserved (2.3-7).
+- [x] The scoping matrix (2.3-2) and the atomicity tests (2.3-3) are green — they
+      are the release. **Measured:** 16 `TestScope*` tests pass on `./api`
+      (`TestScopeRoleMatrixOnEveryReadSurface`, `TestScopeEveryDeviceRouteKindAnswersTheSameNotFound`,
+      `TestScopeFleetListsCarryNoForeignRows`, `TestScopeBulkRefusalWritesNothing`,
+      `TestScopeBulkTargetsFailNamingTheIds`, `TestScopeRevocationTakesEffectOnTheNextRequest`,
+      …), and the whole server suite is green under `-race`.
+- [x] The audit coverage test fails the build when a mutating route is un-audited
+      (2.3-6). `TestEveryMutatingRouteIsAudited` enumerates the live router and
+      fails on a mutating route with no registered action *and* no written skip
+      reason — and it fails on a skip entry that names a route the router no
+      longer has, so the exemption list cannot rot.
+- [x] 2.2 → 2.3 Postgres upgrade test green, with devices preserved (2.3-7).
+      **Measured** with `OURWAY_TEST_PG_DSN` set: `TestPostgresMigrationsUpgradeFromV22`
+      rolls a 2.3 schema back to 2.2 (dropping `client_id`, `user_clients`,
+      `clients`, the enrollment-token table, and the migration records above
+      version 7), re-runs `Migrate` twice, and asserts every device survives with
+      no client — the upgrade assigns nothing.
 - [x] Load test green with scoping enabled (2.3-8) — 10,000 units, a technician
       scoped to 2,000, 100 req/s, zero failures, scoped p95 under the unscoped
       baseline; the numbers are in 2.3-8.

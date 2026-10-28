@@ -72,8 +72,9 @@ func NewAuditHandler(st *store.Store) *AuditHandler {
 // List returns the ledger, scoped to the caller.
 // GET /api/audit
 //
-// Query params: `action`, `client_id`, `actor`, `from`, `to`, `outcome`,
-// `limit`, `offset`, and `format=csv` for the export an MSP hands to a client.
+// Query params: `action`, `client_id`, `actor`, `target`, `from`, `to`,
+// `outcome`, `limit`, `offset`, and `format=csv` for the export an MSP hands to a
+// client.
 func (h *AuditHandler) List(c *gin.Context) {
 	scope, err := ClientScope(c, h.store)
 	if err != nil {
@@ -136,6 +137,7 @@ func (h *AuditHandler) filter(c *gin.Context, scope clientScope) (store.AuditFil
 	filter := store.AuditFilter{
 		Action:      c.Query("action"),
 		ActorUserID: c.Query("actor"),
+		TargetID:    c.Query("target"),
 		Offset:      queryInt(c, "offset", 0),
 	}
 	asked := c.Query("client_id")

@@ -64,10 +64,17 @@ type AuditFilter struct {
 	ActorUserID string
 	Action      string
 	ClientIDs   []string
-	Since       *time.Time
-	Until       *time.Time
-	Limit       int
-	Offset      int
+	// TargetID is "the record of this unit" — the ledger's deep link from a
+	// unit view (2.3-6's follow-up). It filters the *target*, not the tenant: a
+	// unit that has moved between clients keeps one continuous record, which is
+	// what an operator asking "what happened to this machine" needs. Scope still
+	// applies on top of it: the caller's `ClientIDs` filter runs as always, so a
+	// target outside the caller's tenants answers no rows.
+	TargetID string
+	Since    *time.Time
+	Until    *time.Time
+	Limit    int
+	Offset   int
 }
 
 // List reads audit rows newest-first.
@@ -83,6 +90,9 @@ func (s *AuditStore) List(f AuditFilter) ([]models.AuditLog, error) {
 	}
 	if f.Action != "" {
 		query = query.Where("action = ?", f.Action)
+	}
+	if f.TargetID != "" {
+		query = query.Where("target_id = ?", f.TargetID)
 	}
 	if f.ClientIDs != nil {
 		if len(f.ClientIDs) == 0 {

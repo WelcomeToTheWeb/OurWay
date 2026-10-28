@@ -101,7 +101,9 @@
     "hintCaptureError": "La captation échoue sur cette unité : la session à distance n’affiche aucune image.",
     "colClient": "Client",
     "tenantCap": "client",
-    "tenantAria": "Afficher le parc de {{name}}"
+    "tenantAria": "Afficher le parc de {{name}}",
+    "auditLink": "Journal de cet appareil",
+    "auditLinkAria": "Ouvrir le journal d’audit pour {{name}}"
   },
   "alerts": {
     "title": "Alertes",
@@ -226,7 +228,9 @@
       "clearDataDone": "{{metrics}} mesures et {{alerts}} alertes supprimés.",
       "clearDataFailed": "Échec de l’effacement des données de surveillance.",
       "deleteAccountFailed": "Échec de la suppression du compte."
-    }
+    },
+    "profile.auditLink": "Mes actes dans le journal",
+    "profile.auditLinkAria": "Ouvrir le journal d’audit pour {{name}}"
   },
   "auth": {
     "signOut": "Déconnexion",
@@ -629,7 +633,11 @@
       "notFound": "introuvable",
       "error": "échoué",
       "unknown": "inconnu"
-    }
+    },
+    "filterTargetFor": "Journal de l’appareil : {{target}}",
+    "filterTargetClear": "Tous les appareils",
+    "filterActorFor": "Actes de : {{actor}}",
+    "filterActorClear": "Tous les comptes"
   },
   "sessions": {
     "colTenant": "Client"

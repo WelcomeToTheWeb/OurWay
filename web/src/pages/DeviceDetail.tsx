@@ -410,6 +410,23 @@ export function DeviceDetail() {
                 {clientNameForSlug(clients, clientSlugOfDevice(device, clients))}
               </Link>
             </p>
+            {/* 2.3-6's follow-up: **this unit's record**. The ledger's filters are
+                URL state, so the link is the whole feature — an operator standing
+                in front of a machine gets its history in one act, and the URL is
+                the thing they paste into a ticket. Shown to the roles that can
+                read the ledger: for a technician `GET /api/audit` is a 403, and a
+                link that lands on a refusal is worse than no link. */}
+            {hasAnyRole(['admin', 'manager']) && (
+              <p className="cap cap-sm mt-1">
+                <Link
+                  to={`/audit?target=${device.id}`}
+                  className="text-[var(--service)] hover:underline"
+                  aria-label={t('devices.auditLinkAria', { name: device.name })}
+                >
+                  {t('devices.auditLink')}
+                </Link>
+              </p>
+            )}
             <div className="mt-2">
               <TagEditor
                 deviceId={device.id}
