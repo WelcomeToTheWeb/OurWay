@@ -385,21 +385,37 @@ are not built.
 
 ---
 
-## 2.3-7 · Upgrade path and the behaviour change, stated plainly
+## 2.3-7 · Upgrade path and the behaviour change, stated plainly · ✅ delivered
 
 **Do**
-- [ ] Postgres integration test (the pattern in
+- [x] Postgres integration test (the pattern in
       `server/store/postgres_integration_test.go`): a 2.2 schema upgraded to 2.3,
       every device readable, `unassigned` present, admin behaviour unchanged.
-- [ ] `docs/upgrade-guide.md`: **a technician's visible set shrinks after this
-      upgrade** — that is the point, and an operator must expect it. Include the
-      one-time assignment step, and the fact that unassigned devices are invisible
-      to non-admins until assigned.
-- [ ] `docs/user-guide.md`: Clients, scoping, audit ledger.
-- [ ] `docs/api.md`: every new route, in the same pass as the 2.2-7 route↔docs
-      diff check (which this release must keep green).
-- [ ] `docs/migration-guide.md` / changelog section for `v2.3.0`, per
-      `docs/versioning.md`.
+      `TestPostgresMigrationsUpgradeFromV22` builds a fleet the way the product
+      writes one, **rolls the schema back to 2.2** (drops `client_id`,
+      `user_clients`, `clients`, and the migration records above version 7),
+      re-runs `Migrate` twice — the upgrade and its idempotency — then requires
+      every device readable, with no client, and the full applied set present.
+- [x] `docs/upgrade-guide.md`: **a technician's visible set shrinks after this
+      upgrade** — stated in the section right after the overview, not in a
+      footnote: every unit arrives unassigned, unassigned is invisible to every
+      non-admin, the one-time assignment is given in order (create → assign →
+      grant), and `X-OurWay-Client-Scope` is named as the checkable answer to
+      "the unit is gone".
+- [x] `docs/user-guide.md`: **Clients and Tenants** (creating a tenant, assigning
+      units, granting accounts, what a non-admin sees, the tenant facet as URL
+      state) and **Audit Log** (who may read it, refusals are rows, filters, CSV,
+      retention, the log starts empty on upgrade); the roles table now says
+      "the units of the clients granted to them", and the shortcuts list gains
+      `g c` and `g i`.
+- [x] `docs/api.md`: every new route, in the same pass as the 2.2-7 route↔docs
+      diff check (which this release must keep green) — clients CRUD, assignment,
+      grants, rollup and rollups, `GET /api/audit` and `/api/audit/actions`.
+- [x] `docs/migration-guide.md` / changelog section for `v2.3.0`, per
+      `docs/versioning.md`: "What's New in 2.3", "Migrating to 2.3" (the
+      migration numbers 8/9/10, the one-time assignment, the verification
+      checklist, the FAQ answer that agents are untouched), and a
+      `[2.3.0] - Unreleased` changelog section.
 
 **Acceptance criteria**
 - The integration test proves the upgrade is non-destructive and idempotent.
