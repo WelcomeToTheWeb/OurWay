@@ -20,9 +20,14 @@ Two themes, deliberately kept apart:
    signing and an assertion consumer for the same class of customer.
 
 **Migration numbering.** `server/store/migrate.go` is append-only with contiguous
-versions; 2.3.0 ships 7 and 8, so this release uses **9 (oidc fields)**,
-**10 (alert threshold scopes)**, **11 (notification channels)**,
-**12 (session recordings)**.
+versions. 2.3.0 shipped **8** (`clients_and_user_client_scope`), **9**
+(`audit_log`), **10** (`tenant_scoped_read_indexes`) and **11**
+(`client_enrollment_tokens`) — the plan's "2.3.0 ships 7 and 8" was written before the
+scoped read indexes and the enrollment tokens landed inside 2.3. So this release
+starts at **12**: **12 (oidc provider discovery + identity policy)**,
+**13 (alert threshold scopes)**, **14 (notification channels)**,
+**15 (session recordings)**. Migration 12 is in `migrate.go` as
+`oidc_provider_discovery_and_identity_policy`.
 
 ---
 
@@ -183,7 +188,7 @@ wholesale. `docs/phase1-tasks.md:50-56` declared per-device thresholds and an al
 rule UI; neither exists.
 
 **Do**
-- [ ] Migration 10: `alert_thresholds` rows — `(scope_type: device|tag|client|global,
+- [ ] Migration 13: `alert_thresholds` rows — `(scope_type: device|tag|client|global,
       scope_value, metric, warning, critical, dedup_window, enabled)`.
 - [ ] Engine resolution **device → tag → client → global**, most specific wins per
       metric; a device with no applicable row behaves exactly as today.
@@ -220,7 +225,7 @@ rule UI; neither exists.
 one place an operator can read.
 
 **Do**
-- [ ] Migration 11: `webhooks.kind`, `webhooks.config`, `webhooks.scope_clients`,
+- [ ] Migration 14: `webhooks.kind`, `webhooks.config`, `webhooks.scope_clients`,
       `webhooks.min_severity`, `webhooks.tags`. Note `webhooks.url` is `not null`
       today and is meaningless for an email channel — migration 12 drops the
       NOT-NULL on `url` and the API validates it **per kind** (required for
@@ -300,7 +305,7 @@ one place an operator can read.
 (directory, per-transfer file, cleanup sweep) — recordings follow it.
 
 **Do**
-- [ ] Migration 12: `session_recordings` — `session_id`, `device_id`, `user_id`,
+- [ ] Migration 15: `session_recordings` — `session_id`, `device_id`, `user_id`,
       `client_id`, `started_at`, `ended_at`, `frame_count`, `bytes`, `path`,
       `retention_until`, `reason`.
 - [ ] Recording written as an append-only JPEG sequence file under
