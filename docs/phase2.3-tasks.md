@@ -628,6 +628,13 @@ Plus, non-negotiable for this release:
       baseline; the numbers are in 2.3-8.
 - [x] `docs/upgrade-guide.md` states the visibility change up front — it is the
       section right after the overview, not a footnote.
+- [x] **Cut:** `v2.3.0` tagged 2026-10-28 at `9bbfccc` (`chore(release): 2.3.0`),
+      cut by `scripts/release.sh 2.3.0` with the gate run in full on the release
+      commit — server, agent (linux/windows/darwin-arm64), cli + installer + viewer
+      (+ windows viewer), web (`npm ci`, tests, build), coverage floors, i18n parity,
+      browser-dialog check. Publishing runs on the tag: `ourway/{server,web}:v2.3.0`
+      plus `:2.3` and `:latest`, the agent/installer binaries, and the GitHub
+      release. The version is the tag — see `docs/versioning.md`.
 
 **Wire contract:** additive fields (`client_id` on devices, client rows, the scope
 header) → **MINOR**. Agents are unaffected: an agent's device simply carries a
