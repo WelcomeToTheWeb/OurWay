@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { applyDeviceFilters, collectTags, defaultFilters } from './deviceList';
+import { applyDeviceFilters, collectTags, defaultFilters, isFiltered } from './deviceList';
+import type { DeviceFilters, SortKey } from './deviceList';
 import type { Device } from '../types/device';
 
 const mk = (o: Partial<Device>): Device => ({
@@ -46,5 +47,24 @@ describe('applyDeviceFilters', () => {
 describe('collectTags', () => {
   it('returns distinct sorted tags and tolerates missing tags', () => {
     expect(collectTags(devices)).toEqual(['prod', 'web']);
+  });
+});
+
+describe('isFiltered (2.3-5)', () => {
+  it('reads a sorted, unfiltered view as unfiltered', () => {
+    // The view object carries sort and direction. A ledger sorted by name is
+    // not a filtered ledger, and saying otherwise is how an empty fleet ends up
+    // blaming the operator's filters.
+    const sorted: DeviceFilters & { sort: SortKey; desc: boolean } = {
+      ...defaultFilters,
+      sort: 'last_seen',
+      desc: true,
+    };
+    expect(isFiltered(sorted)).toBe(false);
+  });
+
+  it('reads the tenant facet as a filter', () => {
+    expect(isFiltered({ ...defaultFilters, client: 'alpha-co' })).toBe(true);
+    expect(isFiltered({ ...defaultFilters, client: 'unassigned' })).toBe(true);
   });
 });

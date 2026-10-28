@@ -9,6 +9,8 @@ import { useGlobalShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useFleet } from '../hooks/useFleet';
 import { getServerVersion, type ServerVersion } from '../api/system';
+import { onScopeChange, scopeHeader } from '../api/client';
+import { scopeCount, scopeLabel } from '../utils/clientFilter';
 import { nextWindow, untilLabel } from '../utils/nextWindow';
 import { formatWindow } from '../utils/patchWindow';
 import { useRateLimit } from '../hooks/useRateLimit';
@@ -41,6 +43,17 @@ export function Layout() {
   // the bar is mounted on every page, so as its own poller it was the read
   // every navigation paid.
   const { data: policies } = useFleet('patchPolicies');
+  // Tenant names, for the scope readout below. The shared collection means the
+  // bar adds no read to a page that already shows a client facet.
+  const { data: clients } = useFleet('clients');
+
+  // The scope the server said it applied (2.3-1's header). Printed on the bar
+  // because "the technician cannot find the unit" is the ticket this release is
+  // measured by, and the answer is usually not "the unit is missing" but "you
+  // are not granted that tenant". An operator should see that before they
+  // search, not after they open the network tab.
+  const [scope, setScope] = useState<string>(() => scopeHeader());
+  useEffect(() => onScopeChange(() => setScope(scopeHeader())), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,6 +153,27 @@ export function Layout() {
               <span className="cap-sm cap text-text-muted">srv</span>
               <span className="ow-num text-[13px] text-text-primary">{serverVersion?.version || 'dev'}</span>
             </span>
+
+            {scope !== '' && (
+              <span
+                className="hidden xl:flex items-baseline gap-2"
+                title={t('layout.scopeTitle', {
+                  scope: scopeLabel(scope, clients),
+                  tenants: scopeCount(scope),
+                })}
+              >
+                <span className="cap-sm cap text-text-muted">{t('layout.scopeCap')}</span>
+                <Stamp
+                  tone={scope === 'none' ? 'offline' : scope === 'all' ? 'neutral' : 'online'}
+                  title={t('layout.scopeTitle', {
+                    scope: scopeLabel(scope, clients),
+                    tenants: scopeCount(scope),
+                  })}
+                >
+                  {scopeLabel(scope, clients)}
+                </Stamp>
+              </span>
+            )}
 
             {typeof serverVersion?.rate_limit_per_minute === 'number' && (
               <span

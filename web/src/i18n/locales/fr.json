@@ -98,7 +98,10 @@
     "hintDenied": "macOS jette chaque frappe et chaque clic. Exécutez `ourway-agent --grant-input-permission` sur l’unité, puis approuvez OurWay Agent dans Réglages Système → Confidentialité et sécurité → Accessibilité. Une session paraît parfaitement vivante alors que le contrôle est inerte — voici pourquoi.",
     "hintUnavailable": "Cette build de l’agent ne peut pas synthétiser d’entrée : outil absent, ou build sans la couche graphique macOS. Installez la build cgo de l’agent pour contrôler cette unité.",
     "hintUnknown": "Cette unité n’a pas signalé sa capacité de contrôle. Le contrôle à distance n’est pas vérifié ici — il n’est pas présumé fonctionnel.",
-    "hintCaptureError": "La captation échoue sur cette unité : la session à distance n’affiche aucune image."
+    "hintCaptureError": "La captation échoue sur cette unité : la session à distance n’affiche aucune image.",
+    "colClient": "Client",
+    "tenantCap": "client",
+    "tenantAria": "Afficher le parc de {{name}}"
   },
   "alerts": {
     "title": "Alertes",
@@ -458,7 +461,9 @@
   },
   "layout": {
     "versionTitle": "Serveur {{server}} (commit {{commit}}) · build console {{console}}",
-    "rateBudgetTitle": "Quota de requêtes par utilisateur : {{perMinute}} lectures par minute, rafale instantanée {{burst}}. La sonde s’arrête quand le quota est épuisé."
+    "rateBudgetTitle": "Quota de requêtes par utilisateur : {{perMinute}} lectures par minute, rafale instantanée {{burst}}. La sonde s’arrête quand le quota est épuisé.",
+    "scopeCap": "parc",
+    "scopeTitle": "Votre périmètre client, tel que le serveur l'a appliqué à cette lecture : {{scope}} ({{tenants}} clients). Une unité introuvable est le plus souvent un client auquel vous n'êtes pas habilité, pas une unité manquante."
   },
   "confirm": {
     "cancel": "Annuler",
@@ -553,7 +558,18 @@
     "online": "actifs",
     "rebootPending": "Redémarrage en attente",
     "openRow": "Ouvrir le détail de {{name}}",
-    "create": "Ajouter le client"
+    "create": "Ajouter le client",
+    "facetLabel": "Filtrer par client",
+    "facetAll": "Tous les clients",
+    "facetUnassigned": "Sans client",
+    "dashboardTitle": "Par client",
+    "dashboardOpen": "Ouvrir le registre",
+    "colTenant": "Client",
+    "colUnits": "Unités actives",
+    "colAlerts": "Alertes",
+    "colPatch": "Patchés",
+    "dashboardRowAria": "Ouvrir le parc de {{name}}",
+    "disabledTitle": "Ce client est en pause : il n'est pas proposé à l'affectation, et ses unités conservent leur historique."
   },
   "audit": {
     "title": "Journal",
@@ -591,5 +607,8 @@
       "error": "échoué",
       "unknown": "inconnu"
     }
+  },
+  "sessions": {
+    "colTenant": "Client"
   }
 }

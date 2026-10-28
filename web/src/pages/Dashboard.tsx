@@ -14,6 +14,7 @@ import { useFleet } from '../hooks/useFleet';
 import { isAlertOpen } from '../utils/alerts';
 import type { DeviceCompliance } from '../types/patch';
 import { buildAttentionList, osBreakdown } from '../utils/attention';
+import { ClientRollups } from '../components/ClientRollups';
 import { useFleetHistory } from '../stores/fleetHistory';
 
 /**
@@ -37,6 +38,10 @@ export function Dashboard() {
   const { data: policies, refresh: refreshPolicies } = useFleet('patchPolicies');
   const { data: sessions, refresh: refreshSessions } = useFleet('sessions');
   const { data: openAlerts, refresh: refreshAlerts } = useFleet('alerts');
+  // The per-client rows (2.3-5). The same collection the Clients ledger
+  // renders, from one read, computed on the server: the front page and the
+  // ledger cannot disagree, because neither of them does the arithmetic.
+  const { data: clientRollups, refresh: refreshRollups } = useFleet('clientRollups');
   const { limited, secondsLeft } = useRateLimit();
   const samples = useFleetHistory((s) => s.samples);
   const push = useFleetHistory((s) => s.push);
@@ -49,7 +54,8 @@ export function Dashboard() {
     refreshPolicies();
     refreshSessions();
     refreshAlerts();
-  }, [refresh, refreshOverview, refreshPolicies, refreshSessions, refreshAlerts]);
+    refreshRollups();
+  }, [refresh, refreshOverview, refreshPolicies, refreshSessions, refreshAlerts, refreshRollups]);
 
   const online = devices.filter((d) => d.status === 'online').length;
   // The same population the alert ledger counts: unresolved alerts, counted by
@@ -386,6 +392,8 @@ export function Dashboard() {
               </ul>
             )}
           </section>
+
+          <ClientRollups rollups={clientRollups} />
 
           <section className="panel px-3 py-2.5" aria-label="Systems">
             <h2 className="cap cap-lg text-text-muted">{t('sheet.systems')}</h2>

@@ -10,7 +10,9 @@ import { InstallerPanel } from '../components/InstallerPanel';
 import { Stamp } from '../components/Stamp';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import { Grid } from 'react-window';
-import { applyDeviceFilters, collectTags, defaultFilters, type DeviceFilters, type SortKey } from '../utils/deviceList';
+import { applyDeviceFilters, collectTags, defaultFilters, devicesViewFromSearch, devicesViewToParams, isFiltered, type DeviceFilters, type SortKey } from '../utils/deviceList';
+import { clientNameForSlug, clientSlugOfDevice } from '../utils/clientFilter';
+import { ClientFacet } from '../components/ClientFacet';
 import { bulkTags } from '../api/tags';
 import { deployNow, scanDevices } from '../api/patching';
 import { useFleet } from '../hooks/useFleet';
@@ -52,29 +54,34 @@ export function Devices() {
   useWebSocket(accessToken);
 
   const [params, setParams] = useSearchParams();
-  const [filters, setFilters] = useState<DeviceFilters>({ ...defaultFilters, search: params.get('q') ?? '' });
-  const [sort, setSort] = useState<SortKey>('name');
-  const [desc, setDesc] = useState(false);
+  // Every control below writes the URL and reads the URL. See
+  // `devicesViewFromSearch`: a sheet a technician reached through a link must
+  // be the sheet they see, after a reload and after a back.
+  const view$ = devicesViewFromSearch(params);
+  const filters = view$;
+  const sort = view$.sort;
+  const desc = view$.desc;
   // The view is URL state, not just a preference: a sheet opened from a
   // dashboard link, a bookmark, or a browser back must come back the same
   // shape. localStorage only supplies the initial default.
-  const [view, setViewState] = useState<View>(() => {
-    const fromUrl = params.get('view');
-    if (fromUrl === 'table' || fromUrl === 'cards') return fromUrl;
-    return readView();
-  });
+  const view: View = params.get('view') === 'table' ? 'table' : params.get('view') === 'cards' ? 'cards' : readView();
+  function writeView(next: Partial<DeviceFilters & { sort: SortKey; desc: boolean }>, nextView?: View) {
+    setParams(devicesViewToParams({ ...view$, ...next }, params, nextView ?? view), { replace: true });
+  }
+  const setFilters = (next: DeviceFilters) => writeView(next);
+  const setSort = (next: SortKey) => writeView({ sort: next });
+  const setDesc = (fn: (d: boolean) => boolean) => writeView({ desc: fn(desc) });
+  // The view is URL state, not just a preference: a sheet opened from a
+  // dashboard link, a bookmark, or a browser back must come back the same
+  // shape. localStorage only supplies the initial default.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   function setView(next: View) {
-    setViewState(next);
     try {
       localStorage.setItem('devices.view', next);
     } catch {
       // Private mode: the URL still carries it.
     }
-    const nextParams = new URLSearchParams(params);
-    if (next === 'table') nextParams.set('view', 'table');
-    else nextParams.delete('view');
-    setParams(nextParams, { replace: true });
+    setParams(devicesViewToParams(view$, params, next), { replace: true });
   }
 
   const [tagDraft, setTagDraft] = useState('');
@@ -85,6 +92,10 @@ export function Devices() {
   // the policy list itself, on top of the list read useDevices already made.
   const { data: overview } = useFleet('patchOverview', { enabled: canAct });
   const { data: policies } = useFleet('patchPolicies');
+  // The tenant list behind the client facet and the ledger's Client column.
+  // A facet that needed its own read would be a read on every ledger that has
+  // a facet; the shared fleet model is why it costs nothing.
+  const { data: clients } = useFleet('clients');
 
   const complianceById = useMemo(
     () => new Map((overview?.devices ?? []).map((d) => [d.device_id, d]) as [string, DeviceCompliance][]),
@@ -99,9 +110,12 @@ export function Devices() {
     }
   }, [view]);
 
-  const filtered = useMemo(() => applyDeviceFilters(devices, filters, sort, desc), [devices, filters, sort, desc]);
+  const filtered = useMemo(
+    () => applyDeviceFilters(devices, filters, sort, desc, clients),
+    [devices, filters, sort, desc, clients],
+  );
   const allTags = useMemo(() => collectTags(devices), [devices]);
-  const filtersActive = JSON.stringify(filters) !== JSON.stringify(defaultFilters);
+  const filtersActive = isFiltered(filters);
   const guide = useGuideWords(filtered.length);
 
   // Drop selections that are no longer visible so a bulk action never
@@ -167,6 +181,12 @@ export function Devices() {
             className="input w-full pl-9"
           />
         </div>
+        <ClientFacet
+          clients={clients}
+          value={filters.client}
+          onChange={(slug) => setFilters({ ...filters, client: slug })}
+          includeUnassigned={hasAnyRole(['admin'])}
+        />
         <select
           aria-label="Filter by status"
           className="select"
@@ -207,12 +227,12 @@ export function Devices() {
         <select
           aria-label="Sort devices"
           className="select"
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortKey)}
+          value={sort === 'last_seen' ? 'last-seen' : sort}
+          onChange={(e) => setSort((e.target.value === 'last-seen' ? 'last_seen' : e.target.value) as SortKey)}
         >
           <option value="name">Sort: name</option>
           <option value="status">Sort: status</option>
-          <option value="last_seen">Sort: last seen</option>
+          <option value="last-seen">Sort: last seen</option>
           <option value="os">Sort: system</option>
         </select>
         <button
@@ -380,6 +400,7 @@ export function Devices() {
                   )}
                   <th>Unit</th>
                   <th>State</th>
+                  <th>{t('devices.colClient')}</th>
                   <th>System</th>
                   <th>Record</th>
                   <th>Tags</th>
@@ -417,6 +438,17 @@ export function Devices() {
                         {d.reboot_pending && (
                           <RotateCw className="ml-2 inline h-3.5 w-3.5 text-[var(--due)]" aria-label="Reboot pending" />
                         )}
+                      </td>
+                      <td>
+                        {/* The tenant, printed as a link into its own filtered
+                            sheet: "show me the rest of this fleet" is the next
+                            question after any row. */}
+                        <Link
+                          to={`/devices?client=${clientSlugOfDevice(d, clients)}`}
+                          className="text-[11px] text-[var(--service)] hover:underline"
+                        >
+                          {clientNameForSlug(clients, clientSlugOfDevice(d, clients))}
+                        </Link>
                       </td>
                       <td className="text-text-secondary">
                         {d.os} · <span className="ow-num text-[11px]">{d.arch}</span>
@@ -466,6 +498,7 @@ export function Devices() {
                     device={device}
                     compliance={complianceById.get(device.id)}
                     policies={policies}
+                    clientName={clientNameForSlug(clients, clientSlugOfDevice(device, clients))}
                   />
                 </div>
               );
@@ -480,6 +513,7 @@ export function Devices() {
               device={device}
               compliance={complianceById.get(device.id)}
               policies={policies}
+              clientName={clientNameForSlug(clients, clientSlugOfDevice(device, clients))}
             />
           ))}
         </div>

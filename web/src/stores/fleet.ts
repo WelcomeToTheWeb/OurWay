@@ -7,6 +7,8 @@ import { isRateLimited } from '../api/client';
 import type { Alert } from '../types/alert';
 import type { Device, Metrics } from '../types/device';
 import type { PatchOverview, PatchPolicy } from '../types/patch';
+import { getClients, getClientRollups } from '../api/clients';
+import type { Client, ClientRollup } from '../api/clients';
 
 /**
  * The shared fleet read model (2.2-2).
@@ -28,7 +30,14 @@ import type { PatchOverview, PatchPolicy } from '../types/patch';
  * were: the back-stop, not the mechanism. A tick that fires inside a back-off
  * window is skipped, exactly like `useRateLimitAwarePoll` did per page.
  */
-export type FleetKey = 'devices' | 'patchOverview' | 'patchPolicies' | 'sessions' | 'alerts';
+export type FleetKey =
+  | 'devices'
+  | 'patchOverview'
+  | 'patchPolicies'
+  | 'sessions'
+  | 'alerts'
+  | 'clients'
+  | 'clientRollups';
 
 export interface FleetData {
   devices: Device[];
@@ -45,6 +54,24 @@ export interface FleetData {
    * client-side now, so a chip, a row and the tile are counts of one array.
    */
   alerts: Alert[];
+  /**
+   * The tenants the caller may see (2.3-5).
+   *
+   * Every ledger's client facet, the unit view's tenant header and the shift
+   * bar's scope readout all name the same rows, so they read the same
+   * collection: a page adding a client filter must not add a read.
+   */
+  clients: Client[];
+  /**
+   * The per-client ledger figures (2.3-5): units, alerts, patch compliance,
+   * technicians, per tenant, in one read.
+   *
+   * The dashboard's per-client rows and the Clients ledger's rows subscribe to
+   * *this* collection, so the two surfaces print the same numbers by
+   * construction — 2.2-4's single-source rule, on the tenant axis. Computed on
+   * the server (`rollupOf`), never recomputed in a page.
+   */
+  clientRollups: ClientRollup[];
 }
 
 interface FleetState extends FleetData {
@@ -77,6 +104,10 @@ const POLL_MS: Record<FleetKey, number> = {
   patchPolicies: 5 * 60_000,
   sessions: 30_000,
   alerts: 30_000,
+  // A tenant list changes when an operator edits it, not on a timer.
+  clients: 10 * 60_000,
+  // The per-client figures move with alerts and patches, on the patch cadence.
+  clientRollups: 60_000,
 };
 
 /** A collection fresher than this is not re-read when a page subscribes. */
@@ -86,6 +117,8 @@ const FRESH_MS: Record<FleetKey, number> = {
   patchPolicies: 5 * 60_000,
   sessions: 15_000,
   alerts: 15_000,
+  clients: 5 * 60_000,
+  clientRollups: 30_000,
 };
 
 const collectors: Record<FleetKey, () => Promise<unknown>> = {
@@ -94,6 +127,8 @@ const collectors: Record<FleetKey, () => Promise<unknown>> = {
   patchPolicies: () => listPolicies().catch(() => [] as PatchPolicy[]),
   sessions: () => listSessions().catch(() => [] as Session[]),
   alerts: () => getAlerts().catch(() => [] as Alert[]),
+  clients: () => getClients().catch(() => [] as Client[]),
+  clientRollups: () => getClientRollups().catch(() => [] as ClientRollup[]),
 };
 
 const emptyFlags = {
@@ -102,6 +137,8 @@ const emptyFlags = {
   patchPolicies: false,
   sessions: false,
   alerts: false,
+  clients: false,
+  clientRollups: false,
 };
 const emptyStamps: Record<FleetKey, number> = {
   devices: 0,
@@ -109,6 +146,8 @@ const emptyStamps: Record<FleetKey, number> = {
   patchPolicies: 0,
   sessions: 0,
   alerts: 0,
+  clients: 0,
+  clientRollups: 0,
 };
 
 export const useFleetStore = create<FleetState>()(
@@ -119,6 +158,8 @@ export const useFleetStore = create<FleetState>()(
       patchPolicies: [],
       sessions: [],
       alerts: [],
+      clients: [],
+      clientRollups: [],
       fetchedAt: { ...emptyStamps },
       loading: { ...emptyFlags },
       error: {},
@@ -154,6 +195,8 @@ export const useFleetStore = create<FleetState>()(
           patchPolicies: [],
           sessions: [],
           alerts: [],
+          clients: [],
+          clientRollups: [],
           fetchedAt: { ...emptyStamps },
           loading: { ...emptyFlags },
           error: {},

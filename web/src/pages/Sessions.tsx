@@ -4,6 +4,9 @@ import { MonitorSmartphone, RefreshCw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { endSession, type Session } from '../api/sessions';
 import { useFleet } from '../hooks/useFleet';
+import { useClientScope } from '../hooks/useClientScope';
+import { clientNameForSlug } from '../utils/clientFilter';
+import { ClientFacet } from '../components/ClientFacet';
 import { invalidateFleet } from '../stores/fleet';
 import { Stamp } from '../components/Stamp';
 import { ConfirmSheet } from '../components/ConfirmSheet';
@@ -16,6 +19,11 @@ export function Sessions() {
   // The session ledger is a fleet collection (2.2-2): the dashboard reads the
   // same list, so opening this page next to it costs no second read.
   const { data: sessions, loading, refresh } = useFleet('sessions', { owner: true });
+  // The tenant facet (2.3-5): a session names a device, so filtering the
+  // ledger by tenant is a lookup on that tenant's unit set.
+  const scope = useClientScope();
+  const visibleSessions =
+    scope.slug === '' ? sessions : sessions.filter((x) => scope.scopedDeviceIds.has(x.device_id));
   const [endingId, setEndingId] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [error, setError] = useState('');
@@ -44,9 +52,16 @@ export function Sessions() {
         <div>
           <h1 className="text-[26px]">{t('sheet.sessionsTitle')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
-            {sessions.length} open remote session{sessions.length === 1 ? '' : 's'}
+            {visibleSessions.length} open remote session{visibleSessions.length === 1 ? '' : 's'}
+            {scope.slug !== '' && ` · ${clientNameForSlug(scope.clients, scope.slug)}` }
           </p>
         </div>
+        <ClientFacet
+          clients={scope.clients}
+          value={scope.slug}
+          onChange={scope.setSlug}
+          includeUnassigned={scope.includeUnassigned}
+        />
         <button onClick={load} className="btn">
           <RefreshCw className="h-3.5 w-3.5" />
           {t('common.refresh', 'Refresh')}
@@ -63,7 +78,7 @@ export function Sessions() {
         <div className="flex h-40 items-center justify-center">
           <RefreshCw className="h-6 w-6 animate-spin text-[var(--service)]" aria-hidden="true" />
         </div>
-      ) : sessions.length === 0 ? (
+      ) : visibleSessions.length === 0 ? (
         <div className="panel flex flex-col items-center gap-3 px-6 py-14 text-center">
           <span className="flex h-14 w-14 items-center justify-center border border-rule">
             <MonitorSmartphone className="h-6 w-6 text-text-muted" aria-hidden="true" />
@@ -81,13 +96,14 @@ export function Sessions() {
               <tr>
                 <th>Session</th>
                 <th>Unit</th>
+                <th>{t('sessions.colTenant')}</th>
                 <th>Opened</th>
                 <th>State</th>
                 <th className="text-right">Action</th>
               </tr>
             </thead>
             <tbody>
-              {sessions.map((s) => (
+              {visibleSessions.map((s) => (
                 <tr key={s.id} className="text-[13px]">
                   <td className="ow-num">{s.id.slice(0, 8)}…</td>
                   <td>
@@ -98,6 +114,7 @@ export function Sessions() {
                       {s.device_id.slice(0, 8)}…
                     </Link>
                   </td>
+                  <td className="text-[11px] text-text-secondary">{clientNameForSlug(scope.clients, scope.slugOf(s.device_id))}</td>
                   <td className="text-text-secondary">{agoLabel(s.created_at)}</td>
                   <td>
                     <Stamp tone={s.status === 'active' ? 'online' : 'neutral'}>{s.status}</Stamp>

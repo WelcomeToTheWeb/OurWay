@@ -19,6 +19,8 @@ import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import type { Device } from '../types/device';
 import type { SoftwareUpdate } from '../types/patch';
 import { isRateLimited } from '../api/client';
+import { useClientScope } from '../hooks/useClientScope';
+import { ClientFacet } from '../components/ClientFacet';
 
 
 function formatSize(bytes: number): string {
@@ -39,6 +41,21 @@ export function Patches() {
   const [deploying, setDeploying] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  // Tenant facet (2.3-5): it narrows the unit the panel works on, so the list
+  // a technician filters to a client is the same fleet the server answers them
+  // with, not a view they have to remember to re-apply.
+  const scope = useClientScope();
+  const scopedDevices = scope.slug === '' ? devices : devices.filter((d) => scope.scopedDeviceIds.has(d.id));
+
+  // A unit that left the tenant filter is not a unit this view is working on:
+  // drop it, rather than keep showing updates for a machine the operator has
+  // filtered away.
+  useEffect(() => {
+    if (scope.slug === '') return;
+    if (selectedDevice && !scope.scopedDeviceIds.has(selectedDevice)) {
+      setSelectedDevice(scopedDevices[0]?.id ?? '');
+    }
+  }, [scope.slug, scope.scopedDeviceIds, selectedDevice, scopedDevices]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,13 +179,19 @@ export function Patches() {
               aria-label={t('patches.device')}
             >
               <option value="">—</option>
-              {devices.map((d) => (
+              {scopedDevices.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name} · {d.hostname}
                 </option>
               ))}
             </select>
           </label>
+          <ClientFacet
+            clients={scope.clients}
+            value={scope.slug}
+            onChange={scope.setSlug}
+            includeUnassigned={scope.includeUnassigned}
+          />
           <button onClick={handleScan} disabled={scanning || !selectedDevice} className="btn">
             <RefreshCw className={`h-3.5 w-3.5 ${scanning ? 'animate-spin' : ''}`} />
             {t('patches.scanShort')}

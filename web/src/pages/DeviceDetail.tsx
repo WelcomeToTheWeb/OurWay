@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
   Trash2,
@@ -33,6 +33,7 @@ import { startSession } from '../api/sessions';
 import { downloadInstaller, fetchInstallers } from '../api/installers';
 import { useFleet } from '../hooks/useFleet';
 import { invalidateFleet } from '../stores/fleet';
+import { clientNameForSlug, clientSlugOfDevice } from '../utils/clientFilter';
 import type { Session } from '../api/sessions';
 import { Gauge } from '../components/Gauge';
 import { LineChart } from '../components/LineChart';
@@ -135,6 +136,9 @@ export function DeviceDetail() {
   // view's own reads are this unit's record and this unit's history. Opening
   // it from the dashboard therefore adds no list read at all.
   const { data: policies } = useFleet('patchPolicies');
+  // Tenant names for the header's tenant line (2.3-5). Shared collection: the
+  // detail page adds no read on a mount that already shows a ledger.
+  const { data: clients } = useFleet('clients');
   const { data: overview } = useFleet('patchOverview', { enabled: canSeePatches });
 
   const load = useCallback(async () => {
@@ -389,6 +393,22 @@ export function DeviceDetail() {
             <p className="cap cap-sm mt-1 text-text-muted">
               {device.hostname} · {osLabel(device.os)} · {device.arch}
               {device.agent_version && ` · v${device.agent_version}`} · {device.public_ip}
+            </p>
+            {/* The tenant this unit belongs to (2.3-5), printed on the unit's own
+                record: the first question an MSP support call asks is which
+                customer's machine this is, and "unassigned" is the answer that
+                tells an admin the 2.2 upgrade left a fleet unplaced. */}
+            <p className="cap cap-sm mt-1 flex flex-wrap items-center gap-2">
+              <span className="text-text-muted">{t('devices.tenantCap')}</span>
+              <Link
+                to={`/devices?client=${clientSlugOfDevice(device, clients)}`}
+                className="text-[var(--service)] hover:underline"
+                aria-label={t('devices.tenantAria', {
+                  name: clientNameForSlug(clients, clientSlugOfDevice(device, clients)),
+                })}
+              >
+                {clientNameForSlug(clients, clientSlugOfDevice(device, clients))}
+              </Link>
             </p>
             <div className="mt-2">
               <TagEditor

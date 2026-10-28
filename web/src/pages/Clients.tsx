@@ -7,8 +7,6 @@ import {
   clientFromSearch,
   createClient,
   deleteClient,
-  getClients,
-  getClientRollup,
   getClientUsers,
   setClientUsers,
   updateClient,
@@ -17,7 +15,8 @@ import {
   type ClientRollup,
 } from '../api/clients';
 import { useAuth } from '../auth/context';
-import { getDevices } from '../api/devices';
+import { useFleet } from '../hooks/useFleet';
+import { invalidateFleet } from '../stores/fleet';
 import { getUsers } from '../api/users';
 import type { UserWithRoles } from '../auth/types';
 import type { Device } from '../types/device';
@@ -39,15 +38,25 @@ import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
  * Creating, assigning and deleting are admin acts on the server (`2.3-4`), and
  * the page asks for nothing a caller cannot perform: a manager reads the
  * clients they are granted, and sees no controls.
+ *
+ * 2.3-5 moved the numbers here onto the shared fleet model: the ledger and the
+ * dashboard's per-client rows subscribe to the same `clientRollups`
+ * collection, computed server-side in `rollupOf` from one set of scoped reads,
+ * so the two surfaces print the same figures by construction — the rule 2.2-4
+ * set for the fleet counts, applied to the tenant axis. A ledger that fetched
+ * one rollup per client would cost a read per tenant on mount, which is the
+ * N+1 the scale task (2.3-8) exists to catch.
  */
 export function Clients() {
   const { t, i18n } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [clients, setClients] = useState<Client[]>([]);
-  const [rollups, setRollups] = useState<Record<string, ClientRollup>>({});
-  const [devices, setDevices] = useState<Device[]>([]);
+  const { data: clients, loading: clientsLoading } = useFleet('clients', { owner: true });
+  const { data: rollupRows, loading: rollupsLoading } = useFleet('clientRollups', { owner: true });
+  // The assign panel offers the units of the tenant being edited; a scoped
+  // read, so a technician's panel offers only units they can see.
+  const { data: devices } = useFleet('devices');
   const [users, setUsers] = useState<UserWithRoles[]>([]);
-  const [loading, setLoading] = useState(true);
+  const loading = clientsLoading || rollupsLoading;
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [newForm, setNewForm] = useState({ name: '', slug: '', notes: '' });
@@ -55,46 +64,33 @@ export function Clients() {
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const guide = useGuideWords(clients.length);
 
+  const rollups = useMemo(() => new Map(rollupRows.map((r) => [r.client_id, r])), [rollupRows]);
+
   const clientFilter = clientFromSearch(searchParams.toString());
 
-  const load = useCallback(async () => {
-    setError('');
-    try {
-      const clientRows = await getClients();
-      setClients(clientRows);
-      // The rollups are fetched per client, in parallel: the ledger row is the
-      // rollup, so a ledger that renders before its numbers arrives is showing
-      // a fleet count the operator cannot act on.
-      const entries = await Promise.all(
-        clientRows.map(async (c) => [c.id, await getClientRollup(c.id)] as const)
-      );
-      setRollups(Object.fromEntries(entries));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('common.error'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+  /**
+   * A tenant, a device assignment or a grant changed the ledger's shape: both
+   * collections are stale, and every other surface that shows them re-reads
+   * with them. This is the mechanism that keeps the dashboard's per-client row
+   * and this ledger's row the same number after an edit, not just before it.
+   */
+  const invalidate = useCallback(() => {
+    invalidateFleet('clients');
+    invalidateFleet('clientRollups');
+  }, []);
 
   useEffect(() => {
-    void load();
-    // The assign panels need the fleet and the accounts; both are scoped reads,
-    // so a technician's panel offers only units and colleagues they can see.
-    void Promise.all([getDevices(), getUsers().catch(() => [])]).then(([d, u]) => {
-      setDevices(d);
-      setUsers(u as UserWithRoles[]);
-    });
-  }, [load]);
+    void getUsers()
+      .catch(() => [] as UserWithRoles[])
+      .then((u) => setUsers(u as UserWithRoles[]));
+  }, []);
 
   const visible = useMemo(
     () => (clientFilter ? clients.filter((c) => c.slug === clientFilter) : clients),
     [clients, clientFilter]
   );
 
-  const unitsOf = useCallback(
-    (clientId: string) => devices.filter((d) => (d as Device & { client_id?: string }).client_id === clientId),
-    [devices]
-  );
+  const unitsOf = useCallback((clientId: string) => devices.filter((d) => d.client_id === clientId), [devices]);
 
   const handleCreate = async () => {
     if (!newForm.name) {
@@ -106,7 +102,7 @@ export function Clients() {
       setShowCreate(false);
       setNewForm({ name: '', slug: '', notes: '' });
       setError('');
-      await load();
+      invalidate();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('common.error'));
     }
@@ -115,7 +111,7 @@ export function Clients() {
   const handleToggleDisabled = async (client: Client) => {
     try {
       await updateClient(client.id, { name: client.name, slug: client.slug, notes: client.notes, disabled: !client.disabled });
-      await load();
+      invalidate();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('common.error'));
     }
@@ -125,7 +121,7 @@ export function Clients() {
     try {
       await deleteClient(client.id);
       setOpenClient(null);
-      await load();
+      invalidate();
       // The fleet moved, and the operator needs the number, not a toast.
       setNotice(t('clients.deletedNotice', { name: client.name }));
     } catch (e) {
@@ -136,11 +132,11 @@ export function Clients() {
   const handleAssignDevices = async (client: Client, deviceIds: string[]) => {
     try {
       await assignClientDevices(client.id, deviceIds);
-      const [d, rows] = await Promise.all([getDevices(), getClients()]);
-      setDevices(d);
-      setClients(rows);
-      const entries = await Promise.all(rows.map(async (c) => [c.id, await getClientRollup(c.id)] as const));
-      setRollups(Object.fromEntries(entries));
+      // The units moved, so the fleet, the tenant list and every per-client
+      // figure on every open surface are stale. One invalidation, not a
+      // re-read of this page's own copy.
+      invalidateFleet('devices');
+      invalidate();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('common.error'));
     }
@@ -151,7 +147,7 @@ export function Clients() {
       await setClientUsers(client.id, userIds);
       const usersForClient = await getClientUsers(client.id).catch(() => []);
       setOpenUsers(client.id, usersForClient.map((u) => u.id));
-      await load();
+      invalidate();
     } catch (e) {
       setError(e instanceof Error ? e.message : t('common.error'));
     }
@@ -182,7 +178,7 @@ export function Clients() {
   }
 
   const open = openClient ? clients.find((c) => c.id === openClient) ?? null : null;
-  const openRollup = open ? rollups[open.id] : undefined;
+  const openRollup = open ? rollups.get(open.id) : undefined;
   const openUnits = open ? unitsOf(open.id) : [];
 
   return (
@@ -284,7 +280,7 @@ export function Clients() {
             </thead>
             <tbody>
               {visible.map((client) => {
-                const r = rollups[client.id];
+                const r = rollups.get(client.id);
                 return (
                   <tr key={client.id} data-guide title={client.name}>
                     <td>
@@ -447,7 +443,7 @@ function ClientPanel({
   }, [assignedUsers, client.id, onLoadedUsers]);
 
   const candidates = devices.filter((d) => {
-    const cid = (d as Device & { client_id?: string }).client_id;
+    const cid = d.client_id;
     return cid === client.id || !cid;
   });
 

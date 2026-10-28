@@ -23,11 +23,14 @@ export const openAlertCount = (alerts: readonly Alert[]) => alerts.filter(isAler
  */
 export function filterAlerts(
   alerts: readonly Alert[],
-  filters: { severity?: string; status?: string; search?: string }
+  filters: { severity?: string; status?: string; search?: string; deviceIds?: Set<string> }
 ): Alert[] {
-  const { severity = 'all', status = 'all', search = '' } = filters;
+  const { severity = 'all', status = 'all', search = '', deviceIds } = filters;
   const q = search.trim().toLowerCase();
   return alerts.filter((a) => {
+    // 2.3-5: the tenant facet. An alert names a device, so scoping it is a
+    // lookup on the tenant's unit set - never a request per row.
+    if (deviceIds && !deviceIds.has(a.device_id)) return false;
     if (severity !== 'all' && a.severity !== severity) return false;
     if (status === 'unresolved' && a.resolved) return false;
     if (status === 'resolved' && !a.resolved) return false;

@@ -12,6 +12,7 @@ import type { UserWithRoles } from '../auth/types';
 vi.mock('../api/clients', () => ({
   getClients: vi.fn(),
   getClientRollup: vi.fn(),
+  getClientRollups: vi.fn(),
   createClient: vi.fn(),
   updateClient: vi.fn(),
   deleteClient: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../api/users', () => ({ getUsers: vi.fn() }));
 import {
   getClients,
   getClientRollup,
+  getClientRollups,
   deleteClient,
   assignClientDevices,
   getClientUsers,
@@ -40,10 +42,12 @@ import {
   updateClient,
 } from '../api/clients';
 import { getDevices } from '../api/devices';
+import { resetFleetPoller } from '../stores/fleet';
 import { getUsers } from '../api/users';
 
 const mockedGetClients = vi.mocked(getClients);
 const mockedRollup = vi.mocked(getClientRollup);
+const mockedRollups = vi.mocked(getClientRollups);
 const mockedDelete = vi.mocked(deleteClient);
 const mockedAssign = vi.mocked(assignClientDevices);
 const mockedClientUsers = vi.mocked(getClientUsers);
@@ -152,12 +156,19 @@ describe('Clients ledger (2.3-4)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // The ledger reads the shared fleet collections (2.3-5), and the store is
+    // module state: a test starts with an empty one, so the page's own mount is
+    // the read under test and not the previous test's cache.
+    resetFleetPoller();
     setRoles(['admin']);
     mockedGetClients.mockResolvedValue([alpha, beta]);
+    // 2.3-5: the ledger reads every tenant's figures in one call, the same
+    // collection the dashboard's per-client rows subscribe to.
     mockedRollup.mockImplementation(async (id: string) => {
       const c = id === alpha.id ? alpha : beta;
       return rollup(c);
     });
+    mockedRollups.mockResolvedValue([rollup(alpha), rollup(beta)]);
     mockedDevices.mockResolvedValue(devices);
     mockedUsers.mockResolvedValue(users);
     mockedClientUsers.mockResolvedValue([] as ClientUser[]);
@@ -191,6 +202,7 @@ describe('Clients ledger (2.3-4)', () => {
     // A technician with no grants: the server's answer is an empty fleet list,
     // and the console must say so rather than render nothing.
     mockedGetClients.mockResolvedValue([]);
+    mockedRollups.mockResolvedValue([]);
     renderPage();
 
     const empty = await screen.findByText(/No clients yet/i);

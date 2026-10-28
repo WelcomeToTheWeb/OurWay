@@ -34,10 +34,18 @@ export function DeviceCard({
   device,
   compliance,
   policies = [],
+  clientName,
 }: {
   device: Device;
   compliance?: DeviceCompliance;
   policies?: PatchPolicy[];
+  /**
+   * The tenant this unit belongs to (2.3-5). Printed on the decal because a
+   * technician working two tenants must know which fleet a card is in before
+   * they click it; the fleet is filtered server-side, so the card is the last
+   * place the answer can be seen.
+   */
+  clientName?: string;
 }) {
   const Icon = osIcons[device.os] || Monitor;
   const { t } = useTranslation();
@@ -70,6 +78,15 @@ export function DeviceCard({
             <span className="cap-sm cap block truncate text-text-muted">
               {osLabel(device.os)} · {device.arch} · {device.hostname}
             </span>
+            {clientName && (
+              <span
+                className="cap-sm cap block truncate text-[var(--service)]"
+                title={clientName}
+                aria-label={`Tenant ${clientName}`}
+              >
+                {clientName}
+              </span>
+            )}
           </span>
         </div>
         <span className="flex shrink-0 flex-col items-end gap-1">
