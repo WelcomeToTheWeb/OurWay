@@ -98,7 +98,10 @@
     "hintDenied": "macOS verwirft jeden Tastenanschlag und jeden Klick. Führen Sie auf dem Gerät `ourway-agent --grant-input-permission` aus und bestätigen Sie OurWay Agent in Systemeinstellungen → Datenschutz & Sicherheit → Barrierefreiheit. Eine Sitzung wirkt vollständig live, während die Steuerung ins Leere läuft — das ist die Ursache.",
     "hintUnavailable": "Dieser Agent kann keine Eingaben erzeugen: Werkzeuge fehlen, oder der Build enthält die macOS-Grafikebene nicht. Für Fernsteuerung den cgo-Agent installieren.",
     "hintUnknown": "Dieses Gerät hat keine Eingabefähigkeit gemeldet. Fernsteuerung ist hier ungeprüft — nicht als funktionierend angenommen.",
-    "hintCaptureError": "Die Bildaufnahme auf diesem Gerät schlägt fehl, daher zeigt die Fernsitzung keine Bilder."
+    "hintCaptureError": "Die Bildaufnahme auf diesem Gerät schlägt fehl, daher zeigt die Fernsitzung keine Bilder.",
+    "colClient": "Mandant",
+    "tenantCap": "Mandant",
+    "tenantAria": "Flotte von {{name}} zeigen"
   },
   "alerts": {
     "title": "Alarme",
@@ -458,7 +461,9 @@
   },
   "layout": {
     "versionTitle": "Server {{server}} (Commit {{commit}}) · Konsolen-Build {{console}}",
-    "rateBudgetTitle": "Anforderungskontingent pro Nutzer: {{perMinute}} Leseanfragen pro Minute, sofortiger Burst {{burst}}. Abfragen pausieren, wenn das Kontingent erschöpft ist."
+    "rateBudgetTitle": "Anforderungskontingent pro Nutzer: {{perMinute}} Leseanfragen pro Minute, sofortiger Burst {{burst}}. Abfragen pausieren, wenn das Kontingent erschöpft ist.",
+    "scopeCap": "Flotte",
+    "scopeTitle": "Ihr Mandantenbereich, wie der Server ihn bei diesem Lesevorgang angewandt hat: {{scope}} ({{tenants}} Mandanten). Eine Einheit, die Sie nicht finden, ist meist ein Mandant, für den Sie nicht freigeschaltet sind – keine fehlende Einheit."
   },
   "confirm": {
     "cancel": "Abbrechen",
@@ -553,7 +558,18 @@
     "online": "aktiv",
     "rebootPending": "Neustart ausstehend",
     "openRow": "Detail von {{name}} öffnen",
-    "create": "Mandant anlegen"
+    "create": "Mandant anlegen",
+    "facetLabel": "Nach Mandant filtern",
+    "facetAll": "Alle Mandanten",
+    "facetUnassigned": "Ohne Mandant",
+    "dashboardTitle": "Nach Mandant",
+    "dashboardOpen": "Zum Mandantenverzeichnis",
+    "colTenant": "Mandant",
+    "colUnits": "Aktive Einheiten",
+    "colAlerts": "Störungen",
+    "colPatch": "Patches",
+    "dashboardRowAria": "Flotte von {{name}} öffnen",
+    "disabledTitle": "Dieser Mandant ist pausiert: Er wird bei der Zuweisung nicht angeboten; seine Einheiten behalten ihre Historie."
   },
   "audit": {
     "title": "Protokoll",
@@ -591,5 +607,8 @@
       "error": "fehlgeschlagen",
       "unknown": "unbekannt"
     }
+  },
+  "sessions": {
+    "colTenant": "Mandant"
   }
 }

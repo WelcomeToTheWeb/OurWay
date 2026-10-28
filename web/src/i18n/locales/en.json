@@ -98,7 +98,10 @@
     "hintDenied": "macOS is discarding every keystroke and click. Run `ourway-agent --grant-input-permission` on the unit, then approve OurWay Agent in System Settings → Privacy & Security → Accessibility. A session looks completely live while control is inert — this is the reason.",
     "hintUnavailable": "This agent build cannot synthesize input: no tooling installed, or built without the macOS graphics layer. Install the cgo agent build to control this unit.",
     "hintUnknown": "This unit has not reported an input capability. Remote control is unverified here — not assumed to work.",
-    "hintCaptureError": "Capture is failing on this unit, so a remote session shows no frames."
+    "hintCaptureError": "Capture is failing on this unit, so a remote session shows no frames.",
+    "colClient": "Tenant",
+    "tenantCap": "tenant",
+    "tenantAria": "Show the {{name}} fleet"
   },
   "alerts": {
     "title": "Alerts",
@@ -458,7 +461,9 @@
   },
   "layout": {
     "versionTitle": "Server {{server}} (commit {{commit}}) · console build {{console}}",
-    "rateBudgetTitle": "Per-user request budget: {{perMinute}} reads per minute, instantaneous burst {{burst}}. Polling rests when it is spent."
+    "rateBudgetTitle": "Per-user request budget: {{perMinute}} reads per minute, instantaneous burst {{burst}}. Polling rests when it is spent.",
+    "scopeCap": "fleet",
+    "scopeTitle": "Your client scope, as the server applied it on this read: {{scope}} ({{tenants}} tenants). A unit you cannot find is usually a tenant you are not granted, not a missing unit."
   },
   "confirm": {
     "cancel": "Cancel",
@@ -553,7 +558,18 @@
     "online": "awake",
     "rebootPending": "Reboot pending",
     "openRow": "Open {{name}} detail",
-    "create": "Add client"
+    "create": "Add client",
+    "facetLabel": "Filter by tenant",
+    "facetAll": "All tenants",
+    "facetUnassigned": "Unassigned",
+    "dashboardTitle": "By tenant",
+    "dashboardOpen": "Open the ledger",
+    "colTenant": "Tenant",
+    "colUnits": "Units awake",
+    "colAlerts": "Alerts",
+    "colPatch": "Patched",
+    "dashboardRowAria": "Open the {{name}} fleet",
+    "disabledTitle": "This tenant is paused: it is not offered for assignment, and its units keep their history."
   },
   "audit": {
     "title": "Audit",
@@ -591,5 +607,8 @@
       "error": "failed",
       "unknown": "unknown"
     }
+  },
+  "sessions": {
+    "colTenant": "Tenant"
   }
 }

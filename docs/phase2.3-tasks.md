@@ -260,21 +260,70 @@ Tests: `server/api/clients_test.go` (6 tests over the real router).
 ## 2.3-5 · Client filter and header on every ledger
 
 **Do**
-- [ ] Client column + filter on Devices, Alerts, Patches, Sessions, Files;
+- [x] Client column + filter on Devices, Alerts, Patches, Sessions, Files;
       client header on device detail; per-client rollup on the dashboard.
-- [ ] The client is URL state (`?client=…`), following the 2.1.0 view-in-URL
+- [x] The client is URL state (`?client=…`), following the 2.1.0 view-in-URL
       pattern — a filtered view is linkable and survives a reload.
-- [ ] The shift bar prints the operator's client scope, so a technician who
+- [x] The shift bar prints the operator's client scope, so a technician who
       "can't find" a unit sees the reason at a glance.
-- [ ] Density at MSP scale: the client filter is a facet in the existing filter
+- [x] Density at MSP scale: the client filter is a facet in the existing filter
       row, not a new page.
 
+**Delivered** (`ourway/2.3-5-client-filter`)
+- Server: `GET /api/clients/rollups` answers every tenant the caller can see in
+  **one** read — one device-list read, one grouped alert aggregate, one patch
+  overview, one grouped grants count. `ClientStore.GrantsCount()` is the grouped
+  count; `rollupOf` is shared with `GET /api/clients/:id/rollup`, so the two
+  surfaces cannot drift by construction. `models.UnassignedClientID` is the row
+  admin sees for units the 2.2 upgrade left unplaced.
+- Web: `ClientFacet` in the filter row of Devices, Alerts, Patches, Sessions and
+  Files writes `?client=<slug>`; `unassigned` is offered to admin only, because
+  a scoped caller's answer to that filter is always empty. A facet with one
+  option is not rendered at all.
+- The tenant identity inside the console is the **slug**; the wire's
+  `device.client_id` is translated once, at `clientSlugOfDevice`, because a
+  filter chip, a link and a support ticket carry a slug and not a uuid.
+  `useClientScope` is the one hook pages use for slug ↔ scoped unit set.
+- `web/src/stores/fleet.ts` gained `clients` and `clientRollups` collections, so
+  every facet, the dashboard rows and the Clients ledger read the same
+  collection (2.2-2's single-source rule), and the shift bar's tenant names cost
+  no extra read.
+- Scope capture moved to the axios layer (`api/client.ts`): every read — devices,
+  alerts, sessions, files, the audit ledger — updates the captured
+  `X-OurWay-Client-Scope`, and `Layout` prints it with the names it resolves
+  from the tenant collection. It is the server's statement, not the console's
+  guess.
+
 **Acceptance criteria**
-- On a fixture set of 3 clients × 40 units, Devices with a client filter renders in
-  one list read and stays virtualized past 20 cards.
-- `?client=a&status=warning&sort=last-seen` deep-links to exactly that view.
-- The dashboard's per-client rows agree with the Clients ledger (2.2-4's
-  single-source rule extended to per-client counts).
+- [x] On a fixture set of tenants × 40 units, Devices with a client filter
+      renders in one list read and stays virtualized past 20 cards
+      (`Devices.test.tsx` › virtualized cards: 40 units, a grid window, fewer
+      mounted cards than the fleet).
+- [x] `?client=alpha-co&status=alert&sort=last-seen` deep-links to exactly that
+      view — the filter state is derived from the URL, not seeded from it, so
+      the link is the view (`Devices.test.tsx` › tenant filter; `Alerts.test.tsx`
+      › tenant filter; `DeviceDetail.test.tsx` › whose machine this is).
+- [x] The dashboard's per-client rows agree with the Clients ledger: the server
+      builds both from `rollupOf` (`TestClientsRollupsIsTheLedger` compares the
+      list row with the per-client endpoint field by field), and the console
+      renders both off the `clientRollups` collection
+      (`ClientRollups.test.tsx`).
+- [x] The shift bar states the scope the server applied — names for a granted
+      manager, "all tenants" for admin, "no tenants" for an account with no
+      grants, and nothing before a read has answered
+      (`Layout.test.tsx` › tenant scope).
+
+**Harness lessons recorded**
+- The fleet store is module state with a freshness window: a page test that
+  seeds collections must `resetFleetPoller()` **before** seeding, or the mount
+  reads the previous test's collection and the fixture under test never runs.
+- A page mount fans its reads through the api layer's read-slot queue, so the
+  first row lands later than testing-library's default 1 s; these tests pass an
+  explicit timeout.
+- jsdom ships no `ResizeObserver`, which react-window needs to mount at all —
+  shimmed once in `src/test/setup.ts`.
+- A `MemoryRouter` never touches `window.location`; assert the URL the router
+  is showing with a `useLocation` probe.
 
 ---
 

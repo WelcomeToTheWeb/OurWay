@@ -45,6 +45,15 @@ func IsUnassignedClientID(id string) bool {
 	return strings.EqualFold(strings.TrimSpace(id), UnassignedClientID)
 }
 
+// UnassignedPseudoClient is the sentinel *row* the API presents for the units
+// no tenant owns. It is built here, at the definition, so the client list, the
+// rollups and the console's filter all print the same id, slug and name for
+// the same concept - and nothing can persist it: `Client.ID` is a uuid column,
+// and this id is not one.
+func UnassignedPseudoClient() Client {
+	return Client{ID: UnassignedClientID, Name: "Unassigned", Slug: UnassignedClientID}
+}
+
 // NormalizeSlug turns a client name (or slug) into the canonical slug:
 // lower-case, trimmed, spaces to dashes, and stripped of the characters tags
 // already forbid. An input that normalizes to nothing yields "" and the caller

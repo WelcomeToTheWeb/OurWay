@@ -279,6 +279,9 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		clientGroup := protected.Group("/clients")
 		{
 			clientGroup.GET("", clientHandler.ListClients)
+			// The whole per-client ledger in one read. Registered before `/:id`
+			// so the literal wins the match, and `rollups` is not a client id.
+			clientGroup.GET("/rollups", clientHandler.ClientRollups)
 			clientGroup.POST("", RequireRole("admin"), clientHandler.CreateClient)
 			clientGroup.GET("/:id", clientHandler.GetClient)
 			clientGroup.PUT("/:id", RequireRole("admin"), clientHandler.UpdateClient)

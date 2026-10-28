@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { Patches } from './Patches';
 import type { Device } from '../types/device';
 import type { SoftwareUpdate } from '../types/patch';
@@ -12,6 +13,12 @@ vi.mock('../api/patching', () => ({
 }));
 vi.mock('../api/devices', () => ({
   getDevices: vi.fn(),
+}));
+// The tenant facet (2.3-5) asks the session who the caller is: only the admin's
+// filter row offers "Unassigned", because a scoped caller has no unassigned
+// units to filter to.
+vi.mock('../auth/context', () => ({
+  useAuth: () => ({ accessToken: 't', hasAnyRole: () => true, hasRole: () => true }),
 }));
 
 import { getDeviceUpdates, scanDeviceForUpdates, deployNow, approveUpdate } from '../api/patching';
@@ -71,7 +78,7 @@ describe('Patches page', () => {
       makeUpdate({}),
       makeUpdate({ id: 'u2', title: 'kernel update', status: 'installed' }),
     ]);
-    render(<Patches />);
+    render(<MemoryRouter><Patches /></MemoryRouter>);
 
     expect((await screen.findAllByText('openssl security update')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('kernel update').length).toBeGreaterThan(0);
@@ -80,7 +87,7 @@ describe('Patches page', () => {
 
   it('shows the up-to-date empty state when there are no updates', async () => {
     mockedGetUpdates.mockResolvedValue([]);
-    render(<Patches />);
+    render(<MemoryRouter><Patches /></MemoryRouter>);
 
     await waitFor(() =>
       expect(screen.getByText(/all systems appear to be up to date/i)).toBeInTheDocument(),
@@ -90,7 +97,7 @@ describe('Patches page', () => {
   it('approves a detected update and refreshes the list', async () => {
     mockedGetUpdates.mockResolvedValue([makeUpdate({})]);
     mockedApprove.mockResolvedValue(makeUpdate({ status: 'approved' }));
-    render(<Patches />);
+    render(<MemoryRouter><Patches /></MemoryRouter>);
 
     const approveBtn = await screen.findByRole('button', { name: /approve/i });
     fireEvent.click(approveBtn);
@@ -101,7 +108,7 @@ describe('Patches page', () => {
   it('scans the selected device', async () => {
     mockedGetUpdates.mockResolvedValue([]);
     mockedScan.mockResolvedValue({} as never);
-    render(<Patches />);
+    render(<MemoryRouter><Patches /></MemoryRouter>);
 
     await waitFor(() => expect(mockedGetUpdates).toHaveBeenCalled());
     const scanBtn = screen.getByRole('button', { name: /scan/i });
@@ -112,7 +119,7 @@ describe('Patches page', () => {
   it('deploys approved updates for the selected device', async () => {
     mockedGetUpdates.mockResolvedValue([makeUpdate({ status: 'approved' })]);
     mockedDeploy.mockResolvedValue({ deployment_id: 'dep1', status: 'pending' });
-    render(<Patches />);
+    render(<MemoryRouter><Patches /></MemoryRouter>);
 
     await screen.findAllByText('openssl security update');
     const deployBtn = screen.getByRole('button', { name: /deploy now/i });
@@ -125,7 +132,7 @@ describe('Patches page', () => {
       makeUpdate({}),
       makeUpdate({ id: 'u2', title: 'installed pkg', status: 'installed' }),
     ]);
-    render(<Patches />);
+    render(<MemoryRouter><Patches /></MemoryRouter>);
 
     await screen.findAllByText('openssl security update');
     fireEvent.change(screen.getByLabelText(/filter by status/i), { target: { value: 'installed' } });
@@ -140,7 +147,7 @@ describe('Patches page', () => {
       makeUpdate({}),
       makeUpdate({ id: 'u2', title: 'vim editor', source: 'apt' }),
     ]);
-    render(<Patches />);
+    render(<MemoryRouter><Patches /></MemoryRouter>);
 
     await screen.findAllByText('openssl security update');
     fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'vim' } });

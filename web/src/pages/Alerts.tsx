@@ -19,6 +19,8 @@ import { Stamp, type StampTone } from '../components/Stamp';
 import { agoLabel } from '../utils/policyScope';
 import { filterAlerts, isAlertOpen } from '../utils/alerts';
 import { useFleet } from '../hooks/useFleet';
+import { useClientScope } from '../hooks/useClientScope';
+import { ClientFacet } from '../components/ClientFacet';
 import { invalidateFleet } from '../stores/fleet';
 
 const severityTone: Record<AlertSeverity, StampTone> = {
@@ -58,6 +60,9 @@ export function Alerts() {
   // alert frame over the WebSocket invalidates it, so the numbers on the two
   // surfaces move together (2.2-4).
   const { data: alerts, loading } = useFleet('alerts', { owner: true });
+  // The tenant facet (2.3-5): an alert names a device, so the tenant filter is
+  // a lookup on that tenant's unit set, over the collection already on screen.
+  const scope = useClientScope();
   const openNow = useMemo(() => alerts.filter(isAlertOpen).length, [alerts]);
 
   // "N new since the last look" compares two samples of the same count, and
@@ -127,15 +132,24 @@ export function Alerts() {
   // counted the fleet. One array, one set of predicates: a chip and the rows
   // it summarises can no longer disagree.
   const filtered = useMemo(
-    () => filterAlerts(alerts, { severity: severityFilter, status: statusFilter, search }),
-    [alerts, severityFilter, statusFilter, search]
+    () =>
+      filterAlerts(alerts, {
+        severity: severityFilter,
+        status: statusFilter,
+        search,
+        deviceIds: scope.slug === '' ? undefined : scope.scopedDeviceIds,
+      }),
+    [alerts, severityFilter, statusFilter, search, scope.slug, scope.scopedDeviceIds]
   );
   const openCount = useMemo(() => filtered.filter(isAlertOpen).length, [filtered]);
 
   // The chips summarise the searched population, before the status chip's own
   // filter, so switching a chip changes the rows without changing what the
   // chips are measuring.
-  const searchFiltered = useMemo(() => filterAlerts(alerts, { search }), [alerts, search]);
+  const searchFiltered = useMemo(
+    () => filterAlerts(alerts, { search, deviceIds: scope.slug === '' ? undefined : scope.scopedDeviceIds }),
+    [alerts, search, scope.slug, scope.scopedDeviceIds]
+  );
   const countChips = [
     { key: 'all', label: 'All', status: 'all', count: searchFiltered.length, title: 'Every alert the search matches' },
     {
@@ -229,6 +243,12 @@ export function Alerts() {
           />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:gap-2">
+          <ClientFacet
+            clients={scope.clients}
+            value={scope.slug}
+            onChange={scope.setSlug}
+            includeUnassigned={scope.includeUnassigned}
+          />
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
