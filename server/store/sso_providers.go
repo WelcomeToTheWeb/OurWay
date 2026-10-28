@@ -41,10 +41,15 @@ func (s *SSOProviderStore) GetByName(name string) (*models.SSOProvider, error) {
 	return &provider, nil
 }
 
-// ListAll returns all SSO providers.
+// ListAll returns all SSO providers in the order the login page lists them
+// (2.4-1: several providers enabled at once, in the operator's order).
+//
+// `sort_order` then `name` — not `created_at` — because the order is a promise to
+// the person at the login page: "the one at the top is the one your employer
+// runs". Ties break on name so the list is stable across restarts.
 func (s *SSOProviderStore) ListAll() ([]models.SSOProvider, error) {
 	var providers []models.SSOProvider
-	err := s.db.Order("created_at DESC").Find(&providers).Error
+	err := s.db.Order("sort_order ASC").Order("name ASC").Find(&providers).Error
 	return providers, err
 }
 

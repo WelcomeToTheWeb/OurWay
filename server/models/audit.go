@@ -124,23 +124,23 @@ const (
 	AuditFilePull   = "file.pull"
 	AuditFileUpload = "file.upload"
 
-	AuditClientCreate    = "client.create"
-	AuditClientUpdate    = "client.update"
-	AuditClientDelete    = "client.delete"
-	AuditClientGrant     = "client.grant"
+	AuditClientCreate = "client.create"
+	AuditClientUpdate = "client.update"
+	AuditClientDelete = "client.delete"
+	AuditClientGrant  = "client.grant"
 	// 2.3-4c: the credentials that place a unit inside a tenant. Minting one is
 	// the act with no unit, no login and no visible effect to notice it by — the
 	// ledger is the only place it leaves a trace, and the trace must not contain
 	// the secret.
 	AuditClientTokenCreate = "client.token_create"
 	AuditClientTokenRevoke = "client.token_revoke"
-	AuditUserScopeChange = "user.scope_change"
-	AuditUserRoleChange  = "user.role_change"
-	AuditUserCreate      = "user.create"
-	AuditUserDelete      = "user.delete"
-	AuditRoleCreate      = "role.create"
-	AuditRoleUpdate      = "role.update"
-	AuditRoleDelete      = "role.delete"
+	AuditUserScopeChange   = "user.scope_change"
+	AuditUserRoleChange    = "user.role_change"
+	AuditUserCreate        = "user.create"
+	AuditUserDelete        = "user.delete"
+	AuditRoleCreate        = "role.create"
+	AuditRoleUpdate        = "role.update"
+	AuditRoleDelete        = "role.delete"
 
 	AuditAPIKeyCreate = "api_key.create"
 	AuditAPIKeyRotate = "api_key.rotate"
@@ -154,6 +154,7 @@ const (
 	AuditWebhookTest   = "webhook.test"
 
 	AuditSSOCreate = "sso.create"
+	AuditSSOTest   = "sso.test"
 	AuditSSODelete = "sso.delete"
 
 	AuditAlertResolve     = "alert.resolve"

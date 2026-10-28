@@ -123,6 +123,10 @@ func registerAuditRoutes() {
 	auditRoute(http.MethodPost, "/api/v2/webhooks/:id/deliveries/:delivery_id/retry", models.AuditWebhookTest)
 	auditRoute(http.MethodPost, "/api/sso/providers", models.AuditSSOCreate)
 	auditRoute(http.MethodDelete, "/api/sso/providers/:id", models.AuditSSODelete)
+	// 2.4-1: probing an IdP is a mutating-verb route (POST) that contacts another
+	// machine on the operator's behalf, so it is audited like the others — the
+	// result is ok/fail, never a secret.
+	auditRoute(http.MethodPost, "/api/sso/providers/:id/test", models.AuditSSOTest)
 }
 
 // lookupAuditAction resolves a concrete route to its registered action,
