@@ -13,10 +13,20 @@
  * by. So the assertions here are on visible rows.
  */
 import { test, expect } from '@playwright/test';
-import { ADMIN_PASSWORD, ADMIN_USER, apiBase, manifest, uiLogin } from './fixtures.js';
+import { ADMIN_PASSWORD, ADMIN_USER, apiBase, manifest, reFor, RUN_SUFFIX, uiLogin } from './fixtures.js';
 
-const CLIENT_NAME = 'e2e-North Grid';
-const TECH_USER = 'e2e-client-tech';
+// The tenant name carries the run id, like the seeded fleet does. A fixed name
+// is a fixture that collides with its own previous run: two runs on one
+// database leave two clients called `e2e-North Grid`, `open … detail` resolves
+// to two elements, and Playwright's strict mode fails the spec for a reason
+// that is in the harness and not in the diff.
+const CLIENT_NAME = `e2e-North Grid${RUN_SUFFIX}`;
+// Accounts carry the run id too. `ensureTechnician` is create-if-missing, so a
+// shared database keeps one technician across runs, and every run grants that
+// account one more client: the shift bar's scope stamp — which reports the
+// tenants the *server* granted — then reads 2, 3, 4, and "exactly one client"
+// becomes a claim about how many times the suite has been run.
+const TECH_USER = `e2e-client-tech${RUN_SUFFIX}`;
 const TECH_PASSWORD = 'E2eClientTech!23';
 
 async function adminToken(request: import('@playwright/test').APIRequestContext): Promise<string> {
@@ -103,8 +113,13 @@ test('the Clients ledger creates a tenant, assigns a unit, and grants it', async
   await page.evaluate(() => localStorage.clear());
   await uiLogin(page, TECH_USER, TECH_PASSWORD);
 
-  await page.goto('/devices');
-  await expect(page.getByText(seeded.hostname)).toBeVisible({ timeout: 15_000 });
+  // The unit is in *their* ledger. Filter for it, then assert the row: a text
+  // assertion on an unfiltered ledger measures the page's window, and every run
+  // that shares a database adds units to it. The scope claim is "this unit's
+  // row is there", which the filtered ledger answers exactly.
+  await page.goto('/devices?view=table');
+  await page.getByLabel('Search devices').fill(seeded.hostname);
+  await expect(page.getByRole('row', { name: reFor(seeded.name) })).toBeVisible({ timeout: 15_000 });
 
   // Their ledger names exactly one client, and no others.
   await page.goto('/clients');

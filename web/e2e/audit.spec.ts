@@ -14,11 +14,13 @@
  * the page's copy.
  */
 import { test, expect } from '@playwright/test';
-import { ADMIN_PASSWORD, ADMIN_USER, apiBase, manifest, uiLogin } from './fixtures.js';
+import { ADMIN_PASSWORD, ADMIN_USER, apiBase, manifest, RUN_SUFFIX, uiLogin } from './fixtures.js';
 
-const CLIENT_NAME = 'e2e-Audit Grid';
+const CLIENT_NAME = `e2e-Audit Grid${RUN_SUFFIX}`;
 const MGR_USER = 'e2e-audit-mgr';
 const MGR_PASSWORD = 'E2eAuditMgr!23';
+const VIEWER_USER = `e2e-audit-viewer${RUN_SUFFIX}`;
+const VIEWER_PASSWORD = 'E2eAuditViewer!23';
 
 async function adminToken(request: import('@playwright/test').APIRequestContext): Promise<string> {
   const res = await request.post(`${apiBase()}/api/auth/login`, {
@@ -27,6 +29,29 @@ async function adminToken(request: import('@playwright/test').APIRequestContext)
   expect(res.ok()).toBeTruthy();
   const { access_token } = await res.json();
   return access_token as string;
+}
+
+/** Create an account with the given role, and return its id (reusing an existing one). */
+async function ensureAccount(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  username: string,
+  password: string,
+  role: string
+): Promise<string> {
+  const auth = { Authorization: `Bearer ${token}` };
+  const usersRes = await request.get(`${apiBase()}/api/users`, { headers: auth });
+  const body = usersRes.ok() ? await usersRes.json().catch(() => null) : null;
+  const users: Array<{ id?: string; username?: string }> = Array.isArray(body) ? body : (body?.users ?? []);
+  const existing = users.find((u) => u.username === username);
+  if (existing?.id) return existing.id;
+  const created = await request.post(`${apiBase()}/api/users`, {
+    headers: auth,
+    data: { username, email: `${username}@example.invalid`, password, roles: [role] },
+  });
+  expect(created.ok(), `create the ${role} account ${username} (${created.status()})`).toBeTruthy();
+  const createdBody = await created.json().catch(() => null);
+  return (createdBody?.user?.id ?? createdBody?.id ?? '') as string;
 }
 
 /** Create (or reuse) a manager account granted to exactly one client. */
@@ -113,7 +138,19 @@ test('an act performed in the console is recorded with the technician who perfor
 
   const before = await ledger(request, token);
   expect(before.status, 'the ledger endpoint answers the admin').toBe(200);
-  const seenBefore = (before.body?.logs ?? []).length;
+
+  // How many records name *this unit*. Counted on the unit, not on the page:
+  // the ledger is capped at `limit=200`, so "the page has more rows than it had
+  // before" is unsatisfiable the moment the installation outgrows one page —
+  // which is normal operation, and the first re-run on a shared database is
+  // where that shows up.
+  const tagsOnUnit = async (): Promise<number> => {
+    const { body } = await ledger(request, token, '?action=device.tags&limit=1000');
+    const rows: Array<{ target_id: string }> = body?.logs ?? [];
+    return rows.filter((r) => r.target_id === seeded.id).length;
+  };
+  const tagsBefore = await tagsOnUnit();
+  expect(tagsBefore, 'this run\'s unit has no tag record before the act').toBe(0);
 
   // Tags are edited on the unit view. The accessible name "Add tag" belongs to
   // both the input and its button, so the assertion names the role it wants:
@@ -140,7 +177,7 @@ test('an act performed in the console is recorded with the technician who perfor
     .toBe('found');
 
   const after = await ledger(request, token);
-  expect((after.body?.logs ?? []).length).toBeGreaterThan(seenBefore);
+  expect(await tagsOnUnit(), 'the act is a record of this unit').toBeGreaterThan(tagsBefore);
   expect(after.headers['x-ourway-client-scope'], 'the ledger answers with the scope it applied').toBeTruthy();
 });
 
@@ -177,7 +214,23 @@ test('a manager reads their tenant rows and never a client they are not granted'
   // Every row the manager sees belongs to a client they are granted. The
   // fixture fleet is split between clients, so an ungranted row is possible
   // and is the leak this assertion closes.
-  const granted = new Set<string>([client.id]);
+  //
+  // The granted set is **read from the server**, not assumed to be this run's
+  // client: the manager account is create-if-missing, so on a shared database
+  // every run grants it one more tenant, and the server then legitimately
+  // answers rows for tenants this spec has never seen. "Rows only for granted
+  // clients" is the claim, so the granted set has to be the manager's own list.
+  const grants = await request.get(`${apiBase()}/api/clients`, {
+    headers: { Authorization: `Bearer ${mgrToken}` },
+  });
+  expect(grants.status(), 'a manager may read their clients').toBe(200);
+  const grantsBody = await grants.json().catch(() => null);
+  const grantedClients: Array<{ id: string }> = Array.isArray(grantsBody)
+    ? grantsBody
+    : (grantsBody?.clients ?? []);
+  const granted = new Set<string>(grantedClients.map((c) => c.id));
+  expect(granted.size, 'the manager is granted at least one client').toBeGreaterThan(0);
+  expect(granted.has(client.id), 'this run’s client is granted to the manager').toBe(true);
   const foreign = rows.filter((r) => r.client_id && !granted.has(r.client_id));
   expect(foreign, 'the manager page carries rows from a client they are not granted').toHaveLength(0);
 
@@ -188,15 +241,22 @@ test('a manager reads their tenant rows and never a client they are not granted'
   expect(other.status).toBe(200);
   expect((other.body?.logs ?? []).length, 'an ungranted client filter answers no rows').toBe(0);
 
-  // A viewer is refused: the ledger is an operator surface.
+  // A viewer is refused: the ledger is an operator surface. The account is
+  // created **here**, with the role the assertion names. Reading the ledger as
+  // `e2e-client-tech` — an account this spec does not create, and a technician
+  // — made the check conditional on that account existing: on a fresh database
+  // the login failed, the `if` was skipped, and "a viewer may not read the
+  // ledger" passed by never reading anything. A refusal asserted on a request
+  // that was never made is not a test.
+  const viewerId = await ensureAccount(request, token, VIEWER_USER, VIEWER_PASSWORD, 'viewer');
+  expect(viewerId, 'the viewer account exists').toBeTruthy();
   const viewerLogin = await request.post(`${apiBase()}/api/auth/login`, {
-    data: { username: 'e2e-client-tech', password: 'E2eClientTech!23' },
+    data: { username: VIEWER_USER, password: VIEWER_PASSWORD },
   });
-  if (viewerLogin.ok()) {
-    const { access_token: viewerToken } = await viewerLogin.json();
-    const refused = await ledger(request, viewerToken);
-    expect(refused.status, 'a viewer may not read the ledger').toBe(403);
-  }
+  expect(viewerLogin.ok(), 'the viewer account can sign in').toBeTruthy();
+  const { access_token: viewerToken } = await viewerLogin.json();
+  const refused = await ledger(request, viewerToken);
+  expect(refused.status, 'a viewer may not read the ledger').toBe(403);
 });
 
 test('the ledger page renders rows, states its scope, and exports a CSV', async ({
@@ -204,8 +264,12 @@ test('the ledger page renders rows, states its scope, and exports a CSV', async 
   request,
 }) => {
   const token = await adminToken(request);
-  // Ensure the log is not empty: an admin act through the API is a row.
-  await request.put(`${apiBase()}/api/clients`, {
+  // Ensure the log is not empty with an act that is real: creating a tenant is
+  // `client.create`, an audited mutating route. The previous version sent
+  // `PUT /api/clients` — a route the router does not have — which writes no
+  // row, so the page was non-empty only because earlier specs in the same run
+  // had acted.
+  await request.post(`${apiBase()}/api/clients`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { name: CLIENT_NAME, notes: 'e2e audit pass' },
   });

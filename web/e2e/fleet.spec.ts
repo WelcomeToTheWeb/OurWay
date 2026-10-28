@@ -121,10 +121,18 @@ test('the fleet pollers sit far under the documented 100 req/min budget, with tw
 
   const second = await page.context().newPage();
   const ledger = countReads(second);
-  await second.goto('/devices');
+  await second.goto('/devices?view=table');
   // The ledger renders as a table or as cards, and the view is operator state
-  // carried in storage; the unit being named on screen is the assertion.
-  await expect(second.getByText(reFor(manifest().units[0].name)).first()).toBeVisible({ timeout: 15_000 });
+  // carried in storage; the unit being named on screen is the assertion. It is
+  // the *filtered* ledger that names it: an installation accumulates units
+  // (every suite run on a shared database seeds a run-scoped fleet), and a
+  // text assertion on the unfiltered page measures the page's window, not the
+  // console's ability to show a unit. The filter's read is issued before the
+  // counters are reset, so it is not part of the measured rate.
+  await second.getByLabel('Search devices').fill(manifest().units[0].hostname);
+  await expect(second.getByRole('row', { name: reFor(manifest().units[0].name) })).toBeVisible({
+    timeout: 15_000,
+  });
 
   dash.reset();
   ledger.reset();
