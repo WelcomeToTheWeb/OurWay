@@ -413,8 +413,10 @@ func (h *ClientHandler) ClientRollup(c *gin.Context) {
 	}
 
 	// Alerts, in scope. An empty fleet answers zero, and `ListScoped` is the
-	// same store query the alert ledger runs with the client filter applied.
-	alerts, err := h.store.Alerts.ListScoped(deviceIDs, nil, true)
+	// same store query the alert ledger runs — scoped by the **client**, which
+	// is why a rollup over a 2,000-unit tenant costs the same two bind
+	// parameters as one over two units (2.3-8).
+	alerts, err := h.store.Alerts.ListScoped([]string{client.ID}, false, nil, true)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count alerts"})
 		return
@@ -433,7 +435,7 @@ func (h *ClientHandler) ClientRollup(c *gin.Context) {
 
 	// Patch compliance, computed inside the client — the same open-status set
 	// the fleet overview uses.
-	updates, err := h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, deviceIDs)
+	updates, err := h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, []string{client.ID}, false)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count updates"})
 		return

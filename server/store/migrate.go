@@ -206,6 +206,32 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 10, name: "tenant_scoped_read_indexes", fn: func(db *gorm.DB) error {
+		// 2.3-8: the indexes the scoped reads are shaped for.
+		//
+		// Scoping an entity list is a semi-join — `device_id IN (SELECT id
+		// FROM devices WHERE client_id IN (…))` — and a semi-join is only
+		// cheap if both sides can be walked: the planner needs
+		// `idx_devices_client_id` (migration 8) on the fleet side, and a
+		// composite index on the entity side, because every one of these
+		// reads filters by unit *and* orders by recency. A single-column
+		// index on `created_at` serves neither half.
+		//
+		// `software_updates` is ordered by status, not time: a patch panel
+		// asks "what is open on my units", which is the (device, status)
+		// pair.
+		for _, stmt := range []string{
+			"CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON alerts (device_id, created_at)",
+			"CREATE INDEX IF NOT EXISTS idx_sessions_device_created ON sessions (device_id, created_at)",
+			"CREATE INDEX IF NOT EXISTS idx_file_transfers_device_created ON file_transfers (device_id, created_at)",
+			"CREATE INDEX IF NOT EXISTS idx_software_updates_device_status ON software_updates (device_id, status)",
+		} {
+			if err := db.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

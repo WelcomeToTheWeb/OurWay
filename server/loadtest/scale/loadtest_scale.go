@@ -1,3 +1,15 @@
+//go:build loadtest
+
+// 2.3-8 — the tool is behind `-tags loadtest` on purpose.
+//
+// It is test scaffolding, like `web/e2e/`: it drives the server, it is never
+// shipped, and it is not the code the coverage floor (`scripts/coverage.sh`,
+// `coverage.baseline.json`) is measuring. A 400-statement harness with no
+// test of its own sits in the denominator of the module number, so a release
+// that adds measurement fails the floor for adding measurement. The tag keeps
+// the floor about product code; `scripts/scale-tenancy.sh` builds the tool
+// with the tag, which is the run that needs it to compile.
+
 package main
 
 import (
@@ -9,6 +21,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +37,11 @@ type ScaleConfig struct {
 	MetricsInterval   time.Duration
 	ReportInterval    time.Duration
 	Timeout           time.Duration
+	// EnrollmentSecret is what the agent edge accepts a new device with. The
+	// tool registers devices the way an installer does, so it presents the same
+	// credential — a load tool that could not enroll a device cannot measure a
+	// fleet at all.
+	EnrollmentSecret string
 }
 
 // ScaleResults holds the results of the scale load test.
@@ -48,6 +66,14 @@ func main() {
 		metricsInterval = flag.Duration("metrics-interval", 60*time.Second, "Metrics interval")
 		reportInterval  = flag.Duration("report-interval", 30*time.Second, "Status report interval")
 		timeout         = flag.Duration("timeout", 10*time.Second, "HTTP request timeout")
+		skipRegister    = flag.Bool("skip-register", false, "Skip agent registration (reuse a seeded installation)")
+		tenants         = flag.Int("tenants", 5, "Tenants to create for the tenancy phase")
+		consoleRPS      = flag.Int("console-rps", 100, "Console requests per second per actor")
+		consoleSeconds  = flag.Int("console-seconds", 60, "Console campaign length per actor")
+		consoleWorkers  = flag.Int("console-workers", 20, "Workers per console campaign")
+		adminPassword   = flag.String("admin-password", "Scale-Admin-2.3!", "Admin/technician password")
+		enrollSecret    = flag.String("enrollment-secret", "dev-enrollment-secret", "Agent enrollment secret")
+		skipSimulation  = flag.Bool("skip-simulation", false, "Skip the heartbeat/metrics phase (tenancy only)")
 	)
 	flag.Parse()
 
@@ -60,6 +86,15 @@ func main() {
 		MetricsInterval:   *metricsInterval,
 		ReportInterval:    *reportInterval,
 		Timeout:           *timeout,
+		EnrollmentSecret:  *enrollSecret,
+	}
+
+	tc := TenancyConfig{
+		Tenants:        *tenants,
+		ConsoleRPS:     *consoleRPS,
+		ConsoleSeconds: *consoleSeconds,
+		ConsoleWorkers: *consoleWorkers,
+		AdminPassword:  *adminPassword,
 	}
 
 	fmt.Printf("=== OurWay RMM Scale Load Test ===\n")
@@ -81,17 +116,25 @@ func main() {
 	}
 
 	// Phase 1: Register all devices
-	fmt.Printf("Phase 1: Registering %d devices...\n", cfg.DeviceCount)
 	registerStart := time.Now()
-	deviceKeys, registerSuccess := registerDevices(client, cfg, cfg.DeviceCount)
+	var deviceKeys []string
+	registerSuccess := 0
+	if *skipRegister {
+		fmt.Printf("Phase 1: skipped (reusing the seeded installation)\n\n")
+	} else {
+		fmt.Printf("Phase 1: Registering %d devices...\n", cfg.DeviceCount)
+		deviceKeys, registerSuccess = registerDevices(client, cfg, cfg.DeviceCount)
+	}
 	fmt.Printf("  Registered %d/%d devices in %v\n\n", registerSuccess, cfg.DeviceCount, time.Since(registerStart))
 
-	if len(deviceKeys) == 0 {
+	if len(deviceKeys) == 0 && !*skipRegister {
 		log.Fatal("No devices registered, cannot continue with load test")
 	}
 
 	// Phase 2: Run heartbeat and metrics simulation
-	fmt.Printf("Phase 2: Running heartbeat and metrics simulation for %v...\n", cfg.Duration)
+	if !*skipSimulation {
+		fmt.Printf("Phase 2: Running heartbeat and metrics simulation for %v...\n", cfg.Duration)
+	}
 
 	results := &ScaleResults{}
 	stop := make(chan struct{})
@@ -118,13 +161,15 @@ func main() {
 	}()
 
 	// Start device simulation workers
-	runDeviceSimulation(client, cfg, deviceKeys, results, stop)
+	if !*skipSimulation {
+		runDeviceSimulation(client, cfg, deviceKeys, results, stop)
 
-	// Wait for duration
-	time.Sleep(cfg.Duration)
+		// Wait for duration
+		time.Sleep(cfg.Duration)
 
-	// Stop simulation
-	close(stop)
+		// Stop simulation
+		close(stop)
+	}
 
 	// Final report
 	totalRequests := atomic.LoadInt64(&results.HeartbeatRequests) + atomic.LoadInt64(&results.MetricsRequests)
@@ -145,15 +190,45 @@ func main() {
 	fmt.Printf("  Total Success:       %d\n", totalSuccess)
 	fmt.Printf("  Total Failed:        %d\n", totalFailed)
 	fmt.Printf("  Requests/sec:        %.2f\n", float64(totalRequests)/totalDuration.Seconds())
-	successRate := float64(totalSuccess) / float64(totalRequests) * 100
+	successRate := 0.0
+	if totalRequests > 0 {
+		successRate = float64(totalSuccess) / float64(totalRequests) * 100
+	}
 	fmt.Printf("  Success Rate:        %.2f%%\n", successRate)
 	fmt.Printf("  Total Bytes Sent:    %d\n", atomic.LoadInt64(&results.TotalBytesSent))
 	fmt.Printf("  Total Bytes Received: %d\n", atomic.LoadInt64(&results.TotalBytesReceived))
 
-	if successRate < 99.0 {
+	if totalRequests > 0 && successRate < 99.0 {
 		log.Printf("WARNING: Success rate below 99%% target")
-	} else {
-		fmt.Printf("\n  PASS: All targets met\n")
+	} else if totalRequests > 0 {
+		fmt.Printf("\n  PASS: agent-edge targets met\n")
+	}
+
+	// Phase 3: seed the tenancy a real installation has after the upgrade
+	// guide is followed. Phase 4: read the console as the admin (the unscoped
+	// baseline) and as a technician granted one tenant (the scoped measurement).
+	//
+	// The server's per-user request budget (100/min, 2.2-3) is what the console
+	// is built to live inside. A campaign at 100 req/s is above it by design —
+	// the run raises RATE_LIMIT_PER_MINUTE so this measures the cost of the
+	// scoped read, and not the limiter's refusal. The console's own budget is
+	// asserted in the api suite, not here.
+	fmt.Printf("\nPhase 3: seeding tenancy (%d tenants over the registered fleet)...\n", tc.Tenants)
+	seedStart := time.Now()
+	adminToken := loginAdmin(client, cfg, tc)
+	fmt.Printf("  admin signed in (+%v)\n", time.Since(seedStart).Truncate(time.Millisecond))
+	techTokens, scopedUnits := seedTenancy(client, cfg, tc, adminToken)
+	fmt.Printf("  tenancy seeded in %v\n", time.Since(seedStart).Truncate(time.Millisecond))
+	fmt.Printf("  %d technicians, each granted %d units\n\n", len(techTokens), scopedUnits)
+
+	fmt.Printf("Phase 4: console reads at %d req/s for %ds per actor\n", tc.ConsoleRPS, tc.ConsoleSeconds)
+	campaignStart := time.Now()
+	baseline := runCampaign(client, cfg, tc, "admin (unscoped baseline)", []string{adminToken}, cfg.DeviceCount)
+	fmt.Printf("  baseline campaign finished (+%v)\n", time.Since(campaignStart).Truncate(time.Millisecond))
+	scoped := runCampaign(client, cfg, tc, "technicians (scoped)", techTokens, scopedUnits)
+	fmt.Printf("  scoped campaign finished (+%v)\n", time.Since(campaignStart).Truncate(time.Millisecond))
+	if !reportTenancy(baseline, scoped) {
+		os.Exit(1)
 	}
 }
 
@@ -188,6 +263,7 @@ func registerDevices(client *http.Client, cfg ScaleConfig, count int) ([]string,
 				return
 			}
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Enrollment-Secret", cfg.EnrollmentSecret)
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -291,6 +367,7 @@ func sendHeartbeat(client *http.Client, cfg ScaleConfig, deviceKey string, resul
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Device-Key", deviceKey)
+	req.Header.Set("X-Enrollment-Secret", cfg.EnrollmentSecret)
 
 	resp, err := client.Do(req)
 	if err != nil {

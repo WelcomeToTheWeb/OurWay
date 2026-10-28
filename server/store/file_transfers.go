@@ -40,16 +40,24 @@ func (s *FileTransferStore) ListByDevice(deviceID string) ([]models.FileTransfer
 	return transfers, err
 }
 
-// ListScoped returns transfers whose unit is in `deviceIDs`, plus transfers that
-// have no unit yet (an upload staged before it is pushed — it carries no unit's
-// data, so scoping it would be scoping the wrong thing).
-func (s *FileTransferStore) ListScoped(deviceIDs []string) ([]models.FileTransfer, error) {
-	query := s.db.Order("created_at DESC")
-	if len(deviceIDs) == 0 {
-		query = query.Where("device_id = ''")
-	} else {
-		query = query.Where("device_id IN ? OR device_id = ''", deviceIDs)
+// ListScoped returns the transfers of the caller's **clients**, plus transfers
+// that have no unit yet (an upload staged before it is pushed — it carries no
+// unit's data, so scoping it would be scoping the wrong thing).
+//
+// The client set goes into the statement as a subquery over the fleet, not as a
+// list of unit ids (2.3-8): the budget is the caller's tenant count, never
+// their unit count.
+func (s *FileTransferStore) ListScoped(clientIDs []string, includeUnassigned bool) ([]models.FileTransfer, error) {
+	query := s.db.Order("created_at DESC").Where("device_id = ''")
+	if len(clientIDs) == 0 && !includeUnassigned {
+		// No grants: the unit-less transfers are all this caller can be shown.
+		var staged []models.FileTransfer
+		if err := query.Find(&staged).Error; err != nil {
+			return nil, err
+		}
+		return staged, nil
 	}
+	query = query.Where("device_id IN (?)", visibleUnitIDs(s.db, clientIDs, includeUnassigned))
 	var transfers []models.FileTransfer
 	if err := query.Find(&transfers).Error; err != nil {
 		return nil, err
