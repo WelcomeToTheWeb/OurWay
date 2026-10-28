@@ -82,9 +82,16 @@ Tests: `server/api/scope_test.go`.
 - [x] Out-of-scope device → `404` with the same body as a nonexistent device
       (`{"error":"device not found"}`). Same shape, same status: scoping must not
       leak which IDs exist.
-- [ ] Scope changes to a user are audited (2.3-6) and take effect without
-      re-authentication. *(The take-effect half is delivered; the audit half is
-      2.3-6, which needs this resolver's `CallerUserID`.)*
+- [x] Scope changes to a user are audited (2.3-6) and take effect without
+      re-authentication. *Both halves: `TestClientsGrantUsers` asserts the grant is
+      live on the **next request with the same access token** (no logout, no
+      re-login), and `TestAuditRecordsClientGrant` asserts the grant is a row —
+      naming the tenant (`client_id`, `target_id`), the granted account and the
+      `was` set it replaced, the technician's refused attempt as a
+      `refused` row written by `RequireAnyRole` (which aborts before any handler,
+      so no handler-side writer could have recorded it), and the tenant scoping of
+      the rows themselves: the granted client's manager reads exactly their
+      client's grant rows, and a manager of another tenant reads none.*
 
 **Acceptance criteria**
 - A technician scoped to client A requesting `GET /api/devices/<B's id>` gets
@@ -562,11 +569,23 @@ scripts/release.sh --check 2.3.0
 
 Plus, non-negotiable for this release:
 
-- [ ] The scoping matrix (2.3-2) and the atomicity tests (2.3-3) are green — they
-      are the release.
-- [ ] The audit coverage test fails the build when a mutating route is un-audited
-      (2.3-6).
-- [ ] 2.2 → 2.3 Postgres upgrade test green, with devices preserved (2.3-7).
+- [x] The scoping matrix (2.3-2) and the atomicity tests (2.3-3) are green — they
+      are the release. **Measured:** 16 `TestScope*` tests pass on `./api`
+      (`TestScopeRoleMatrixOnEveryReadSurface`, `TestScopeEveryDeviceRouteKindAnswersTheSameNotFound`,
+      `TestScopeFleetListsCarryNoForeignRows`, `TestScopeBulkRefusalWritesNothing`,
+      `TestScopeBulkTargetsFailNamingTheIds`, `TestScopeRevocationTakesEffectOnTheNextRequest`,
+      …), and the whole server suite is green under `-race`.
+- [x] The audit coverage test fails the build when a mutating route is un-audited
+      (2.3-6). `TestEveryMutatingRouteIsAudited` enumerates the live router and
+      fails on a mutating route with no registered action *and* no written skip
+      reason — and it fails on a skip entry that names a route the router no
+      longer has, so the exemption list cannot rot.
+- [x] 2.2 → 2.3 Postgres upgrade test green, with devices preserved (2.3-7).
+      **Measured** with `OURWAY_TEST_PG_DSN` set: `TestPostgresMigrationsUpgradeFromV22`
+      rolls a 2.3 schema back to 2.2 (dropping `client_id`, `user_clients`,
+      `clients`, the enrollment-token table, and the migration records above
+      version 7), re-runs `Migrate` twice, and asserts every device survives with
+      no client — the upgrade assigns nothing.
 - [x] Load test green with scoping enabled (2.3-8) — 10,000 units, a technician
       scoped to 2,000, 100 req/s, zero failures, scoped p95 under the unscoped
       baseline; the numbers are in 2.3-8.
