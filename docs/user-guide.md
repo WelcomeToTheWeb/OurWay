@@ -110,6 +110,30 @@ Open the client's detail (**Open {{name}} detail**) and tick the units it owns, 
   technicians, last seen — is the same arithmetic the device ledger does over the
   same rows.
 
+### Enrolling a Unit Directly Into a Client (2.3-4c)
+
+Assignment moves a unit that is already enrolled. A **token** skips the matching
+game: mint one for the client, hand it to the technician running the installer, and
+the machine that enrolls with it joins **that client**.
+
+In the client's detail, under **Enrollment tokens**: name it (**Token label** —
+"front desk image", "Q4 build"), choose a window (**Expiry**: 7 / 30 / 90 / 365
+days, or no expiry), and press **New token**.
+
+- Paste the value into the agent's enrollment secret, where the installation's
+  secret would go. It is the same field: a **token places the unit in a tenant**,
+  the installation secret enrolls it **unassigned** as before.
+- The value is shown **once**. The server keeps only its hash, so there is no
+  "show token" control — copy it when it appears, and mint a fresh one if it is
+  lost. Minting is cheap; a lost token is revoked, not recovered.
+- **Revoke** it when the job ends. Units already enrolled keep reporting and stay
+  in the client; agents presenting the token are refused from the next request.
+- A token cannot claim a machine that already belongs to another tenant. It claims
+  an unassigned unit, and the tenant it names becomes that unit's owner.
+
+Minting and revoking are `admin` acts, and both are written to the audit ledger
+against the tenant — with the label, never the secret.
+
 ### Granting a Client to an Account
 
 In the client's detail, tick the accounts under **access** and press **Save

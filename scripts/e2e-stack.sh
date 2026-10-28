@@ -7,6 +7,12 @@
 #   scripts/e2e-stack.sh test       # restart, then run the Playwright suite
 #   scripts/e2e-stack.sh stop
 #
+# The rate dial is raised here (as in `.github/workflows/e2e.yml`): the suite is
+# one user making many reads across 25 specs, and a harness that trips the
+# server's budget answers 429 mid-run, which reads to the next reader as a missing
+# control. The budget itself is asserted by `web/e2e/fleet.spec.ts` against the
+# documented default (100/min), which is where that claim belongs.
+#
 # Two shapes, one script. `REDIS_ENABLED=true REDIS_URL=… scripts/e2e-stack.sh
 # test` is the shape CI runs (the fleet cache, the rate limiter and the WS
 # fan-out live in Redis); the default is Redis off, which is the single-box
@@ -91,8 +97,8 @@ fi
   REDIS_URL="${REDIS_URL}" \
   JWT_SECRET=devlocalsecret \
   ENROLLMENT_SECRET="${ENROLLMENT_SECRET-dev-enrollment-secret}" \
-  RATE_LIMIT_PER_MINUTE=600 \
-  RATE_LIMIT_BURST=60 \
+  RATE_LIMIT_PER_MINUTE="${RATE_LIMIT_PER_MINUTE:-2000}" \
+  RATE_LIMIT_BURST="${RATE_LIMIT_BURST:-200}" \
   "$ROOT/.tmp/ourway-e2e-server" >/tmp/ourway-e2e-server.log 2>&1 &)
 
 cd "$ROOT/web"

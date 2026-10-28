@@ -334,7 +334,10 @@ test("a tenant's enrollment token places a new unit in that tenant", async ({ pa
   await page.goto('/clients');
   await page.getByRole('button', { name: new RegExp(`open ${CLIENT_NAME} detail`, 'i') }).click();
   const panel = page.getByLabel(`${CLIENT_NAME} detail`);
-  await expect(panel.getByText('Enrollment tokens')).toBeVisible();
+  // The heading, not a text match: "Enrollment tokens" is also inside the
+  // empty state's sentence ("No enrollment tokens. …"), and a text locator that
+  // resolves to two elements is Playwright's strict mode refusing to guess.
+  await expect(panel.getByRole('heading', { name: 'Enrollment tokens' })).toBeVisible();
 
   await panel.getByLabel('Token label').fill('field kit');
   await panel.getByRole('button', { name: 'New token' }).click();
@@ -371,7 +374,9 @@ test("a tenant's enrollment token places a new unit in that tenant", async ({ pa
   await page.reload();
   await page.getByRole('button', { name: new RegExp(`open ${CLIENT_NAME} detail`, 'i') }).click();
   const reopened = page.getByLabel(`${CLIENT_NAME} detail`);
-  await expect(reopened.getByText(hostname)).toBeVisible({ timeout: 15_000 });
+  // The panel names the machine twice — its own name and its hostname, both
+  // carrying the string — so the assertion takes the first row it resolves to.
+  await expect(reopened.getByText(hostname).first()).toBeVisible({ timeout: 15_000 });
 
   // The secret is gone: the panel lists the credential, not its value. This is
   // the assertion a reviewer should expect a UI to fake, so it is stated

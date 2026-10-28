@@ -193,7 +193,7 @@ is an action on a client the caller must not touch.
 
 ---
 
-## 2.3-4 · Client CRUD + the Clients surface · 🔨 API half delivered, console half open
+## 2.3-4 · Client CRUD + the Clients surface · ✅ delivered (API #46, console #47, enrollment tokens 2.3-4c)
 
 **Split, and why.** The API and the console surface are two PRs: the API is the
 contract (and `docs/api.md` moves with it), and the console is the ledger, the
@@ -219,11 +219,18 @@ Tests: `server/api/clients_test.go` (6 tests over the real router).
       /api/clients/:id/users`, which the plan's 2.3-4 acceptance needs to grant a
       technician two clients in the first place — the grants are rows, and
       without an endpoint there is no way to create them outside the store.
-- [ ] `admin` manages clients; `manager` reads clients in scope. Deleting a client
-      moves its devices to `unassigned` — never deletes devices.
-- [ ] Assign a client at enrollment via the enrollment flow when
+- [x] `admin` manages clients; `manager` reads clients in scope. Deleting a client
+      moves its devices to `unassigned` — never deletes devices. (`TestClientsCRUD`
+      asserts a manager's `POST /api/clients` and `PUT /api/clients/:id` answer 403;
+      `TestClientsTwoGrantsSeeExactlyTwo` asserts the scoped read.)
+- [x] Assign a client at enrollment via the enrollment flow when
       `ENROLLMENT_SECRET` is paired with a client (a per-client enrollment token);
-      otherwise a new unit lands in `unassigned`.
+      otherwise a new unit lands in `unassigned`. **Delivered as 2.3-4c:**
+      `client_enrollment_tokens` (migration 11), the admin-only
+      `GET/POST /api/clients/:id/tokens` +
+      `DELETE /api/clients/:id/tokens/:tokenId`, and registration accepting the
+      token in `X-Enrollment-Secret`. The installation secret's answer is
+      unchanged — unassigned — asserted by `TestGlobalEnrollmentSecretIsUnchangedByTokens`.
 - [x] Console: Clients ledger (units, alerts by severity, patch compliance, last
       seen), client detail with unit list, assign/unassign, per-client technician
       assignment (`web/src/pages/Clients.tsx`, `web/src/api/clients.ts`, nav
@@ -254,6 +261,26 @@ Tests: `server/api/clients_test.go` (6 tests over the real router).
 - [x] `web/e2e/clients.spec.ts` walks the MSP story in the console: create,
       assign, grant, then the technician's own console showing exactly that
       fleet, with the server's scope header asserting they are not scope-all.
+- [x] **2.3-4c (the third piece, on its own gate):** the token places the unit in
+      the tenant it names (`TestEnrollmentTokenPlacesTheUnitInTheTenant` — the mint
+      response, the enrolled row's `client_id`, the list carrying **no secret**,
+      the audit row naming the tenant and not the secret, and the `last_used_at`
+      stamp); an inert token is indistinguishable from one that never existed
+      (`TestInertEnrollmentTokenAnswersAsOneThatNeverExisted` compares the refusal
+      **bodies**, so enrollment is not a probe for which tokens exist);
+      `TestEnrollmentTokenRoutesAreAdminOnly` (a manager of the tenant may not read
+      or mint its credentials); expiry validated at the boundary, with **omitting
+      it meaning no expiry**; the credential table ships with 2.3 and carries its
+      unique hash index (`TestPostgresMigrationsUpgradeFromV22`); tokens die with
+      the client (`TestClientDeleteDropsItsEnrollmentTokens`); and the C4 gate
+      stays shut against a tenant credential reaching another tenant's unit
+      (`TestReRegistrationWithClientTokenAssignsOnlyUnassignedUnits` — found by the
+      test, and the reason the grant is `the tenant the unit already belongs to`,
+      not any live token). Console: `Clients.test.tsx` (mint prints the secret
+      once, no control re-shows it, revocation confirms in words naming the
+      consequence, a technician is asked for nothing and the read is not issued);
+      `tenancy.spec.ts` mints in the console, enrolls through the agent's own
+      registration call, and shows the unit in the tenant.
 
 ---
 

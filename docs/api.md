@@ -540,6 +540,49 @@ Grants are **rows**, not token claims, so a grant added here is visible on the
 technician's next request, and a grant revoked here stops their access on their
 next request — same access token, no logout, no re-login.
 
+### Enrollment tokens · admin (API v2.3-4c)
+
+A tenant's **enrollment credential**: an agent that registers presenting it
+becomes a unit *of that tenant*. All three routes are `admin`-only, **reads
+included** — a token is the ability to place a machine inside a customer's tenant,
+and the grant model says nothing about who may hand that out.
+
+| Route | Behaviour |
+|---|---|
+| `GET /api/clients/:id/tokens` | the tenant's tokens, newest first, revoked rows included. **No secret in any column.** |
+| `POST /api/clients/:id/tokens` | mint one. Body `{"label": "front desk image", "expires_in_days": 30}`. `expires_in_days` is optional, and **omitting it means the token never expires**; a value must be 1–3650. `201` returns the token row plus `token_value` — the plaintext, **once**. |
+| `DELETE /api/clients/:id/tokens/:tokenId` | revoke. A token id that is not this tenant's answers the 404 a nonexistent id gets. |
+
+The server stores **only the SHA-256 hash** of the secret
+(`models.ClientEnrollmentToken` has no plaintext column, unlike `models.APIKey`),
+so no read returns a token value. Registration hashes what the agent presented and
+walks the unique index on the hash — one indexed read per enrollment, no scan of
+credentials.
+
+`client.token_create` and `client.token_revoke` are audit rows on the tenant whose
+credential they touched. **They never contain the secret**: the ledger is the
+record of who minted what, not a second copy of the credential.
+
+#### Enrollment accepts it in the header the agent already sends
+
+`POST /api/agent/register` takes the credential in `X-Enrollment-Secret`, and both
+kinds are accepted there:
+
+- the installation's `ENROLLMENT_SECRET` → the unit joins **unassigned**: the
+  pre-2.3 meaning, byte for byte, which is 2.3's wire contract (agents are
+  unaffected);
+- a tenant's token → the unit joins **that tenant**;
+- anything else, including a revoked or expired token → the 401 the agent already
+  knows. An expired token, a revoked token and a token that never existed answer
+  **identically**, so the enrollment endpoint is not a probe for which tokens
+  exist.
+
+Re-registration (the installer run twice) keeps its C4 rule — the device key, the
+installation secret, **or the token of the tenant the unit already belongs to**. A
+tenant's token is not a skeleton key: it cannot claim a unit placed in another
+tenant. It does claim an **unassigned** unit, moving it into the tenant its
+credential names.
+
 ### GET /api/audit · admin, manager
 
 The audit ledger: every mutating act, its actor, its target, and what the
