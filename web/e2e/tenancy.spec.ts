@@ -23,10 +23,14 @@
  */
 import { test, expect } from '@playwright/test';
 import type { APIRequestContext, Page } from '@playwright/test';
-import { ADMIN_PASSWORD, ADMIN_USER, apiBase, manifest, reFor, seededTitle, uiLogin } from './fixtures.js';
+import { ADMIN_PASSWORD, ADMIN_USER, apiBase, manifest, reFor, RUN_SUFFIX, seededTitle, uiLogin } from './fixtures.js';
 
-const CLIENT_NAME = 'e2e-Tenancy Grid';
-const TECH_USER = 'e2e-tenancy-tech';
+// Names carry the run id (see the note in `clients.spec.ts`): every one of these
+// fixtures is create-if-missing, so a shared database keeps them and each run
+// adds to them — a client with one more unit than the spec asserts, a technician
+// with one more grant, an accessible name that resolves to two elements.
+const CLIENT_NAME = `e2e-Tenancy Grid${RUN_SUFFIX}`;
+const TECH_USER = `e2e-tenancy-tech${RUN_SUFFIX}`;
 const TECH_PASSWORD = 'E2eTenancyTech!23';
 
 /** The unit this spec owns: the fleet's middle unit (see the header). */

@@ -110,7 +110,12 @@ npm run test:e2e --prefix web
 machine has no Go toolchain (this repo's dev container): it recreates the
 `ourway_e2e` database, builds the server in a Go container, runs it on the host
 at `:9099`, and serves the built bundle at `:3100` with the proxy pointed at it.
-Then:
+`scripts/e2e-stack.sh test` does that **and** runs the suite with the URLs, the
+enrollment secret and a fresh `OURWAY_E2E_RUN_ID` exported — one command, the shape
+CI runs (`REDIS_ENABLED=true scripts/e2e-stack.sh test`), and the shape the device
+cache is exercised in. `test` recreates the database on purpose: see the run-id
+note in `docs/development.md`, because the suite's seed is create-if-missing.
+Then, by hand:
 
 ```sh
 OURWAY_E2E_ENROLLMENT_SECRET=dev-enrollment-secret \
