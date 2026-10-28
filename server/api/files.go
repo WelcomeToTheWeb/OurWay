@@ -349,16 +349,11 @@ func (h *FileHandler) ListTransfers(c *gin.Context) {
 		return
 	}
 
-	visible, _, err := scope.VisibleDeviceIDs(h.store)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
-		return
-	}
-	// The unit filter is the store's SQL. A transfer with no unit yet — an
-	// upload staged before it is pushed — carries no unit's data, so it stays
-	// visible: scoping is about units, and hiding a caller's own staged file
-	// would be scoping the wrong thing.
-	transfers, err := h.store.FileTransfers.ListScoped(visible)
+	// The unit filter is the store's SQL over the caller's clients. A transfer
+	// with no unit yet — an upload staged before it is pushed — carries no
+	// unit's data, so it stays visible: scoping is about units, and hiding a
+	// caller's own staged file would be scoping the wrong thing.
+	transfers, err := h.store.FileTransfers.ListScoped(scope.ClientIDs(), scope.IncludeUnassigned())
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -383,7 +378,7 @@ func (h *FileHandler) scopedTransfer(c *gin.Context) (*models.FileTransfer, bool
 	}
 	scope.ApplyScopeHeader(c)
 	if transfer.DeviceID != "" {
-		ok, err := scope.AllowsDeviceID(transfer.DeviceID, h.store)
+		ok, err := scope.AllowsDeviceID(c, transfer.DeviceID, h.store)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
 			return nil, false

@@ -134,15 +134,57 @@ func (s clientScope) VisibleDeviceIDs(st *store.Store) (ids []string, restricted
 	return ids, true, nil
 }
 
+// visibleIDsCacheKey is where a request keeps its resolved unit set.
+const visibleIDsCacheKey = "ourway.visible_device_ids"
+
+// VisibleDeviceIDsIn is `VisibleDeviceIDs` resolved **once per request**.
+//
+// 2.3-8's stated failure case is the bulk deploy with 500 targets: the check is
+// per target, and a per-check store read makes the request's query count scale
+// with the target count — 500 reads of a scoped fleet list, each of which is
+// itself the whole tenant. The scope is a property of the request, so the
+// request resolves it once and every later check on the same request reads the
+// cached set.
+func (s clientScope) VisibleDeviceIDsIn(c *gin.Context, st *store.Store) ([]string, bool, error) {
+	if s.all {
+		return nil, false, nil
+	}
+	if cached, ok := c.Get(visibleIDsCacheKey); ok {
+		set, valid := cached.(map[string]struct{})
+		if valid {
+			ids := make([]string, 0, len(set))
+			for id := range set {
+				ids = append(ids, id)
+			}
+			slices.Sort(ids)
+			return ids, true, nil
+		}
+	}
+	ids, restricted, err := s.VisibleDeviceIDs(st)
+	if err != nil {
+		return nil, restricted, err
+	}
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	c.Set(visibleIDsCacheKey, set)
+	return ids, restricted, nil
+}
+
 // AllowsDeviceID checks an entity's unit. `restricted` callers must name a unit
 // they can see; admin passes. An entity whose device is missing is out of scope
 // for a restricted caller and visible to admin, which is what an orphaned row
 // means for each role.
-func (s clientScope) AllowsDeviceID(deviceID string, st *store.Store) (bool, error) {
+//
+// It takes the request, not just the store, because the check is per row: on a
+// list response this runs once per alert, per update, per transfer, and the
+// answer must come from the request's one resolved set.
+func (s clientScope) AllowsDeviceID(c *gin.Context, deviceID string, st *store.Store) (bool, error) {
 	if s.all {
 		return true, nil
 	}
-	ids, _, err := s.VisibleDeviceIDs(st)
+	ids, _, err := s.VisibleDeviceIDsIn(c, st)
 	if err != nil {
 		return false, err
 	}

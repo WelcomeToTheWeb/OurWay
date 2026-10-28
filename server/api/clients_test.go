@@ -380,7 +380,9 @@ func TestClientsRollupMatchesTheLedgers(t *testing.T) {
 		t.Fatalf("rollup units_online = %d, want %d", r.UnitsOnline, online)
 	}
 
-	alerts, err := f.st.Alerts.ListScoped(ids, nil, true)
+	// Independent computation over the same client-scoped reads the ledgers and
+	// the rollup use — the client set, not the unit list it names (2.3-8).
+	alerts, err := f.st.Alerts.ListScoped([]string{f.alice.ID}, false, nil, true)
 	if err != nil {
 		t.Fatalf("scoped alerts: %v", err)
 	}
@@ -398,7 +400,7 @@ func TestClientsRollupMatchesTheLedgers(t *testing.T) {
 			r, len(alerts), critical, warning)
 	}
 
-	updates, err := f.st.SoftwareUpdates.ListByStatusesScoped(openStatuses, ids)
+	updates, err := f.st.SoftwareUpdates.ListByStatusesScoped(openStatuses, []string{f.alice.ID}, false)
 	if err != nil {
 		t.Fatalf("scoped updates: %v", err)
 	}

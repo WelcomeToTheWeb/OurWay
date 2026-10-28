@@ -36,7 +36,7 @@ func (h *PatchHandler) PatchOverview(c *gin.Context) {
 	// The overview is the fleet's compliance picture, so it is the caller's
 	// scope: a manager who owns two clients must not see the installation's
 	// counts, because the counts are the other clients' patch debt.
-	scope, visible, restricted, err := h.fleetScope(c)
+	scope, _, restricted, err := h.fleetScope(c)
 	if err != nil {
 		ScopeError(c)
 		return
@@ -47,7 +47,7 @@ func (h *PatchHandler) PatchOverview(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to list devices"})
 		return
 	}
-	open, err := h.scopedOpenUpdates(scope, visible, restricted)
+	open, err := h.scopedOpenUpdates(scope, restricted)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list updates"})
 		return
@@ -130,13 +130,13 @@ type fleetUpdate struct {
 // single approval can cover every device that needs it.
 // GET /api/patch/updates
 func (h *PatchHandler) ListFleetUpdates(c *gin.Context) {
-	scope, visible, restricted, err := h.fleetScope(c)
+	scope, _, restricted, err := h.fleetScope(c)
 	if err != nil {
 		ScopeError(c)
 		return
 	}
 
-	open, err := h.scopedOpenUpdates(scope, visible, restricted)
+	open, err := h.scopedOpenUpdates(scope, restricted)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to list updates"})
 		return

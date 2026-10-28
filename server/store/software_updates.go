@@ -164,18 +164,18 @@ func (s *SoftwareUpdateStore) RevertToApproved(deploymentID, deviceID string) er
 		Updates(map[string]interface{}{"status": "approved", "deployment_id": ""}).Error
 }
 
-// ListByStatusesScoped returns the open updates whose **unit** is in
-// `deviceIDs`. Empty set, no rows — see `AlertStore.ListScoped` for why the
-// filter belongs in the SQL.
-func (s *SoftwareUpdateStore) ListByStatusesScoped(statuses []string, deviceIDs []string) ([]models.SoftwareUpdate, error) {
-	if len(deviceIDs) == 0 {
+// ListByStatusesScoped returns the open updates of the caller's **clients**.
+// Empty client set, no rows — see `AlertStore.ListScoped` for why the filter
+// belongs in the SQL, and `scopeByClient` for why it is the client set that
+// goes in, not the units it names.
+func (s *SoftwareUpdateStore) ListByStatusesScoped(statuses []string, clientIDs []string, includeUnassigned bool) ([]models.SoftwareUpdate, error) {
+	query := s.db.Where("status IN ?", statuses)
+	query, keep := scopeByClient(s.db, query, "device_id", clientIDs, includeUnassigned)
+	if !keep {
 		return []models.SoftwareUpdate{}, nil
 	}
 	var updates []models.SoftwareUpdate
-	if err := s.db.Where("status IN ?", statuses).
-		Where("device_id IN ?", deviceIDs).
-		Order("created_at DESC").
-		Find(&updates).Error; err != nil {
+	if err := query.Order("created_at DESC").Find(&updates).Error; err != nil {
 		return nil, err
 	}
 	return updates, nil

@@ -19,19 +19,20 @@ func (s *AlertStore) Create(a *models.Alert) error {
 	return s.db.Create(a).Error
 }
 
-// ListScoped returns alerts whose **unit** is in `deviceIDs` — the caller's
-// visible fleet. An empty set answers no rows: a caller with no scope has no
-// alerts, and reading the whole table to trim it in the handler is both the leak
-// and the cost this release is meant to remove (2.3-2's criterion is that the
-// client filter is in the SQL).
+// ListScoped returns the alerts of the caller's **clients** — the client set,
+// not a list of their units. 2.3-2 put the filter in the SQL; 2.3-8 put the
+// *client* in the SQL, so a technician scoped to a 2,000-unit tenant issues the
+// same two-parameter statement as one scoped to two units
+// (`scopeByClient`, and `TestScopedListQueryDoesNotScaleWithTheFleet` counts
+// the bind parameters to keep that true).
 //
-// `deviceIDs` is the unit set, not a client set: alerts store a `device_id` and
-// no client, so the client meaning is resolved once, by the caller, into units.
-func (s *AlertStore) ListScoped(deviceIDs []string, deviceID *string, unresolvedOnly bool) ([]models.Alert, error) {
-	if len(deviceIDs) == 0 {
+// An empty client set answers no rows: a caller with no scope has no alerts.
+func (s *AlertStore) ListScoped(clientIDs []string, includeUnassigned bool, deviceID *string, unresolvedOnly bool) ([]models.Alert, error) {
+	query := s.db.Order("created_at DESC")
+	query, keep := scopeByClient(s.db, query, "device_id", clientIDs, includeUnassigned)
+	if !keep {
 		return []models.Alert{}, nil
 	}
-	query := s.db.Order("created_at DESC").Where("device_id IN ?", deviceIDs)
 	if deviceID != nil && *deviceID != "" {
 		query = query.Where("device_id = ?", *deviceID)
 	}

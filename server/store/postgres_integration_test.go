@@ -1,8 +1,13 @@
 package store
 
 import (
+	"fmt"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
+
+	"gorm.io/gorm"
 
 	"github.com/google/uuid"
 
@@ -270,5 +275,107 @@ func TestPostgresMigrationsUpgradeFromV22(t *testing.T) {
 		if !indexed {
 			t.Errorf("%s has no index covering %s", probe.table, probe.want)
 		}
+	}
+}
+
+// seqScanRE matches a plan node that reads `alerts` sequentially: the shape
+// failure 2.3-8 exists to catch — every scoped list request reading the whole
+// installation's alert history and discarding most of it.
+var seqScanRE = regexp.MustCompile(`"Node Type": "Seq Scan"[\s\S]{0,120}?"Relation Name": "alerts"`)
+
+// TestPostgresScopedReadUsesTheIndexes is 2.3-8's EXPLAIN criterion, run on the
+// engine production uses. SQLite will take any plan; the statement "scoping is a
+// semi-join over the client set, and the planner can walk it" is only a fact on
+// Postgres, so the test asks the planner.
+func TestPostgresScopedReadUsesTheIndexes(t *testing.T) {
+	st := pgStore(t)
+
+	client, err := st.Clients.Create(&models.Client{ID: uuid.NewString(), Name: "Index Co", Slug: "index-co"})
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	// A tenant with a real population: a planner with a handful of rows picks a
+	// sequential scan for reasons of its own, and the criterion is about the
+	// plan at the size the release is built for.
+	ids := make([]string, 0, 400)
+	for i := 0; i < 400; i++ {
+		label := fmt.Sprintf("idx-%03d", i)
+		id := uuid.NewString()
+		ids = append(ids, id)
+		if err := st.Devices.Create(&models.Device{
+			ID: id, Name: label, Hostname: label, OS: "linux", Arch: "amd64",
+			Status: "online", Tags: []string{}, DeviceKey: "k-" + id, ClientID: &client.ID,
+		}); err != nil {
+			t.Fatalf("create device: %v", err)
+		}
+		if err := st.Alerts.Create(&models.Alert{
+			ID: uuid.NewString(), DeviceID: id, DeviceName: label, Severity: "warning",
+			Message: "signal", Metric: "disk", Value: 91, Threshold: 90,
+		}); err != nil {
+			t.Fatalf("create alert: %v", err)
+		}
+	}
+
+	// The indexes migration 10 is named for. Their absence is invisible in a
+	// correctness suite and visible as latency in production.
+	for _, probe := range []struct{ table, want string }{
+		{"devices", "client_id"},
+		{"alerts", "device_id"},
+		{"sessions", "device_id"},
+		{"file_transfers", "device_id"},
+		{"software_updates", "device_id"},
+	} {
+		var indexed bool
+		if err := st.DB.Raw(
+			"SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = ? AND indexdef ILIKE ?)",
+			probe.table, "%"+probe.want+"%",
+		).Row().Scan(&indexed); err != nil {
+			t.Fatalf("index probe on %s: %v", probe.table, err)
+		}
+		if !indexed {
+			t.Errorf("%s has no index covering %s", probe.table, probe.want)
+		}
+	}
+
+	// Ask the planner for the scoped read the alert ledger runs. Sequential
+	// scans are disabled for this transaction so the answer is "can this plan
+	// use the indexes", not "is this table small enough to walk".
+	var plan string
+	err = st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL enable_seqscan = off").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("ANALYZE devices, alerts").Error; err != nil {
+			return err
+		}
+		return tx.Raw(
+			"EXPLAIN (FORMAT JSON) SELECT * FROM alerts WHERE device_id IN (SELECT id FROM devices WHERE client_id IN (?)) ORDER BY created_at DESC",
+			client.ID,
+		).Row().Scan(&plan)
+	})
+	if err != nil {
+		t.Fatalf("explain scoped read: %v", err)
+	}
+	// What the plan must show, and what it must not.
+	//
+	// The fleet side must be walked by the client index — that is the whole
+	// point of scoping by client. The entity side must be an index access: a
+	// sequential scan on `alerts` means every scoped list request reads the
+	// installation's alert history and throws most of it away, which is the
+	// cost this phase is measured against.
+	//
+	// Which alerts index the planner picks is its business. At 400 units it
+	// takes the single-column `device_id` index and sorts the survivors; the
+	// composite `(device_id, created_at)` index above is what serves the read
+	// when the tenant is large enough that the sort is the expensive part.
+	// Asserting the index *name* here would be asserting the planner's mood.
+	if !strings.Contains(plan, "idx_devices_client_id") {
+		t.Errorf("the scoped alert read does not walk the client index:\n%s", plan)
+	}
+	if !strings.Contains(plan, "\"Index Name\": \"idx_alerts") {
+		t.Errorf("the scoped alert read does not use an alerts index:\n%s", plan)
+	}
+	if seqScanRE.MatchString(plan) {
+		t.Errorf("the scoped alert read scans the whole alerts table:\n%s", plan)
 	}
 }
