@@ -248,7 +248,40 @@ export function Audit() {
           }
         />
 
-        {(query.action || query.clientId || query.from) && (
+        {/* The deep link (2.3-6's follow-up): `?target=<unit id>` is "the record
+        of this unit", arriving from a unit view. It is stated on the page — a
+        filter that is invisible in the URL only reads as "the log is short". */}
+        {query.target && (
+          <span className="flex items-center gap-1.5">
+            <Stamp tone="service" title={query.target}>
+              {t('audit.filterTargetFor', { target: `device ${query.target.slice(0, 8)}` })}
+            </Stamp>
+            <button
+              onClick={() => setSearchParams(withAuditParams(searchParams.toString(), { ...query, target: '' }))}
+              className="btn btn-quiet"
+            >
+              {t('audit.filterTargetClear')}
+            </button>
+          </span>
+        )}
+
+        {query.actor && (
+          <span className="flex items-center gap-1.5">
+            <Stamp tone="service" title={query.actor}>
+              {t('audit.filterActorFor', {
+                actor: rows[0]?.actor_username || `user ${query.actor.slice(0, 8)}`,
+              })}
+            </Stamp>
+            <button
+              onClick={() => setSearchParams(withAuditParams(searchParams.toString(), { ...query, actor: '' }))}
+              className="btn btn-quiet"
+            >
+              {t('audit.filterActorClear')}
+            </button>
+          </span>
+        )}
+
+        {(query.action || query.clientId || query.from || query.target || query.actor) && (
           <button
             onClick={() => setSearchParams(withAuditParams(searchParams.toString(), {}))}
             className="btn btn-quiet"

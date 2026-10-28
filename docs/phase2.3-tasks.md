@@ -385,9 +385,11 @@ there is no table, no writer, and no UI. This lands as migration **9**.
       lesson is that a delete method with no caller is not a retention policy).
 - [x] `GET /api/audit` (admin; managers see their clients' rows) with
       actor/action/client/date filters + CSV export.
-- [x] Console: Audit ledger with filters. **Entry points from the unit view and
-      the operator's own profile are not built** — the ledger filters by unit id
-      from its own page, and the deep link is the follow-up noted below.
+- [x] Console: Audit ledger with filters, **including the entry points**: the unit
+      view carries *This unit's record* (`/audit?target=<id>`) and the operator's
+      Settings carries *My acts in the ledger* (`/audit?actor=<id>`), both shown
+      only to the roles that can read the ledger. Follow-up closed; see the note
+      below.
 
 **Acceptance criteria**
 - **Coverage test, not a promise:** a test walks `SetupRouter`'s route list, filters
@@ -460,11 +462,19 @@ The decisions the code records, in the order they were forced:
   `Audit.test.tsx` builds its guard from the locale file's real key paths. A
   test that fails on correct output is a test that gets switched off.
 
-**Follow-up, not shipped in this pass:** the plan's "entry points from device
-detail (*this unit's record*) and from the user's own profile". The ledger
-filters by action, client and date from its own page and the filters are URL
-state, so the deep link is a link; the buttons on the unit view and the profile
-are not built.
+**Follow-up closed (the deep links).** The ledger's filters are URL state, so the
+deep link is a link: `?target=<unit id>` is that machine's record and `?actor=<user
+id>` is one account's acts, each arriving as a stated chip with a one-click clear.
+`target` selects by **record target**, not by tenant, so a unit that has moved
+between clients keeps one continuous history — that is what "what happened to this
+machine" asks for. The filters are filters: the caller's tenant filter runs on top,
+so `?target=` for a unit outside the grant reads an empty ledger
+(`TestAuditDeepLinkFiltersByTargetAndActor`, which also asserts the target filter
+and the actor filter never leak a foreign row). The unit view offers the link only
+to `admin`/`manager` — a technician's `GET /api/audit` is a 403, and a link that
+lands on a refusal is worse than no link — asserted from the technician's own
+sign-in in `tenancy.spec.ts`, with the positive half followed through the admin's
+click in `audit.spec.ts` (link → chip → URL → every row names the unit).
 
 ---
 

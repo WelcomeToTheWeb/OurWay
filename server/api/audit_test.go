@@ -771,7 +771,7 @@ func TestAuditRecordsClientGrant(t *testing.T) {
 	// with no tenant is readable by the admin alone — and a client's manager,
 	// asking who changed who can see that client, is told nothing.
 	granted := f.makeUserWithScope(t, "grant-audit-manager", "manager", f.alice.ID)
-	 outsider := f.makeUserWithScope(t, "grant-audit-outsider", "manager", f.bob.ID)
+	outsider := f.makeUserWithScope(t, "grant-audit-outsider", "manager", f.bob.ID)
 	_, mine, _ := f.get(t, "/api/audit?action=client.grant", granted)
 	_, theirs, _ := f.get(t, "/api/audit?action=client.grant", outsider)
 	if !jsonHasArrayNamed(mine, "logs", 1) {
@@ -779,5 +779,99 @@ func TestAuditRecordsClientGrant(t *testing.T) {
 	}
 	if !jsonHasArrayNamed(theirs, "logs", 0) {
 		t.Errorf("a manager of another tenant reads a grant row: %s", theirs)
+	}
+}
+
+// The ledger's deep links (2.3-6's follow-up): `?target=<unit>` is the record of
+// one machine, and `?actor=<user>` is one account's acts.
+//
+// Two rules the tests pin.
+//
+// **The target filter is a filter, not a scope bypass.** It selects rows by
+// `target_id`, and the caller's tenant filter is applied on top of it — a manager
+// asking for a unit in a tenant they are not granted reads an empty ledger, not
+// the rows. That is the only shape safe to put in a URL a support ticket carries.
+//
+// **The filter is by record target, not by tenant.** A unit that has moved between
+// clients keeps one continuous history, which is what "what happened to this
+// machine" asks for.
+func TestAuditDeepLinkFiltersByTargetAndActor(t *testing.T) {
+	f := newScopeFixture(t)
+	admin := f.makeUserWithScope(t, "deep-admin", "admin")
+	mgr := f.makeUserWithScope(t, "deep-mgr", "manager", f.alice.ID)
+
+	code, body, _ := f.do(t, http.MethodPut, f.baseURL+"/api/devices/"+f.inAlice+"/tags", admin,
+		map[string]any{"tags": []string{"deep-linked"}})
+	if code != http.StatusOK {
+		t.Fatalf("tag act = %d\n%s", code, body)
+	}
+
+	ledger := func(query, token string) []models.AuditLog {
+		t.Helper()
+		code, body, header := f.get(t, "/api/audit?"+query, token)
+		if code != http.StatusOK {
+			t.Fatalf("GET /api/audit?%s = %d\n%s", query, code, body)
+		}
+		var page struct {
+			Logs []models.AuditLog `json:"logs"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			t.Fatalf("decode ledger: %v\n%s", err, body)
+		}
+		_ = header
+		return page.Logs
+	}
+
+	// The admin's deep link: the unit's own record, and nothing else.
+	rows := ledger("target="+f.inAlice, admin)
+	if len(rows) == 0 {
+		t.Fatalf("the unit's record is empty\n%s", dumpAuditRows(rows))
+	}
+	for _, row := range rows {
+		if row.TargetID != f.inAlice {
+			t.Errorf("the target filter leaked %s (action %s)\n%s",
+				row.TargetID, row.Action, dumpAuditRows(rows))
+		}
+	}
+	found := false
+	for _, row := range rows {
+		if row.Action == models.AuditDeviceTags {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the act we just performed is not in the unit's record\n%s", dumpAuditRows(rows))
+	}
+
+	// The actor filter: one account's acts, all of them theirs.
+	adminUser, err := f.st.Users.GetByUsername("deep-admin")
+	if err != nil {
+		t.Fatalf("lookup admin: %v", err)
+	}
+	rows = ledger("actor="+adminUser.ID, admin)
+	if len(rows) == 0 {
+		t.Fatalf("the admin's own acts read empty\n%s", dumpAuditRows(rows))
+	}
+	for _, row := range rows {
+		if row.ActorUserID != adminUser.ID {
+			t.Errorf("the actor filter leaked an act by %q\n%s",
+				row.ActorUserID, dumpAuditRows(rows))
+		}
+	}
+
+	// A scoped caller asking for a unit **outside** their tenants reads nothing.
+	if rows := ledger("target="+f.inBob, mgr); len(rows) != 0 {
+		t.Errorf("a deep link read past the grant\n%s", dumpAuditRows(rows))
+	}
+
+	// The same link for a unit **inside** their tenants reads its record.
+	rows = ledger("target="+f.inAlice, mgr)
+	if len(rows) == 0 {
+		t.Fatalf("the in-scope unit's record is empty for its manager\n%s", dumpAuditRows(rows))
+	}
+	for _, row := range rows {
+		if row.TargetID != f.inAlice {
+			t.Errorf("the scoped record leaked %s\n%s", row.TargetID, dumpAuditRows(rows))
+		}
 	}
 }

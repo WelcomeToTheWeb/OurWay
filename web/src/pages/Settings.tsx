@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   User,
   Bell,
@@ -274,6 +275,26 @@ export function Settings() {
             {savingProfile ? 'Saving...' : 'Save Profile'}
           </button>
         </form>
+        {/* 2.3-6's follow-up: **the operator's own acts**. "What have I done to
+            this installation" is the question an operator asks when something is
+            wrong and they are not sure they are innocent — the ledger already
+            records it, and the profile is where they think to look.
+
+            Shown to the roles that can read the ledger (`admin`, `manager`):
+            `GET /api/audit` is admin-gated with managers reading their clients'
+            rows, so for a technician the link is a 403 page, and a link that
+            lands on a refusal is how an operator learns the console lies to them. */}
+        {(hasRole('admin') || hasRole('manager')) && (
+          <p className="cap cap-sm mt-3">
+            <Link
+              to={`/audit?actor=${user?.id ?? ''}`}
+              className="text-[var(--service)] hover:underline"
+              aria-label={t('settings.profile.auditLinkAria', { name: username })}
+            >
+              {t('settings.profile.auditLink')}
+            </Link>
+          </p>
+        )}
       </div>
 
       {/* Change Password */}

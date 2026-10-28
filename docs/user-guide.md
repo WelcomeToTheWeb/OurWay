@@ -181,6 +181,13 @@ and **what the server answered**. Open it with **Audit** (`g i`).
   after a permissions change is the log doing its job, not an outage.
 - **Filters are URL state** — by action, by tenant, from a date. A filtered ledger
   is a link.
+- **Two deep links.** A unit's page carries **This unit's record**, opening the
+  ledger filtered to that machine; your own **Settings** page carries **My acts in
+  the ledger**, filtered to you. Both arrive as an ordinary filter state, so the URL
+  you land on is the URL you paste into a ticket, and clearing the chip is one click.
+  They are shown to the roles that can read the ledger — **admin** and **manager** —
+  and a technician's unit page does not offer them, because the ledger is a 403 for
+  that role.
 - **Export CSV** downloads the rows behind the current filters, through the
   authenticated request (a download link never carries the session token).
 - **Retention**: rows older than `AUDIT_RETENTION_DAYS` (default 365) are pruned by
@@ -191,7 +198,9 @@ and **what the server answered**. Open it with **Audit** (`g i`).
 
 Asking for a tenant the account is not granted answers an **empty** ledger — the
 ledger's tenant list is a list of which tenants exist in the installation, and an
-error naming one you may not read would leak exactly what the 404 rule closes.
+error naming one you may not read would leak exactly what the 404 rule closes. The
+deep links obey the same rule: `?target=<unit>` is a filter over the rows the
+caller may read, not a way past the grant.
 
 ---
 

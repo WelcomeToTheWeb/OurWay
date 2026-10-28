@@ -589,6 +589,22 @@ the preview bundle, exports `OURWAY_E2E_BASE_URL` / `_API_URL` /
 the single-box shape — and `scripts/e2e-stack.sh restart` / `stop` remain for
 working against a stack by hand.
 
+**Run a single spec from `web/`, not from the repo root.** With a stack up, the way
+to iterate on one test is
+
+```bash
+cd web && OURWAY_E2E_RUN_ID=1 OURWAY_E2E_BASE_URL=http://localhost:3100 \
+  OURWAY_E2E_API_URL=http://localhost:9099 OURWAY_E2E_ENROLLMENT_SECRET=dev-enrollment-secret \
+  npx playwright test audit.spec.ts --config e2e/playwright.config.ts --grep "deep link"
+```
+
+From the repo root with `--config web/e2e/playwright.config.ts` it fails with
+*"Playwright Test did not expect `test()` to be called here"* and lists helpers as
+if the file were broken: Playwright resolves `@playwright/test` twice (root, and
+`web/node_modules`) and the spec registers against the other copy. The file is fine.
+This is the two-versions case in Playwright's own error text, and the fix is the
+cwd, not the spec.
+
 The run id is the reason the loop is reproducible. The suite's seed is
 create-if-missing, so **every fixture is a shared-database fixture**: a second run
 on one database reuses the units, the tenants and the technician accounts of the

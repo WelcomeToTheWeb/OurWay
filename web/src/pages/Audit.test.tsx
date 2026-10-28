@@ -24,6 +24,8 @@ vi.mock('../api/audit', () => {
         clientId: p.get('client') ?? '',
         from: p.get('from') ?? '',
         to: p.get('to') ?? '',
+        target: p.get('target') ?? '',
+        actor: p.get('actor') ?? '',
       };
     }),
     withAuditParams: vi.fn((search: string, q: Record<string, string>) => {
@@ -33,6 +35,8 @@ vi.mock('../api/audit', () => {
         ['client', q.clientId],
         ['from', q.from],
         ['to', q.to],
+        ['target', q.target],
+        ['actor', q.actor],
       ] as const) {
         if (value) p.set(key, value);
         else p.delete(key);
@@ -317,6 +321,24 @@ describe('Audit ledger (2.3-6)', () => {
 
     expect(await screen.findByText(/no account/i)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('deleted-account-id');
+  });
+
+  it('arrives from a unit view as a stated filter, not a quiet one', async () => {
+    renderPage('/audit?target=abcd1234efgh5678');
+    await screen.findByText('Unit record: device abcd1234');
+    expect(mockedLog).toHaveBeenCalledWith(expect.objectContaining({ target: 'abcd1234efgh5678' }));
+    // And the link is a link: clearing the filter is on the page, so an operator
+    // who followed it can get back to the whole ledger in one act.
+    fireEvent.click(screen.getByRole('button', { name: /All units/i }));
+    await waitFor(() =>
+      expect(mockedLog).toHaveBeenCalledWith(expect.objectContaining({ target: '' })),
+    );
+  });
+
+  it('arrives from the operator profile with their acts, not the world', async () => {
+    renderPage('/audit?actor=user-1');
+    await screen.findByText('Acts by: dana');
+    expect(mockedLog).toHaveBeenCalledWith(expect.objectContaining({ actor: 'user-1' }));
   });
 
   it('prints the empty target of a bulk refusal as its kind, not a dash', async () => {
