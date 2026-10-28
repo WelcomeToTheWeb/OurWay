@@ -86,8 +86,22 @@ func (s *DeviceStore) ListScoped(clientIDs []string, includeUnassigned bool) ([]
 }
 
 // Update persists changes to a device record.
+// Update writes a device row. `device_key` is **omitted**, on purpose.
+//
+// The key is the agent's wire credential, minted at enrollment; every caller of
+// this function is a console, patch, or WS handler that loaded the unit from a
+// read path and is changing some other column (tags, `reboot_pending`, client
+// assignment). Two facts make writing it a trap: `models.Device.DeviceKey` is
+// `json:"-"` (C3 — the key is never serialized), and the Redis device cache
+// stores the row as JSON, so a cached read answers a device with an **empty**
+// key. A full-row `Save` of that row then blanks the unit's credential — the
+// agent is locked out by an operator's tag edit — and the next such write fails
+// on `idx_devices_device_key` (`Key (device_key)=() already exists`), which
+// reaches the operator as a 500 on `PUT /api/devices/:id/tags`.
+//
+// `Create` still writes the key: enrollment is the only place it is minted.
 func (s *DeviceStore) Update(d *models.Device) error {
-	return s.db.Save(d).Error
+	return s.db.Omit("DeviceKey").Save(d).Error
 }
 
 // UpdateLastSeen updates the last-seen timestamp and status for a device.
