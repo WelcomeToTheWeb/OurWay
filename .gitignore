@@ -36,3 +36,9 @@ web/e2e/.fake-agent.pid
 
 # Local scratch (built agent binaries for scripts/agent-smoke.sh, ...)
 .tmp/
+
+# `go build ./...` in cmd/ourway-cli writes ./cli next to main.go. It is a build
+# artifact: CI builds it from source, nothing consumes a committed copy, and a
+# 9 MB executable in git rewrites itself on every `scripts/release.sh` gate run —
+# which dirties the tree the same script refuses to cut a release from.
+cmd/ourway-cli/cli
