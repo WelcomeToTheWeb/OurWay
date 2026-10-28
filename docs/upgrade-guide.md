@@ -28,7 +28,7 @@ OurWay consists of three independently upgradable components:
 
 Components are version-independent — you can upgrade them in any order.
 
-### 2.3: a technician's visible set shrinks — read this first
+### 2.3: a technician's visible set shrinks
 
 2.3 adds client tenancy: a unit can belong to one client, and a non-admin account
 is granted clients. **After the upgrade, every existing unit is unassigned**

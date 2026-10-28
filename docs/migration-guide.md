@@ -13,6 +13,8 @@ This guide walks you through migrating from OurWay RMM 1.x to 2.0.
 
 ## Table of Contents
 
+- [What's New in 2.3](#whats-new-in-23)
+- [Migrating to 2.3](#migrating-to-23)
 - [What's New in 2.0](#whats-new-in-20)
 - [Breaking Changes](#breaking-changes)
 - [System Requirements](#system-requirements)
@@ -21,6 +23,83 @@ This guide walks you through migrating from OurWay RMM 1.x to 2.0.
 - [Database Migrations](#database-migrations)
 - [Post-Migration Verification](#post-migration-verification)
 - [Rollback](#rollback)
+
+---
+
+## What's New in 2.3
+
+2.3 is the MSP tenancy release: the tenant axis in the data model, and the record
+of who did what.
+
+- **Clients (tenants).** A unit belongs to one client; a non-admin account is
+  granted clients. `GET /api/clients`, assignment, grants, per-client rollups.
+- **Scoped visibility is the server's rule, not the console's.** Every read that
+  reaches a unit respects the caller's clients. A unit outside them answers the
+  same response a unit that does not exist gets — on the list, on the detail, on
+  every action route. Bulk commands refuse out-of-scope targets by naming them.
+- **The audit ledger.** `audit_log` (migration 9): every mutating act with actor,
+  action, target, tenant, source IP, and the outcome the caller received.
+  Refusals are rows. Retention is `AUDIT_RETENTION_DAYS` (365), swept hourly. The
+  console's Audit page reads it with URL-state filters and a CSV export.
+- **Tenancy at scale.** The scoped read is a statement over the caller's clients
+  (`device_id IN (SELECT id FROM devices WHERE client_id IN (…))`), the scope is
+  resolved once per request, and migration 10 adds the composite indexes the
+  planner walks. Measured at 10,000 units with a technician scoped to 2,000 at
+  100 req/s: zero failures, and the scoped read is several times faster than the
+  administrator's unscoped baseline.
+- **The console gained** the Clients ledger, the tenant facet and column on every
+  ledger (`?client=<slug>`), per-tenant rows on the dashboard, the tenant line on
+  the unit record, the scope stamp in the shift bar, and the Audit page.
+
+The wire contract is **additive** (`client_id` on devices, client rows, a scope
+header on responses): a MINOR change. Agents are unaffected — an agent keeps its
+own enrollment, and a client assignment is a server-side row. No agent is
+reinstalled by this upgrade.
+
+---
+
+## Migrating to 2.3
+
+The upgrade itself is the normal in-place upgrade (see [Server
+Upgrade](upgrade-guide.md)): replace the binary, start it, and migrations 8–10
+apply themselves. There is no manual DDL.
+
+What you must do **after** it, once, is assign the fleet. Read
+[2.3: a technician's visible set shrinks](upgrade-guide.md#23-a-technicians-visible-set-shrinks)
+before a live installation upgrades; in one line:
+
+1. Every existing unit arrives as **unassigned** (`devices.client_id IS NULL`).
+2. Unassigned units are visible to administrators and **invisible to every other
+   account** — so every technician's fleet is empty until you assign it.
+3. Create the clients, assign units (client detail → *Save units*), grant the
+   clients (client detail → *Save access*). Grants take effect on the account's
+   next request.
+
+### Migration numbers
+
+| Migration | Name | What it adds |
+|---|---|---|
+| 8 | `clients_and_user_client_scope` | `clients`, `user_clients`, `devices.client_id` (nullable, indexed) |
+| 9 | `audit_log` | The audit ledger table |
+| 10 | `tenant_scoped_read_indexes` | `(device_id, created_at)` on `alerts`, `sessions`, `file_transfers`; `(device_id, status)` on `software_updates` |
+
+Unassigned is `client_id IS NULL`. There is no "Unassigned" row to create, rename,
+collide with, or delete; the console presents the bucket as a sentinel (`?client=unassigned`)
+for the one account that can see those units.
+
+### Verification
+
+- [ ] `SELECT count(*) FROM devices WHERE client_id IS NULL;` answers the units you
+      are about to assign — and after the assignment, answers 0.
+- [ ] An administrator's device list is unchanged in count.
+- [ ] A technician granted one client lists exactly that client's units, and a unit
+      of another client answers *not found* at its URL.
+- [ ] `GET /api/audit` answers 200 for an admin and for a granted manager (rows of
+      their clients only), 403 for a viewer.
+- [ ] Every mutating act you perform appears in the Audit page within a moment, with
+      your username and the outcome.
+- [ ] Migration 10's indexes exist: `\d alerts` (psql) lists
+      `idx_alerts_device_created`.
 
 ---
 
@@ -332,6 +411,13 @@ sudo ourway-agent-1.x --server wss://ourway.example.com/ws --key <device-key> --
 ### Q: Can I run 1.x and 2.0 servers simultaneously?
 
 No. Each installation has one server version. However, 2.0 agents can connect to a 1.x server (limited feature set), and 1.x agents can connect to a 2.0 server.
+
+### Q: Do I need to re-assign devices after 2.3?
+
+Yes, once. Devices keep their registration, their keys and their history, and every
+device arrives in 2.3 as **unassigned** — which means visible to administrators and
+invisible to every other account. Create the clients, assign the units, grant the
+clients. Nothing else about the fleet changes, and no agent is touched.
 
 ### Q: Do I need to re-register devices?
 
