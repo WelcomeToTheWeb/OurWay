@@ -575,10 +575,44 @@ because the packages share a database) asks the **planner**: migration 10's inde
 must exist, and the scoped alert read must walk `idx_devices_client_id` with an
 index access on the entity side — a `Seq Scan` on `alerts` fails the build.
 
-Run the e2e suite in the **Redis shape** before pushing e2e changes
-(`REDIS_ENABLED=true`, `REDIS_URL=redis://…` — what CI runs, and the only shape
-that exercises the device cache; the plain `scripts/e2e-stack.sh` runs with Redis
-off).
+Run the e2e suite in the **Redis shape** before pushing e2e changes: it is what
+CI runs, and the only shape that exercises the device cache. One command, one
+database, a run id:
+
+```bash
+REDIS_ENABLED=true scripts/e2e-stack.sh test
+```
+
+`test` recreates the database, flushes Redis, builds and starts the server and
+the preview bundle, exports `OURWAY_E2E_BASE_URL` / `_API_URL` /
+`_ENROLLMENT_SECRET`, and runs Playwright. `REDIS_ENABLED` defaults to `false` —
+the single-box shape — and `scripts/e2e-stack.sh restart` / `stop` remain for
+working against a stack by hand.
+
+The run id is the reason the loop is reproducible. The suite's seed is
+create-if-missing, so **every fixture is a shared-database fixture**: a second run
+on one database reuses the units, the tenants and the technician accounts of the
+first, and each fixture ends up with one more unit, one more grant, one more
+acknowledged alert, one more audit row than the spec asserts. `OURWAY_E2E_RUN_ID`
+makes the seed run-scoped — unit names, hostnames, private IPs and update titles
+carry it — and the `test` subcommand gives every run a fresh value. The specs' own
+fixtures (the tenants in `clients.spec.ts`, `tenancy.spec.ts`, `audit.spec.ts`,
+and the accounts they create) carry the same suffix for the same reason: a fixed
+name is a fixture that collides with its own previous run, and Playwright's strict
+mode fails a locator that resolves to two elements for a reason that is in the
+harness and not in the diff. Two consequences are asserted, not assumed: the
+scope-stamp assertions (`scope.split(',').length`) count the tenants the **server**
+granted, so a persistent account that accumulates grants makes the assertion a
+measurement of how many times the suite has been run; and `audit.spec.ts` reads
+the manager's granted set from `GET /api/clients` rather than assuming it is this
+run's client, because "rows only for granted clients" is the claim and the granted
+set is its premise.
+
+A re-run against a mutated database is the one way to make this suite fail for
+reasons that are not in the change. The suite is green both ways here — three
+consecutive full runs on a database carrying four runs' accumulated state, and the
+fresh-database loop — so it is safe to point at a stack you have used before; run
+`test` when you want the state CI will have.
 
 ---
 
