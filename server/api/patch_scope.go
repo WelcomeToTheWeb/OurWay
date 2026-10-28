@@ -66,14 +66,16 @@ func (h *PatchHandler) scopedDevices(scope clientScope) ([]models.Device, error)
 }
 
 // scopedOpenUpdates reads the open updates inside the caller's fleet. The filter
-// is the store's SQL (`ListByStatusesScoped`), so a scoped manager's compliance
-// numbers are computed over their clients and never over a fleet they were not
-// allowed to read — 2.3-2's criterion that scoping is a query, not a trim.
-func (h *PatchHandler) scopedOpenUpdates(scope clientScope, visible []string, restricted bool) ([]models.SoftwareUpdate, error) {
+// is the store's SQL over the caller's **clients** (`ListByStatusesScoped`), so a
+// scoped manager's compliance numbers are computed over their clients and never
+// over a fleet they were not allowed to read — 2.3-2's criterion that scoping is
+// a query, not a trim, and 2.3-8's that the query is over the tenant set so its
+// size is the caller's grant count, not their unit count.
+func (h *PatchHandler) scopedOpenUpdates(scope clientScope, restricted bool) ([]models.SoftwareUpdate, error) {
 	if !restricted {
 		return h.store.SoftwareUpdates.ListByStatuses(openStatuses)
 	}
-	return h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, visible)
+	return h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, scope.ClientIDs(), scope.IncludeUnassigned())
 }
 
 // validateDeviceTargets checks unit ids a command is about to reach. Returns
@@ -162,7 +164,7 @@ func (h *PatchHandler) checkUpdateScope(c *gin.Context, update *models.SoftwareU
 		return http.StatusForbidden, gin.H{"error": "caller scope unavailable"}
 	}
 	scope.ApplyScopeHeader(c)
-	ok, err := scope.AllowsDeviceID(update.DeviceID, h.store)
+	ok, err := scope.AllowsDeviceID(c, update.DeviceID, h.store)
 	if err != nil {
 		return http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"}
 	}

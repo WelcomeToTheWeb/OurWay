@@ -28,6 +28,42 @@ OurWay consists of three independently upgradable components:
 
 Components are version-independent — you can upgrade them in any order.
 
+### 2.3: a technician's visible set shrinks — read this first
+
+2.3 adds client tenancy: a unit can belong to one client, and a non-admin account
+is granted clients. **After the upgrade, every existing unit is unassigned**
+(`devices.client_id IS NULL`), and an unassigned unit is visible to administrators
+and **invisible to every other account**. So on the first login after the upgrade a
+technician's fleet is empty — not broken, not deleted, and not a reason to roll
+back. It is the release working: a technician sees the tenants they are granted and
+nothing else. Administrators are unaffected (their scope is `all`), the agent↔server
+pairing is untouched, and no agent is reinstalled — assignment is a server-side row.
+
+The one-time step, in this order, on the console:
+
+1. **Create the clients** — `/clients` → *New client*.
+2. **Assign the units** — open a client's detail, tick its units, *Save units*.
+   A unit moves between clients; it never belongs to two.
+3. **Grant the clients to the accounts** — client detail → *Save access* (the
+   account list is non-admin accounts; the grant is what makes their fleet).
+
+Until step 2 runs, a technician's fleet is empty; until step 3 runs, it is empty
+for that account. The server says so out loud: every scoped response carries
+`X-Ourway-Client-Scope` (client ids, or `all` for an administrator), so "the unit
+is gone" has a checkable answer in the network panel and in a HAR.
+
+What the change looks like once it is set up:
+
+- A unit outside the caller's clients answers `404` with the **same body a unit
+  that does not exist gets**, on every route that reaches a unit — list, detail,
+  alerts, sessions, files, patch actions. A technician cannot find, act on, or
+  count another tenant's unit, and the fleet and compliance numbers they see are
+  computed inside their own clients.
+- Deleting a client leaves every unit intact and unassigned; it never deletes a
+  unit.
+- Bulk commands refuse out-of-scope targets by naming them (`device_ids`,
+  `update_ids`), and the refusal is recorded in the audit ledger.
+
 ### Version Compatibility
 
 | Server | Agent | Dashboard |

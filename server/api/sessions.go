@@ -193,7 +193,7 @@ func (h *SessionHandler) authorizeSessionAccess(c *gin.Context, sessionID string
 		return nil, false
 	}
 	scope.ApplyScopeHeader(c)
-	ok, err := scope.AllowsDeviceID(session.DeviceID, h.store)
+	ok, err := scope.AllowsDeviceID(c, session.DeviceID, h.store)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
 		return nil, false

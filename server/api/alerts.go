@@ -48,12 +48,9 @@ func (h *AlertHandler) ListAlerts(c *gin.Context) {
 	if scope.all {
 		alerts, err = h.store.Alerts.List(deviceID, unresolvedOnly)
 	} else {
-		visible, _, scopeErr := scope.VisibleDeviceIDs(h.store)
-		if scopeErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
-			return
-		}
-		alerts, err = h.store.Alerts.ListScoped(visible, deviceID, unresolvedOnly)
+		// The client set goes into the query; the units it names are the
+		// planner's problem (2.3-8).
+		alerts, err = h.store.Alerts.ListScoped(scope.ClientIDs(), scope.IncludeUnassigned(), deviceID, unresolvedOnly)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list alerts"})
@@ -97,7 +94,7 @@ func (h *AlertHandler) scopedAlert(c *gin.Context) (*models.Alert, bool) {
 		return nil, false
 	}
 	scope.ApplyScopeHeader(c)
-	ok, err := scope.AllowsDeviceID(alert.DeviceID, h.store)
+	ok, err := scope.AllowsDeviceID(c, alert.DeviceID, h.store)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client scope"})
 		return nil, false

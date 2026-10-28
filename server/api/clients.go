@@ -395,8 +395,10 @@ func (h *ClientHandler) ClientRollup(c *gin.Context) {
 	}
 
 	// Alerts, in scope. An empty fleet answers zero, and `ListScoped` is the
-	// same store query the alert ledger runs with the client filter applied.
-	alerts, err := h.store.Alerts.ListScoped(deviceIDs, nil, true)
+	// same store query the alert ledger runs — scoped by the **client**, which
+	// is why a rollup over a 2,000-unit tenant costs the same two bind
+	// parameters as one over two units (2.3-8).
+	alerts, err := h.store.Alerts.ListScoped([]string{client.ID}, false, nil, true)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count alerts"})
 		return
@@ -404,7 +406,7 @@ func (h *ClientHandler) ClientRollup(c *gin.Context) {
 
 	// Patch compliance, computed inside the client - the same open-status set
 	// the fleet overview uses.
-	updates, err := h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, deviceIDs)
+	updates, err := h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, []string{client.ID}, false)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count updates"})
 		return
@@ -547,8 +549,18 @@ func (h *ClientHandler) ClientRollups(c *gin.Context) {
 	// Alerts and open updates are read once for the whole scope, then grouped
 	// by the tenant their unit belongs to - the same grouping the ledger's
 	// client column shows, so a row on the dashboard and a row on the ledger
-	// are counts of the same array.
-	alerts, err := h.store.Alerts.ListScoped(deviceIDs, nil, true)
+	// are counts of the same array. 2.3-8's shape applies here too: the scoped
+	// read is over the caller's **clients** (two bind parameters, whatever the
+	// fleet size), and the admin's is the whole collection - the same
+	// admin/scoped split the device read above makes, for the same reason: an
+	// empty client set answers no rows, so an admin rollup built through
+	// `ListScoped` would report an installation with no units.
+	var alerts []models.Alert
+	if scope.All() {
+		alerts, err = h.store.Alerts.List(nil, true)
+	} else {
+		alerts, err = h.store.Alerts.ListScoped(scope.ClientIDs(), scope.IncludeUnassigned(), nil, true)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count alerts"})
 		return
@@ -560,7 +572,12 @@ func (h *ClientHandler) ClientRollups(c *gin.Context) {
 		}
 	}
 
-	updates, err := h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, deviceIDs)
+	var updates []models.SoftwareUpdate
+	if scope.All() {
+		updates, err = h.store.SoftwareUpdates.ListByStatuses(openStatuses)
+	} else {
+		updates, err = h.store.SoftwareUpdates.ListByStatusesScoped(openStatuses, scope.ClientIDs(), scope.IncludeUnassigned())
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count updates"})
 		return

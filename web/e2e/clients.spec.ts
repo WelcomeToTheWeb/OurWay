@@ -112,11 +112,18 @@ test('the Clients ledger creates a tenant, assigns a unit, and grants it', async
 
   // And their console says the scope out loud: the server's header is what the
   // shift bar prints, so "can't find the unit" has a visible reason.
+  //
+  // `Bearer` is spelled exactly. The auth middleware trims the prefix with
+  // `strings.TrimPrefix(authHeader, "Bearer ")`, so a lowercase scheme leaves
+  // the token prefixed, the read answers 401, and the header is empty — which
+  // makes `not.toBe('all')` and a one-item split pass on a refused request.
   const scope = await page.evaluate(async () => {
     const token = localStorage.getItem('ourway_access_token') ?? '';
-    const res = await fetch('/api/clients', { headers: { authorization: `bearer ${token}` } });
-    return res.headers.get('x-ourway-client-scope') ?? '';
+    const res = await fetch('/api/clients', { headers: { authorization: `Bearer ${token}` } });
+    return res.status === 200 ? (res.headers.get('x-ourway-client-scope') ?? '') : `http ${res.status}`;
   });
+  expect(scope, 'the client read answered, so its scope header is real').not.toMatch(/^http /);
+  expect(scope).toBeTruthy();
   expect(scope).not.toBe('all');
   expect(scope.split(',').length).toBe(1);
 

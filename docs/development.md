@@ -524,6 +524,62 @@ cd agent && go run . --server ws://localhost:8080/ws --key <device-key>
 open http://localhost:3000
 ```
 
+### Scale load test (2.3-8)
+
+Tenancy moved the load risk from the agent edge to the console edge: a scoped
+technician's list must cost the same as an administrator's list of the same page,
+not one query per unit. `scripts/scale-tenancy.sh` measures that, on the engine
+production uses:
+
+```bash
+# needs the Postgres container the e2e stack uses (ourway-pg)
+scripts/scale-tenancy.sh                                  # 10,000 units, 5 tenants
+SCALE_DEVICES=2000 SCALE_TENANTS=4 SCALE_CONSOLE_SECONDS=15 scripts/scale-tenancy.sh
+```
+
+It recreates the `ourway_scale` database, registers `-devices` units through the
+agent's own enrollment call (presenting `X-Enrollment-Secret`, because a tool that
+cannot enroll a device cannot measure a fleet), assigns them to tenants and grants
+one technician per tenant through the console's API, then runs the same console
+campaign twice — as the administrator (the unscoped baseline) and as the granted
+technicians (the measurement) — over `/api/devices`, `/api/alerts` and
+`/api/patch/overview`. The verdict is the acceptance criterion: zero failures and
+the scoped p95 within 10% of the unscoped p95, printed per endpoint, exit code
+non-zero on a miss.
+
+The tool is behind `-tags loadtest`: it is test scaffolding, not shipped code, and
+the coverage floor (`scripts/coverage.sh`) measures the product. `go build ./...`
+sees a stub in that directory; the script builds the tool with the tag, and
+`go test -tags loadtest ./loadtest/...` runs the tool's own tests (the percentile
+and the verdict arithmetic).
+
+`RATE_LIMIT_PER_MINUTE` is raised for the run: the server answers 100 requests per
+minute per user (2.2-3), and a 100 req/s campaign is above that by design. The run
+measures the cost of the scoped read; the per-user budget is asserted in the API
+suite, where it belongs.
+
+Two rules this pass wrote into the code, because a correctness suite cannot see
+either:
+
+- Scoping is a statement over the caller's **clients**
+  (`store.scopeByClient`), so its bind-parameter count is the caller's grant count.
+  `TestScopedListQueryIsOverTheClientSet` counts parameters on a 400-unit tenant
+  and fails the 2.3-2 shape (`device_id IN (…units…)`, the fleet read in full to
+  build the list).
+- The scope is resolved **once per request** (`clientScope.VisibleDeviceIDsIn`),
+  and `TestBulkTargetChecksCostOneFleetRead` fails if the fleet is re-read per
+  target.
+
+The Postgres integration suite (`OURWAY_TEST_PG_DSN=…`, run serially with `-p 1`
+because the packages share a database) asks the **planner**: migration 10's indexes
+must exist, and the scoped alert read must walk `idx_devices_client_id` with an
+index access on the entity side — a `Seq Scan` on `alerts` fails the build.
+
+Run the e2e suite in the **Redis shape** before pushing e2e changes
+(`REDIS_ENABLED=true`, `REDIS_URL=redis://…` — what CI runs, and the only shape
+that exercises the device cache; the plain `scripts/e2e-stack.sh` runs with Redis
+off).
+
 ---
 
 ## Build Instructions
