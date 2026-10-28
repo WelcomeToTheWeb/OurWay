@@ -169,6 +169,14 @@ func (s *ClientStore) Delete(id string) error {
 		if err := tx.Where("client_id = ?", id).Delete(&models.UserClient{}).Error; err != nil {
 			return err
 		}
+		// 2.3-4c: a tenant's enrollment credentials go with it, in the same
+		// transaction. A token is an enrollment path into a specific tenant, so
+		// a token outliving its tenant is a credential that can only ever be
+		// refused — and an operator who revokes a client must be able to trust
+		// that nothing still enrolls into it.
+		if err := tx.Where("client_id = ?", id).Delete(&models.ClientEnrollmentToken{}).Error; err != nil {
+			return err
+		}
 		return tx.Where("id = ?", id).Delete(&models.Client{}).Error
 	})
 }

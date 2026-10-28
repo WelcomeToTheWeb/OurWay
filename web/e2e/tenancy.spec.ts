@@ -309,3 +309,91 @@ test('a scoped technician reads their tenant, not the installation trimmed', asy
   expect(adminSees, 'the admin reads at least the tenant this flow created').toBeGreaterThanOrEqual(1);
   await expectNoKeyPaths(page);
 });
+
+/**
+ * 2.3-4c — the tenant's enrollment token, end to end.
+ *
+ * The flow an MSP operator runs: mint a credential for a tenant in the console,
+ * hand it to the field tech, and the machine that enrolls with it is **in that
+ * tenant** — no matching game in the unassigned pool, no window in which a unit
+ * belongs to nobody.
+ *
+ * It is asserted through the console and the agent's own registration call,
+ * because the claim is about the seam: the header the agent already sends, the
+ * tenant column the server writes, and the ledger row that says who minted the
+ * credential. The unit this enrolls is a machine of its own (its hostname
+ * carries the run id), so it does not touch the units the other specs own.
+ */
+test("a tenant's enrollment token places a new unit in that tenant", async ({ page, request }) => {
+  const token = await adminToken(request);
+  const client = await ensureClient(request, token);
+  const hostname = `e2e-token-unit${RUN_SUFFIX.toLowerCase()}`;
+
+  // The mint is a console act.
+  await uiLogin(page, ADMIN_USER, ADMIN_PASSWORD);
+  await page.goto('/clients');
+  await page.getByRole('button', { name: new RegExp(`open ${CLIENT_NAME} detail`, 'i') }).click();
+  const panel = page.getByLabel(`${CLIENT_NAME} detail`);
+  // The heading, not a text match: "Enrollment tokens" is also inside the
+  // empty state's sentence ("No enrollment tokens. …"), and a text locator that
+  // resolves to two elements is Playwright's strict mode refusing to guess.
+  await expect(panel.getByRole('heading', { name: 'Enrollment tokens' })).toBeVisible();
+
+  await panel.getByLabel('Token label').fill('field kit');
+  await panel.getByRole('button', { name: 'New token' }).click();
+  const reveal = panel.locator('code').first();
+  await expect(reveal).toBeVisible({ timeout: 10_000 });
+  const secret = (await reveal.textContent())?.trim() ?? '';
+  expect(secret, 'the mint printed a token value').not.toBe('');
+  // The prefix names which kind of secret an operator is pasting: `owk_` is an
+  // API key that reads the installation, `owt_` places a machine in a tenant.
+  expect(secret.startsWith('owt_'), `the token is not prefixed: ${secret}`).toBe(true);
+
+  // The agent's side: the credential travels in the header it already sends.
+  const registered = await request.post(`${apiBase()}/api/agent/register`, {
+    headers: { 'X-Enrollment-Secret': secret },
+    data: {
+      name: hostname,
+      hostname,
+      os: 'linux',
+      arch: 'amd64',
+      agent_version: '2.3.0',
+      public_ip: '203.0.113.42',
+      private_ip: `10.71.${RUN_SUFFIX.replace(/\D/g, '').slice(-3) || '1'}.42`,
+    },
+  });
+  expect(registered.status(), `enrolling with a tenant token failed (${registered.status()})`).toBe(201);
+  const enrolled = (await registered.json())?.device;
+  expect(enrolled?.id, 'the enrolled unit has an id').toBeTruthy();
+  expect(
+    enrolled?.client_id,
+    'the unit enrolled with the tenant credential is in that tenant',
+  ).toBe(client.id);
+
+  // The console's tenant list shows the machine it now owns.
+  await page.reload();
+  await page.getByRole('button', { name: new RegExp(`open ${CLIENT_NAME} detail`, 'i') }).click();
+  const reopened = page.getByLabel(`${CLIENT_NAME} detail`);
+  // The panel names the machine twice — its own name and its hostname, both
+  // carrying the string — so the assertion takes the first row it resolves to.
+  await expect(reopened.getByText(hostname).first()).toBeVisible({ timeout: 15_000 });
+
+  // The secret is gone: the panel lists the credential, not its value. This is
+  // the assertion a reviewer should expect a UI to fake, so it is stated
+  // explicitly — the server stores a hash and has nothing to re-show.
+  await expect(reopened.getByText(secret)).toHaveCount(0);
+
+  // The mint is a record on the tenant, and it names no secret.
+  const ledger = await request.get(`${apiBase()}/api/audit?action=client.token_create&client_id=${client.id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(ledger.ok(), `the audit ledger refused the admin (${ledger.status()})`).toBe(true);
+  const rows: Array<{ action: string; client_id: string; details: string; outcome: string }> =
+    (await ledger.json())?.logs ?? [];
+  const mintRow = rows.find((r) => r.action === 'client.token_create' && r.client_id === client.id);
+  expect(mintRow, 'the mint wrote no audit row for this tenant').toBeTruthy();
+  expect(mintRow?.outcome).toBe('ok');
+  expect(mintRow?.details ?? '', 'the audit row carries the secret').not.toContain(secret);
+
+  await expectNoKeyPaths(page);
+});

@@ -521,6 +521,11 @@
       "title": "Mandant „{{name}}“ löschen?",
       "body": "Seine {{units}} Geräte bleiben ohne Zuordnung. Nichts wird gelöscht, und kein Gerät hört auf zu berichten. Techniker, die nur diesem Mandanten zugewiesen sind, sehen mit der nächsten Anfrage eine leere Flotte. Das lässt sich nicht rückgängig machen.",
       "action": "Mandant löschen"
+    },
+    "revokeToken": {
+      "title": "Registrierungs-Token „{{name}}“ entziehen?",
+      "body": "Bereits registrierte Geräte melden weiter und bleiben bei {{client}}. Ein Agent mit diesem Token wird abgelehnt, und das Token kann nicht erneut angezeigt werden — der Server speichert nur den Hash.",
+      "action": "Token entziehen"
     }
   },
   "clients": {
@@ -555,6 +560,24 @@
     "noUsers": "Noch keine Konten zum Zuweisen.",
     "saveAccess": "Zugriff speichern",
     "accessHint": "Ein entzogener Techniker verliert diese Flotte mit der nächsten Anfrage, ohne Abmelden.",
+    "tokensTitle": "Registrierungs-Tokens",
+    "tokensEmpty": "Keine Registrierungs-Tokens. Ein Gerät, das mit dem Installations-Secret registriert wird, bleibt ohne Zuordnung.",
+    "tokensRevealHint": "Wird einmal angezeigt. Der Server speichert nur den Hash, deshalb ist keine erneute Anzeige möglich.",
+    "tokensHint": "Diesen Wert im Agenten als Registrierungs-Secret eintragen: Das Gerät kommt in diesen Mandanten. Das Installations-Secret registriert weiter ohne Zuordnung.",
+    "tokenLabel": "Token-Bezeichnung",
+    "tokenExpiry": "Gültig bis",
+    "tokenExpiryDays_one": "{{count}} Tag",
+    "tokenExpiryDays_other": "{{count}} Tage",
+    "tokenExpiryNever": "Ohne Ablauf",
+    "tokenNew": "Neues Token",
+    "tokenRevoke": "Entziehen",
+    "tokenRevoked": "Entzogen",
+    "tokenActive": "Gültig",
+    "tokenLastUsed": "Zuletzt genutzt",
+    "tokenNeverUsed": "nie",
+    "tokenExpires": "Läuft ab",
+    "tokenUnnamed": "Token ohne Bezeichnung",
+    "tokenRevokedNotice": "Registrierungs-Token „{{label}}“ entzogen. Agenten mit diesem Token werden abgelehnt.",
     "online": "aktiv",
     "rebootPending": "Neustart ausstehend",
     "openRow": "Detail von {{name}} öffnen",

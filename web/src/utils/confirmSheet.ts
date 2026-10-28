@@ -23,7 +23,11 @@ export type ConfirmAction =
   | 'purgeMetrics'
   | 'deleteAccount'
   | 'deleteApiKey'
-  | 'revokeApiKey';
+  | 'revokeApiKey'
+  // 2.3-4c: revoking a tenant's enrollment credential. It destroys nothing, and
+  // it is exactly the kind of act the sheet exists for — the consequence is "an
+  // agent will be refused", which an operator must read before pressing.
+  | 'revokeToken';
 
 export function confirmRequest(
   t: TFunction,

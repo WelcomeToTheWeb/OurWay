@@ -17,6 +17,9 @@ type Store struct {
 	Cache   *cache.RedisClient
 	Devices DeviceStoreInterface
 	Clients ClientStoreInterface
+	// ClientTokens is 2.3-4c: a tenant's enrollment credentials. The agent-facing
+	// registration path reads it by hash; only the admin surface writes it.
+	ClientTokens *ClientTokenStore
 	// Audit is 2.3-6: the record of mutating acts, written by the handlers.
 	Audit             *AuditStore
 	Users             *UserStore
@@ -48,6 +51,7 @@ func NewWithDB(db *gorm.DB) (*Store, error) {
 		DB:                db,
 		Devices:           &DeviceStore{db: db},
 		Clients:           &ClientStore{db: db},
+		ClientTokens:      &ClientTokenStore{db: db},
 		Audit:             &AuditStore{db: db},
 		Users:             &UserStore{db: db},
 		Alerts:            &AlertStore{db: db},
@@ -101,6 +105,7 @@ func New(dsn string) (*Store, error) {
 		DB:                db,
 		Devices:           &DeviceStore{db: db},
 		Clients:           &ClientStore{db: db},
+		ClientTokens:      &ClientTokenStore{db: db},
 		Audit:             &AuditStore{db: db},
 		Users:             &UserStore{db: db},
 		Alerts:            &AlertStore{db: db},

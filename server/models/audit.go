@@ -128,6 +128,12 @@ const (
 	AuditClientUpdate    = "client.update"
 	AuditClientDelete    = "client.delete"
 	AuditClientGrant     = "client.grant"
+	// 2.3-4c: the credentials that place a unit inside a tenant. Minting one is
+	// the act with no unit, no login and no visible effect to notice it by — the
+	// ledger is the only place it leaves a trace, and the trace must not contain
+	// the secret.
+	AuditClientTokenCreate = "client.token_create"
+	AuditClientTokenRevoke = "client.token_revoke"
 	AuditUserScopeChange = "user.scope_change"
 	AuditUserRoleChange  = "user.role_change"
 	AuditUserCreate      = "user.create"

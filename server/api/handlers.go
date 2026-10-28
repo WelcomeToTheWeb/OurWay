@@ -290,6 +290,12 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 			clientGroup.GET("/:id/rollup", clientHandler.ClientRollup)
 			clientGroup.GET("/:id/users", RequireRole("admin"), clientHandler.ListClientUsers)
 			clientGroup.PUT("/:id/users", RequireRole("admin"), clientHandler.SetClientUsers)
+			// 2.3-4c: a tenant's enrollment credentials. Admin-only, **reads
+			// included**: a token is the ability to place a unit inside a customer's
+			// tenant, and the grant model says nothing about who may hand that out.
+			clientGroup.GET("/:id/tokens", RequireRole("admin"), clientHandler.ListClientTokens)
+			clientGroup.POST("/:id/tokens", RequireRole("admin"), clientHandler.CreateClientToken)
+			clientGroup.DELETE("/:id/tokens/:tokenId", RequireRole("admin"), clientHandler.RevokeClientToken)
 		}
 
 		// Audit ledger routes — 2.3-6. An operator surface: admins read the

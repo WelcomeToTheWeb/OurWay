@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PUT /api/clients/:id/devices`, `GET/PUT /api/clients/:id/users`,
   `GET /api/clients/:id/rollup` and `GET /api/clients/rollups` (the dashboard's
   per-tenant rows, one read, the same `rollupOf` arithmetic as the ledger).
+- **Per-client enrollment tokens** (2.3-4c) — `client_enrollment_tokens`
+  (migration 11), `GET/POST /api/clients/:id/tokens` and
+  `DELETE /api/clients/:id/tokens/:tokenId` (admin-only, reads included), the
+  Clients panel's token band, and registration accepting the token in the
+  `X-Enrollment-Secret` header the agent already sends: the unit joins **that
+  tenant**. `ENROLLMENT_SECRET` keeps its pre-2.3 meaning byte for byte — agents
+  are unaffected. Stored as a **hash only** (no plaintext column, unlike
+  `models.APIKey`) and returned once as `token_value`; `client.token_create` and
+  `client.token_revoke` are audit rows naming the tenant and never the secret. A
+  revoked, expired, or unknown token answers the identical 401, and a tenant's
+  token cannot claim a unit that belongs to another tenant.
 - **The audit ledger** — `audit_log` (migration 9) with actor, actor roles, action,
   target, tenant, source IP, details and the **outcome the caller received**,
   written by a `defer auditForAnswer` at the top of each mutating handler and by
