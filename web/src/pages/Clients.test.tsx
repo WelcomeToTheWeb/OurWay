@@ -19,6 +19,9 @@ vi.mock('../api/clients', () => ({
   assignClientDevices: vi.fn(),
   getClientUsers: vi.fn(),
   setClientUsers: vi.fn(),
+  listClientTokens: vi.fn(),
+  createClientToken: vi.fn(),
+  revokeClientToken: vi.fn(),
   clientFromSearch: vi.fn((search: string) => new URLSearchParams(search).get('client') ?? ''),
   withClientParam: vi.fn((search: string, slug: string) => {
     const params = new URLSearchParams(search);
@@ -40,6 +43,9 @@ import {
   getClientUsers,
   setClientUsers,
   updateClient,
+  listClientTokens,
+  createClientToken,
+  revokeClientToken,
 } from '../api/clients';
 import { getDevices } from '../api/devices';
 import { resetFleetPoller } from '../stores/fleet';
@@ -55,6 +61,9 @@ const mockedSetUsers = vi.mocked(setClientUsers);
 const mockedUpdate = vi.mocked(updateClient);
 const mockedDevices = vi.mocked(getDevices);
 const mockedUsers = vi.mocked(getUsers);
+const mockedTokens = vi.mocked(listClientTokens);
+const mockedMint = vi.mocked(createClientToken);
+const mockedTokenRevoke = vi.mocked(revokeClientToken);
 
 function client(id: string, name: string, slug: string, disabled = false): Client {
   return {
@@ -172,6 +181,9 @@ describe('Clients ledger (2.3-4)', () => {
     mockedDevices.mockResolvedValue(devices);
     mockedUsers.mockResolvedValue(users);
     mockedClientUsers.mockResolvedValue([] as ClientUser[]);
+    // 2.3-4c: a tenant with no enrollment tokens is the empty case, and the
+    // tests that mint one make the mint explicit.
+    mockedTokens.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -307,5 +319,134 @@ describe('Clients ledger (2.3-4)', () => {
     // the URL is the thing a link and a reload share (2.1.0's view-in-URL).
     fireEvent.click(screen.getByRole('button', { name: 'Beta Co' }));
     await waitFor(() => expect(seen.join('|')).toContain('client=beta-co'));
+  });
+
+  // 2.3-4c — the tenant's enrollment credentials, on the surface that already
+  // decides what belongs to the tenant.
+  it('mints an enrollment token and prints the secret once, where it can be copied', async () => {
+    const token = {
+      id: 't-1',
+      client_id: 'c-alpha',
+      label: 'front desk image',
+      last_used_at: null,
+      expires_at: null,
+      revoked_at: null,
+      created_at: '2026-10-27T10:00:00Z',
+    };
+    mockedMint.mockResolvedValue({ token, token_value: 'owt_deadbeefdeadbeefdeadbeefdeadbeef' });
+
+    renderPage();
+    await openRow('Alpha Co');
+    // Opening the panel is the row's act; `openRow` only locates the row.
+    fireEvent.click(await screen.findByRole('button', { name: /open Alpha Co detail/i }));
+    const panel = await screen.findByLabelText('Alpha Co detail');
+    expect(within(panel).getByText('Enrollment tokens')).toBeTruthy();
+    // The empty state is stated, and it states the rule that replaces tokens:
+    // the installation secret still enrolls unassigned. (Matched on the empty
+    // state's own words: "installation secret" also appears in the hint below,
+    // and a test that matches a phrase the page uses twice is a test that fails
+    // for the page having said more, not less.)
+    expect(within(panel).getByText(/No enrollment tokens/)).toBeTruthy();
+
+    fireEvent.change(within(panel).getByLabelText('Token label'), { target: { value: 'front desk image' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'New token' }));
+
+    // The select's default is the 30-day window, and it is sent: an omitted
+    // `expires_in_days` means "never expires" on the server, so the console's
+    // default must travel as a number, not as an absence.
+    await waitFor(() =>
+      expect(mockedMint).toHaveBeenCalledWith('c-alpha', { label: 'front desk image', expires_in_days: 30 })
+    );
+    // The secret is on screen, and the page says out loud that this is the only
+    // time it will be: the server stores a hash, so a "show token" control is a
+    // control the product cannot have.
+    await waitFor(() =>
+      expect(panel.textContent).toContain('owt_deadbeefdeadbeefdeadbeefdeadbeef')
+    );
+    expect(panel.textContent).toContain('Shown once');
+    expect(within(panel).queryByRole('button', { name: /show token/i })).toBeNull();
+    // The minted row is in the ledger of credentials, live, never used.
+    expect(panel.textContent).toContain('front desk image');
+    expect(panel.textContent).toContain('Live');
+    expect(panel.textContent).toContain('never');
+
+    // The mint cleared the label field: the next token starts unnamed, not as a
+    // copy of the last one.
+    expect((within(panel).getByLabelText('Token label') as HTMLInputElement).value).toBe('');
+
+    // No raw i18n key path renders (the file's standing assertion) — the token
+    // panel is new copy in three locales, which is exactly where it goes wrong.
+    // Asserted on the minted panel's own text, with the revealed secret removed:
+    // `document.body.textContent` concatenates element text without spaces, so
+    // "...shown again." followed by "owt_…" reads as `again.owt` to this regex.
+    // A check that fires on the thing it is checking for is a check to move, not
+    // to weaken.
+    // Checked per element, on the element's whole text: an element whose text
+    // **is** a key path is the failure the rule exists for. The file's standing
+    // regex runs over `document.body.textContent`, which concatenates elements
+    // without spaces — so a sentence ending in "the client." followed by the
+    // heading "Who may see this client" reads as `client.Who`, and a check that
+    // fires on the page saying more is a check that has to be precise, not
+    // weakened.
+    const keyish = Array.from(document.querySelectorAll('span,p,h1,h2,h3,button,label,code,option,td,th'))
+      .map((el) => (el.textContent ?? '').trim())
+      .filter((txt) => /^[a-z][a-zA-Z]*\.[a-zA-Z][a-zA-Z]*([._][a-zA-Z0-9]+)*$/.test(txt));
+    expect(keyish).toEqual([]);
+  });
+
+  it('confirms a token revocation in words that name the consequence', async () => {
+    mockedTokens.mockResolvedValue([
+      {
+        id: 't-1',
+        client_id: 'c-alpha',
+        label: 'field kit',
+        last_used_at: '2026-10-27T11:00:00Z',
+        expires_at: '2026-12-27T00:00:00Z',
+        revoked_at: null,
+        created_at: '2026-10-27T10:00:00Z',
+      },
+    ]);
+    mockedTokenRevoke.mockResolvedValue({ revoked: true, id: 't-1' });
+
+    renderPage();
+    await openRow('Alpha Co');
+    fireEvent.click(await screen.findByRole('button', { name: /open Alpha Co detail/i }));
+    const panel = await screen.findByLabelText('Alpha Co detail');
+    await waitFor(() => expect(mockedTokens).toHaveBeenCalledWith('c-alpha'));
+
+    expect(panel.textContent).toContain('field kit');
+    expect(panel.textContent).toContain('Last used');
+    expect(panel.textContent).toContain('Expires');
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Revoke' }));
+    const sheet = await screen.findByRole('dialog', { hidden: true });
+    // The sheet states the consequence an operator is choosing: agents refused,
+    // the secret gone, the tenant's units untouched.
+    expect(sheet.textContent).toContain('Revoke “field kit”?');
+    expect(sheet.textContent).toContain('stores only its hash');
+    expect(sheet.textContent).toContain('Alpha Co');
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Revoke token' }));
+    await waitFor(() => expect(mockedTokenRevoke).toHaveBeenCalledWith('c-alpha', 't-1'));
+    await waitFor(() => expect(panel.textContent).not.toContain('field kit'));
+  });
+
+  it('asks for no token controls from a caller who may not read them', async () => {
+    // The routes are admin-only at the server, and the page asks for nothing a
+    // caller cannot perform — the rule this page already follows for create,
+    // assign and delete.
+    setRoles(['technician']);
+    renderPage();
+    await openRow('Alpha Co');
+    fireEvent.click(await screen.findByRole('button', { name: /open Alpha Co detail/i }));
+    const panel = await screen.findByLabelText('Alpha Co detail');
+
+    expect(panel.textContent).not.toContain('Enrollment tokens');
+    expect(within(panel).queryByRole('button', { name: 'New token' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'Revoke' })).toBeNull();
+    // The read is not issued either: a panel that fetches credentials it cannot
+    // see answers 403 on every open, and a console that shows an operator an
+    // error they cannot act on is a console that trains them to ignore errors.
+    expect(mockedTokens).not.toHaveBeenCalled();
   });
 });

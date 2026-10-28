@@ -521,6 +521,11 @@
       "title": "Delete {{name}}?",
       "body": "Its {{units}} units stay, unassigned. Nothing is deleted and no unit stops reporting. Technicians granted only this client see an empty fleet on their next request. This cannot be undone.",
       "action": "Delete client"
+    },
+    "revokeToken": {
+      "title": "Revoke “{{name}}”?",
+      "body": "Units already enrolled keep reporting and stay in {{client}}. An agent presenting this token is refused, and the token cannot be shown again — the server stores only its hash.",
+      "action": "Revoke token"
     }
   },
   "clients": {
@@ -555,6 +560,24 @@
     "noUsers": "No accounts to grant yet.",
     "saveAccess": "Save access",
     "accessHint": "A revoked technician loses this fleet on their next request, no logout.",
+    "tokensTitle": "Enrollment tokens",
+    "tokensEmpty": "No enrollment tokens. A unit enrolled with the installation secret joins unassigned.",
+    "tokensRevealHint": "Shown once. The server keeps only its hash, so it cannot be shown again.",
+    "tokensHint": "Paste this into the agent's enrollment secret: the unit joins this client. The installation secret still enrolls units unassigned.",
+    "tokenLabel": "Token label",
+    "tokenExpiry": "Expiry",
+    "tokenExpiryDays_one": "{{count}} day",
+    "tokenExpiryDays_other": "{{count}} days",
+    "tokenExpiryNever": "No expiry",
+    "tokenNew": "New token",
+    "tokenRevoke": "Revoke",
+    "tokenRevoked": "Revoked",
+    "tokenActive": "Live",
+    "tokenLastUsed": "Last used",
+    "tokenNeverUsed": "never",
+    "tokenExpires": "Expires",
+    "tokenUnnamed": "unnamed token",
+    "tokenRevokedNotice": "Enrollment token “{{label}}” revoked. Agents presenting it are refused.",
     "online": "awake",
     "rebootPending": "Reboot pending",
     "openRow": "Open {{name}} detail",

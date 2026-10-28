@@ -232,6 +232,37 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 11, name: "client_enrollment_tokens", fn: func(db *gorm.DB) error {
+		// 2.3-4c: a tenant's enrollment credential. The table stores the hash
+		// only (see `models.ClientEnrollmentToken`), and the unique index on it
+		// is the registration lookup — the agent's presented value is hashed and
+		// this column is walked, so enrollment costs one indexed read and no scan
+		// of credentials.
+		if !db.Migrator().HasTable(&models.ClientEnrollmentToken{}) {
+			if err := db.Migrator().CreateTable(&models.ClientEnrollmentToken{}); err != nil {
+				return err
+			}
+		}
+		// As in migration 8: a token names the tenant it enrolls into, and a
+		// token pointing at a client that does not exist is a credential that
+		// can only ever answer "invalid". `ClientTokenStore`-side cleanup runs
+		// inside `ClientStore.Delete`, so the default RESTRICT never blocks the
+		// deletion it must not block.
+		if db.Dialector.Name() == "postgres" {
+			var exists bool
+			if err := db.Raw(
+				"SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_client_enrollment_tokens_client')",
+			).Row().Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				if err := db.Exec("ALTER TABLE client_enrollment_tokens ADD CONSTRAINT fk_client_enrollment_tokens_client FOREIGN KEY (client_id) REFERENCES clients(id)").Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

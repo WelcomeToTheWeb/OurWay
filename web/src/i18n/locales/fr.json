@@ -521,6 +521,11 @@
       "title": "Supprimer le client « {{name}} » ?",
       "body": "Ses {{units}} appareils restent sans affectation. Rien n’est supprimé et aucun appareil ne cesse de remonter. Les techniciens affectés uniquement à ce client voient une flotte vide dès leur prochaine requête. Cette action est irréversible.",
       "action": "Supprimer le client"
+    },
+    "revokeToken": {
+      "title": "Révoquer le jeton « {{name}} » ?",
+      "body": "Les appareils déjà inscrits continuent de remonter et restent chez {{client}}. Un agent qui présente ce jeton est refusé, et le jeton ne peut pas être réaffiché : le serveur ne stocke que son empreinte.",
+      "action": "Révoquer le jeton"
     }
   },
   "clients": {
@@ -555,6 +560,24 @@
     "noUsers": "Aucun compte à affecter pour le moment.",
     "saveAccess": "Enregistrer l’accès",
     "accessHint": "Un technicien révoqué perd cette flotte dès sa prochaine requête, sans déconnexion.",
+    "tokensTitle": "Jetons d’inscription",
+    "tokensEmpty": "Aucun jeton d’inscription. Un appareil inscrit avec le secret d’installation reste sans affectation.",
+    "tokensRevealHint": "Affiché une seule fois. Le serveur ne conserve que son empreinte : il ne peut pas être réaffiché.",
+    "tokensHint": "Coller cette valeur dans le secret d’inscription de l’agent : l’appareil rejoint ce client. Le secret d’installation inscrit toujours sans affectation.",
+    "tokenLabel": "Libellé du jeton",
+    "tokenExpiry": "Expiration",
+    "tokenExpiryDays_one": "{{count}} jour",
+    "tokenExpiryDays_other": "{{count}} jours",
+    "tokenExpiryNever": "Sans expiration",
+    "tokenNew": "Nouveau jeton",
+    "tokenRevoke": "Révoquer",
+    "tokenRevoked": "Révoqué",
+    "tokenActive": "Actif",
+    "tokenLastUsed": "Dernière utilisation",
+    "tokenNeverUsed": "jamais",
+    "tokenExpires": "Expire",
+    "tokenUnnamed": "jeton sans libellé",
+    "tokenRevokedNotice": "Jeton d’inscription « {{label}} » révoqué. Les agents qui le présentent sont refusés.",
     "online": "actifs",
     "rebootPending": "Redémarrage en attente",
     "openRow": "Ouvrir le détail de {{name}}",

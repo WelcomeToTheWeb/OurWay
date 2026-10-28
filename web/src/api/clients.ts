@@ -108,3 +108,35 @@ export function withClientParam(search: string, slug: string): string {
   const out = params.toString();
   return out ? `?${out}` : '';
 }
+
+/**
+ * 2.3-4c — a tenant's enrollment tokens.
+ *
+ * The console never sees a secret after the mint: the list carries dates, the
+ * create response carries `token_value` once, and there is no "show token"
+ * control because the server has nothing to show. The panel prints that fact
+ * rather than hiding it — an operator who expects a secret to be retrievable
+ * will design around it.
+ */
+export interface ClientEnrollmentToken {
+  id: string;
+  client_id: string;
+  label: string;
+  last_used_at?: string | null;
+  expires_at?: string | null;
+  revoked_at?: string | null;
+  created_at: string;
+}
+
+export const listClientTokens = (id: string) =>
+  client
+    .get<{ tokens: ClientEnrollmentToken[]; total: number }>(`/clients/${id}/tokens`)
+    .then((r) => r.data.tokens);
+
+export const createClientToken = (id: string, opts: { label: string; expires_in_days?: number }) =>
+  client
+    .post<{ token: ClientEnrollmentToken; token_value: string }>(`/clients/${id}/tokens`, opts)
+    .then((r) => r.data);
+
+export const revokeClientToken = (id: string, tokenId: string) =>
+  client.delete<{ revoked: boolean; id: string }>(`/clients/${id}/tokens/${tokenId}`).then((r) => r.data);

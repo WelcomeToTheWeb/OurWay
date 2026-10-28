@@ -43,6 +43,46 @@ func (h *DeviceHandler) validEnrollSecret(c *gin.Context) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(h.enrollSecret)) == 1
 }
 
+// enrollmentGrant is what the credential in `X-Enrollment-Secret` entitles.
+//
+// The header is the agent's one enrollment field, so the two kinds of credential
+// share it: the installation's `ENROLLMENT_SECRET` (installation scope, unit
+// unassigned) and a tenant's enrollment token (2.3-4c: the unit lands in that
+// tenant). Exactly one of them can be true — the global secret is compared in
+// constant time, and a token is resolved by hashing the presented value and
+// walking the unique index on the hash.
+type enrollmentGrant struct {
+	// Global is the installation-wide secret: the pre-2.3 meaning.
+	Global bool
+	// ClientID is the tenant a live enrollment token names.
+	ClientID string
+	// TokenID is the token that was used, for the last-used stamp.
+	TokenID string
+}
+
+// resolveEnrollment reads the credential the agent presented.
+func (h *DeviceHandler) resolveEnrollment(c *gin.Context) enrollmentGrant {
+	got := c.GetHeader("X-Enrollment-Secret")
+	if h.validEnrollSecret(c) {
+		return enrollmentGrant{Global: true}
+	}
+	clientID, tokenID := h.enrollmentClientID(got)
+	return enrollmentGrant{ClientID: clientID, TokenID: tokenID}
+}
+
+// stampEnrollmentTokenUse records that a token enrolled a unit. It is best
+// effort: the enrollment succeeded and the unit is in the tenant, which is the
+// fact the operator cares about; a failed stamp must not answer 500 to an agent
+// that is now enrolled and reporting.
+func (h *DeviceHandler) stampEnrollmentTokenUse(tokenID string) {
+	if tokenID == "" {
+		return
+	}
+	if err := h.store.ClientTokens.MarkUsed(tokenID); err != nil {
+		log.Printf("enrollment: token use stamp failed: %v", err)
+	}
+}
+
 // RegisterDevice handles agent device registration.
 // Idempotent: re-registering the same physical machine (same hostname +
 // private IP, e.g. the installer run twice) returns the existing device and
@@ -72,9 +112,22 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 	// observable by anything on the network.
 	if existing, err := h.store.Devices.GetByHostnameAndIP(req.Hostname, req.PrivateIP); err == nil {
 		keyProven := req.DeviceKey != "" && req.DeviceKey == existing.DeviceKey
-		if !keyProven && !h.validEnrollSecret(c) {
+		grant := h.resolveEnrollment(c)
+		// The C4 gate exists so that hostname + IP — observable by anything on the
+		// network — cannot adopt a machine's identity. A tenant's enrollment token
+		// is a secret, so it is proof; **for that tenant's units**. Accepting any
+		// live tenant token as a skeleton key would let North Grid's credential
+		// claim a machine the installation placed in Contoso, which is the exact
+		// thing 2.3 spends six tasks making impossible. An unassigned unit has no
+		// tenant to displace, so the credential names its tenant and the intent is
+		// unambiguous: the installer ran twice, with North Grid's token.
+		inTenant := grant.ClientID != "" && (existing.ClientID == nil || *existing.ClientID == grant.ClientID)
+		if !keyProven && !grant.Global && !inTenant {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "re-registration requires the device key or the enrollment secret"})
 			return
+		}
+		if grant.ClientID != "" && existing.ClientID == nil {
+			existing.ClientID = &grant.ClientID
 		}
 		existing.Name = req.Name
 		existing.OS = req.OS
@@ -91,6 +144,9 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update device"})
 			return
 		}
+		if grant.TokenID != "" {
+			h.stampEnrollmentTokenUse(grant.TokenID)
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"device":     existing,
 			"device_key": existing.DeviceKey,
@@ -99,8 +155,10 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 	}
 
 	// First registration on this machine: if the install defines an
-	// enrollment secret, new devices must present it (C4).
-	if h.enrollSecret != "" && !h.validEnrollSecret(c) {
+	// enrollment secret, new devices must present it (C4) — or present a live
+	// enrollment token, which is the same kind of proof and names a tenant.
+	grant := h.resolveEnrollment(c)
+	if h.enrollSecret != "" && !grant.Global && grant.ClientID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing or invalid X-Enrollment-Secret header"})
 		return
 	}
@@ -116,6 +174,12 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 		PublicIP:     req.PublicIP,
 		PrivateIP:    req.PrivateIP,
 		DeviceKey:    uuid.New().String(),
+	}
+	// 2.3-4c: the tenant the credential names. An empty grant is the
+	// installation-wide secret's answer, and `NULL` is the unassigned sentinel
+	// (2.3-0) — so the pre-2.3 path is untouched, byte for byte.
+	if grant.ClientID != "" {
+		device.ClientID = &grant.ClientID
 	}
 
 	if err := h.store.Devices.Create(device); err != nil {
@@ -136,6 +200,10 @@ func (h *DeviceHandler) RegisterDevice(c *gin.Context) {
 		"hostname":  device.Hostname,
 		"os":        device.OS,
 	})
+
+	if grant.TokenID != "" {
+		h.stampEnrollmentTokenUse(grant.TokenID)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"device":     device,
