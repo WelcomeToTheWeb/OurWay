@@ -101,6 +101,8 @@ func registerAuditRoutes() {
 	auditRoute(http.MethodDelete, "/api/clients/:id", models.AuditClientDelete)
 	auditRoute(http.MethodPut, "/api/clients/:id/devices", models.AuditDeviceAssign)
 	auditRoute(http.MethodPut, "/api/clients/:id/users", models.AuditClientGrant)
+	auditRoute(http.MethodPost, "/api/clients/:id/tokens", models.AuditClientTokenCreate)
+	auditRoute(http.MethodDelete, "/api/clients/:id/tokens/:tokenId", models.AuditClientTokenRevoke)
 
 	// Accounts, roles, keys, integrations.
 	auditRoute(http.MethodPost, "/api/users", models.AuditUserCreate)

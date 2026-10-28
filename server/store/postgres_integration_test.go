@@ -128,6 +128,11 @@ func TestPostgresMigrationsUpgradeFromV22(t *testing.T) {
 	// applied. Re-running Migrate must put it back, idempotently.
 	for _, stmt := range []string{
 		"ALTER TABLE devices DROP COLUMN client_id",
+		// 2.3-4c's tokens reference `clients`, so they go first: Postgres
+		// refuses to drop a table another table's foreign key points at, and a
+		// rollback that quietly failed here would leave a 2.3 table in a 2.2
+		// schema and an upgrade test that proves nothing.
+		"DROP TABLE IF EXISTS client_enrollment_tokens",
 		"DROP TABLE IF EXISTS user_clients",
 		"DROP TABLE IF EXISTS clients",
 		"DELETE FROM schema_migrations WHERE version > 7",
@@ -146,6 +151,22 @@ func TestPostgresMigrationsUpgradeFromV22(t *testing.T) {
 	versions, _ := AppliedVersions(st.DB)
 	if len(versions) != len(migrations) {
 		t.Fatalf("applied %v, want %d", versions, len(migrations))
+	}
+
+	// 2.3-4c ships with 2.3: the credential table must come forward with the
+	// rest of the schema, and the unique index on the hash is not decoration —
+	// registration walks it, once per enrolled agent.
+	if !st.DB.Migrator().HasTable(&models.ClientEnrollmentToken{}) {
+		t.Fatal("the upgraded schema has no client_enrollment_tokens table")
+	}
+	var tokenIndex bool
+	if err := st.DB.Raw(
+		"SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'client_enrollment_tokens' AND indexdef ILIKE '%token_hash%')",
+	).Row().Scan(&tokenIndex); err != nil {
+		t.Fatalf("token index probe: %v", err)
+	}
+	if !tokenIndex {
+		t.Error("client_enrollment_tokens has no index on token_hash; enrollment would scan every credential")
 	}
 
 	// Every device is still there and readable, with no client.

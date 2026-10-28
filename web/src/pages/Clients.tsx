@@ -6,12 +6,16 @@ import {
   assignClientDevices,
   clientFromSearch,
   createClient,
+  createClientToken,
   deleteClient,
   getClientUsers,
+  listClientTokens,
+  revokeClientToken,
   setClientUsers,
   updateClient,
   withClientParam,
   type Client,
+  type ClientEnrollmentToken,
   type ClientRollup,
 } from '../api/clients';
 import { useAuth } from '../auth/context';
@@ -167,6 +171,58 @@ export function Clients() {
     const when = new Date(iso);
     if (Number.isNaN(when.getTime())) return t('clients.neverSeen');
     return when.toLocaleString(i18n.language, { hour12: false });
+  };
+
+  /**
+   * 2.3-4c — the open tenant's enrollment tokens.
+   *
+   * The minted secret lives in this component's state and nowhere else: the
+   * server stores a hash, so there is nothing to re-show, and the panel says so
+   * instead of offering a control that cannot exist. It clears when the operator
+   * closes the panel, which is the point at which the secret should stop being
+   * on screen.
+   */
+  const [tokens, setTokens] = useState<ClientEnrollmentToken[]>([]);
+  const [revealed, setRevealed] = useState('');
+  // The state, not the resolved client: `open` is derived below this effect, and
+  // an effect that reads it before its declaration is a compile error with a
+  // confusing name.
+  const openId = openClient ?? '';
+
+  useEffect(() => {
+    setRevealed('');
+    if (openId === '' || !isAdmin) {
+      setTokens([]);
+      return;
+    }
+    void listClientTokens(openId)
+      .then(setTokens)
+      .catch(() => setTokens([]));
+  }, [openId, isAdmin]);
+
+  const handleMintToken = async (client: Client, label: string, days: number | null) => {
+    try {
+      const created = await createClientToken(
+        client.id,
+        days === null ? { label } : { label, expires_in_days: days }
+      );
+      setTokens((prev) => [created.token, ...prev]);
+      setRevealed(created.token_value);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('common.error'));
+    }
+  };
+
+  const handleRevokeToken = async (client: Client, token: ClientEnrollmentToken) => {
+    try {
+      await revokeClientToken(client.id, token.id);
+      setTokens((prev) => prev.filter((x) => x.id !== token.id));
+      // The operator is revoking a credential people are holding. The ledger
+      // has the row; the page says which one it killed.
+      setNotice(t('clients.tokenRevokedNotice', { label: token.label }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('common.error'));
+    }
   };
 
   if (loading) {
@@ -380,6 +436,19 @@ export function Clients() {
           onLoadedUsers={(ids) => setOpenUsers(open.id, ids)}
           onAssignDevices={(ids) => void handleAssignDevices(open, ids)}
           onAssignUsers={(ids) => void handleAssignUsers(open, ids)}
+          tokens={tokens}
+          revealedToken={revealed}
+          isAdmin={isAdmin}
+          formatWhen={formatWhen}
+          onMintToken={(label, days) => void handleMintToken(open, label, days)}
+          onRevokeToken={(token) =>
+            setPending(
+              pendingConfirm(t, 'revokeToken', () => void handleRevokeToken(open, token), {
+                name: token.label,
+                client: open.name,
+              })
+            )
+          }
         />
       )}
 
@@ -413,9 +482,15 @@ function ClientPanel({
   devices,
   users,
   assignedUsers,
+  tokens,
+  revealedToken,
+  isAdmin,
+  formatWhen,
   onLoadedUsers,
   onAssignDevices,
   onAssignUsers,
+  onMintToken,
+  onRevokeToken,
 }: {
   client: Client;
   rollup?: ClientRollup;
@@ -423,13 +498,21 @@ function ClientPanel({
   devices: Device[];
   users: UserWithRoles[];
   assignedUsers: string[] | null;
+  tokens: ClientEnrollmentToken[];
+  revealedToken: string;
+  isAdmin: boolean;
+  formatWhen: (iso?: string | null) => string;
   onLoadedUsers: (ids: string[]) => void;
   onAssignDevices: (ids: string[]) => void;
   onAssignUsers: (ids: string[]) => void;
+  onMintToken: (label: string, days: number | null) => void;
+  onRevokeToken: (token: ClientEnrollmentToken) => void;
 }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<string[]>(units.map((d) => d.id));
   const [grants, setGrants] = useState<string[]>(assignedUsers ?? []);
+  const [tokenLabel, setTokenLabel] = useState('');
+  const [tokenExpiry, setTokenExpiry] = useState('30');
 
   useEffect(() => {
     if (assignedUsers === null) {
@@ -512,6 +595,87 @@ function ClientPanel({
           <p className="cap cap-sm mt-1 text-text-muted">{t('clients.accessHint')}</p>
         </div>
       </div>
+
+      {/*
+        2.3-4c — the tenant's enrollment credentials, in the panel that already
+        decides what belongs to this tenant. Admin-only at the server, and the
+        panel asks for nothing a caller cannot perform (the rule the rest of this
+        page follows): a manager sees no token controls, because a token is the
+        ability to place a machine inside this tenant.
+      */}
+      {isAdmin && (
+        <div className="mt-4 border-t border-[var(--border)] pt-3">
+          <h3 className="cap cap-sm mb-2 text-text-muted">{t('clients.tokensTitle')}</h3>
+
+          {revealedToken !== '' && (
+            <div role="status" className="panel mb-3 px-3 py-2">
+              <span className="cap cap-sm block text-text-secondary">{t('clients.tokensRevealHint')}</span>
+              <code className="ow-num mt-1 block select-all text-[13px] text-text-primary">{revealedToken}</code>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-1">
+            {tokens.map((tok) => (
+              <div key={tok.id} className="flex flex-wrap items-center gap-2">
+                <span className="cap cap-sm text-text-primary">{tok.label || t('clients.tokenUnnamed')}</span>
+                <Stamp tone={tok.revoked_at ? 'offline' : 'online'}>
+                  {tok.revoked_at ? t('clients.tokenRevoked') : t('clients.tokenActive')}
+                </Stamp>
+                <span className="cap cap-sm text-text-muted">
+                  {t('clients.tokenLastUsed')}: {tok.last_used_at ? formatWhen(tok.last_used_at) : t('clients.tokenNeverUsed')}
+                </span>
+                {tok.expires_at && (
+                  <span className="cap cap-sm text-text-muted">
+                    {t('clients.tokenExpires')}: {formatWhen(tok.expires_at)}
+                  </span>
+                )}
+                {!tok.revoked_at && (
+                  <button onClick={() => onRevokeToken(tok)} className="btn-quiet btn text-[var(--stamp)]">
+                    {t('clients.tokenRevoke')}
+                  </button>
+                )}
+              </div>
+            ))}
+            {tokens.length === 0 && (
+              <span className="cap cap-sm text-text-muted">{t('clients.tokensEmpty')}</span>
+            )}
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              className="input"
+              aria-label={t('clients.tokenLabel')}
+              placeholder={t('clients.tokenLabel')}
+              value={tokenLabel}
+              onChange={(e) => setTokenLabel(e.target.value)}
+            />
+            <select
+              className="input"
+              aria-label={t('clients.tokenExpiry')}
+              value={tokenExpiry}
+              onChange={(e) => setTokenExpiry(e.target.value)}
+            >
+              {['7', '30', '90', '365', 'never'].map((v) => (
+                <option key={v} value={v}>
+                  {v === 'never'
+                    ? t('clients.tokenExpiryNever')
+                    : t('clients.tokenExpiryDays', { count: Number(v) })}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                onMintToken(tokenLabel.trim(), tokenExpiry === 'never' ? null : Number(tokenExpiry));
+                setTokenLabel('');
+              }}
+            >
+              {t('clients.tokenNew')}
+            </button>
+          </div>
+          <p className="cap cap-sm mt-1 text-text-muted">{t('clients.tokensHint')}</p>
+        </div>
+      )}
 
       {rollup && (
         <div className="mt-4 flex flex-wrap gap-3">
