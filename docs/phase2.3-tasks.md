@@ -409,17 +409,36 @@ are not built.
 
 ---
 
-## 2.3-8 · Scale: scoping must not cost a query per row
+## 2.3-8 · Scale: scoping must not cost a query per row · ✅ delivered
 
 **Do**
-- [ ] Scoping is a store-level `WHERE` on the client set, not a loop of per-device
+- [x] Scoping is a store-level `WHERE` on the client set, not a loop of per-device
       checks: the 10,000-device load tool runs with a technician scoped to 2,000
       devices and the list request count is unchanged from 2.2.
-- [ ] The scope resolution is fetched **once per request**, not once per route
+      `store.scopeByClient` (`server/store/scope.go`) states the rule as a
+      subquery — `device_id IN (SELECT id FROM devices WHERE client_id IN (…))` —
+      so the statement's bind-parameter count is the caller's **grant** count,
+      never their unit count. `TestScopedListQueryCountIsConstant` and
+      `TestScopedListQueryIsOverTheClientSet` count statements and bind parameters
+      on a 400-unit tenant; the 2.3-2 shape (`device_id IN (…units…)`, with the
+      fleet read in full to build that list) fails the second test.
+- [x] The scope resolution is fetched **once per request**, not once per route
       check (a bulk deploy with 500 targets must not do 500 scope queries).
-- [ ] Index on `devices.client_id` verified with `EXPLAIN` on the device-list query.
-- [ ] The e2e suite from 2.2-0 gains a tenancy flow: scoped login → filtered
-      ledger → device detail → action → audit row visible.
+      `clientScope.VisibleDeviceIDsIn` caches the resolved set on the request, and
+      `AllowsDeviceID` takes the `*gin.Context` for exactly that reason.
+      `TestBulkTargetChecksCostOneFleetRead` asserts the fleet-read count is a
+      constant for 1 target and for 200.
+- [x] Index on `devices.client_id` verified with `EXPLAIN` on the device-list query.
+      `TestPostgresScopedReadUsesTheIndexes` asks the planner on Postgres (400
+      units, `enable_seqscan = off`): the fleet side must walk `idx_devices_client_id`,
+      the entity side must be an index access, and a `Seq Scan` on `alerts` fails
+      the build. Migration 10 (`tenant_scoped_read_indexes`) adds the composite
+      indexes those reads are shaped for — `(device_id, created_at)` on `alerts`,
+      `sessions` and `file_transfers`, `(device_id, status)` on `software_updates`
+      — because every one of these reads filters by unit *and* orders by recency.
+- [x] The e2e suite from 2.2-0 gains a tenancy flow: scoped login → filtered
+      ledger → device detail → action → audit row visible
+      (`web/e2e/tenancy.spec.ts`, green in the Redis-shaped stack, which is CI's shape).
 
 **Acceptance criteria**
 - Load test: 10,000 simulated devices, scoped technician, sustained ~100 req/s,
@@ -427,6 +446,39 @@ are not built.
 - A query-count assertion in the scoping test (no N+1) fails if scope checks scale
   with the target count.
 - The e2e tenancy flow is green in CI.
+
+**Measured, 2026-10-28** — `scripts/scale-tenancy.sh`: 10,000 units registered, 5
+_tenants_ of 2,000, one technician per tenant, 20 workers at 100 req/s for 30 s per
+actor (`RATE_LIMIT_PER_MINUTE` raised, because a 100 req/s campaign is above the
+per-user budget by design and this measures the cost of the scoped read):
+
+| read | unscoped baseline p95 | scoped technician p95 | failures | verdict |
+|---|---|---|---|---|
+| `/api/devices` | 830 ms | 124 ms | 0 | PASS |
+| `/api/alerts` | 122 ms | 64 ms | 0 | PASS |
+| `/api/patch/overview` | 746 ms | 137 ms | 0 | PASS |
+
+The scoped read is the **faster** one, which is the point: the baseline pays for
+10,000 rows, the technician pays for their tenant.
+
+**What the load pass surfaced (fixed in this pass).** The Redis device cache stores
+the row as JSON, and `models.Device.DeviceKey` is `json:"-"` (C3: the key is never
+serialized), so a cached read answers a unit with an **empty** device key. Every
+handler that loads a unit and `Save`s the whole row back — tags, reboot, client
+assignment, the WS hub — therefore wrote `device_key = ''`: the first such write
+locks that unit's agent out, and the next fails on `idx_devices_device_key`
+(`Key (device_key)=() already exists`), which reaches the operator as a 500 on
+`PUT /api/devices/:id/tags`. Invisible with Redis off, which is why the plain stack
+never saw it. `DeviceStore.Update` now omits `DeviceKey` (`Create` still writes it:
+enrollment is where the key is minted), and `TestUpdateNeverWritesTheDeviceKey`
+reproduces the collision without the fix.
+
+**Also fixed here:** `web/e2e/clients.spec.ts` asserted its scope header from an
+in-page `fetch` that sent the scheme as `bearer`, while `server/api/middleware.go`
+trims the prefix with `strings.TrimPrefix(authHeader, "Bearer ")`. The read was
+answering 401 with no scope header, so `not.toBe('all')` and a one-item split were
+passing on a refused request. The scheme is spelled exactly now, and a non-200 is a
+test failure rather than an empty string.
 
 ---
 
@@ -450,8 +502,11 @@ Plus, non-negotiable for this release:
 - [ ] The audit coverage test fails the build when a mutating route is un-audited
       (2.3-6).
 - [ ] 2.2 → 2.3 Postgres upgrade test green, with devices preserved (2.3-7).
-- [ ] Load test green with scoping enabled (2.3-8).
-- [ ] `docs/upgrade-guide.md` states the visibility change up front.
+- [x] Load test green with scoping enabled (2.3-8) — 10,000 units, a technician
+      scoped to 2,000, 100 req/s, zero failures, scoped p95 under the unscoped
+      baseline; the numbers are in 2.3-8.
+- [x] `docs/upgrade-guide.md` states the visibility change up front — it is the
+      section right after the overview, not a footnote.
 
 **Wire contract:** additive fields (`client_id` on devices, client rows, the scope
 header) → **MINOR**. Agents are unaffected: an agent's device simply carries a
