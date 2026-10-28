@@ -96,6 +96,15 @@ fi
   "$ROOT/.tmp/ourway-e2e-server" >/tmp/ourway-e2e-server.log 2>&1 &)
 
 cd "$ROOT/web"
+# Build, then serve `dist`. `vite preview` serves whatever bundle is on disk and
+# builds nothing, so a console change is invisible to the suite until this runs —
+# and the failure reads as "the console has no such control", not "the bundle is
+# stale". Recorded in docs/phase2.3-tasks.md as a harness fact; the loop enforces
+# it.
+if ! npm run build >/tmp/ourway-e2e-build.log 2>&1; then
+  echo "the console bundle did not build; see /tmp/ourway-e2e-build.log" >&2
+  exit 1
+fi
 (setsid nohup env OURWAY_PROXY_TARGET="http://localhost:${API_PORT}" \
   npx vite preview --port "${WEB_PORT}" >/tmp/ourway-e2e-preview.log 2>&1 &)
 
