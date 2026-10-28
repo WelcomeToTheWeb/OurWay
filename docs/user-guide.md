@@ -8,6 +8,8 @@ A task-oriented guide to using the OurWay RMM dashboard.
 
 - [Getting Started](#getting-started)
 - [Dashboard](#dashboard)
+- [Clients and Tenants](#clients-and-tenants)
+- [Audit Log](#audit-log)
 - [Device Management](#device-management)
 - [Alerts](#alerts)
 - [Remote Sessions](#remote-sessions)
@@ -66,6 +68,106 @@ The Dashboard provides an at-a-glance overview of your entire fleet.
 ### Real-Time Updates
 
 The dashboard updates in real-time via WebSocket. You don't need to refresh the page — device status, metrics, and alerts update automatically.
+
+### Per-Tenant Rows
+
+The dashboard's "By tenant" block (2.3) lists every client this account can see,
+with units awake, open alerts, patch compliance and last-seen, and each row opens
+that tenant's filtered fleet. The numbers come from the same read the Clients
+ledger computes, so a dashboard row and a ledger row cannot disagree.
+
+---
+
+## Clients and Tenants
+
+A **client** is the tenant an MSP supports: its units, its technicians, and its
+slice of the fleet. Clients are the axis of *who can see* — tags stay the axis of
+*what a policy touches*.
+
+Open it with **Clients** (`g c`).
+
+### Creating a Client
+
+1. **Clients** → **Add client**
+2. Name it. The slug (the short name in URLs and filters) is derived from the name.
+3. The new client owns no units yet, and the ledger says so.
+
+A client can be **paused**: a paused tenant is not offered for assignment, and its
+units keep their history.
+
+### Assigning Units
+
+Open the client's detail (**Open {{name}} detail**) and tick the units it owns, then
+**Save units**.
+
+- The list offers the units in your own fleet **plus** the unassigned pool — you
+  can only hand over units you are allowed to see.
+- A unit belongs to **exactly one** client: assigning it here removes it from the
+  client it was in.
+- Deleting a client leaves every unit intact and **unassigned**. It never deletes a
+  unit.
+- The rollup on the row — units, awake, alerts by severity, patch compliance,
+  technicians, last seen — is the same arithmetic the device ledger does over the
+  same rows.
+
+### Granting a Client to an Account
+
+In the client's detail, tick the accounts under **access** and press **Save
+access**. The grant list is non-admin accounts; granting a tenant is what makes
+that account's fleet. The grant takes effect on the account's next request — no
+restart, no re-login.
+
+### What a Non-Admin Account Sees
+
+- Administrators see every tenant and every unit. Everyone else sees **only the
+  clients they are granted**, and unassigned units are invisible to them.
+- A unit outside the account's clients is not findable: the unit's own URL answers
+  the same response a unit that does not exist gets, on every route — detail,
+  alerts, sessions, files, patch actions.
+- Bulk commands refuse out-of-scope targets and **name them** (`device_ids`,
+  `update_ids`). Every refusal is also an audit row.
+- The shift bar prints the scope the server applied to the read, with the number of
+  tenants it names. When a technician cannot find a unit, that stamp is the first
+  thing to read: it is almost always a tenant they are not granted, not a missing
+  unit.
+
+### The Tenant Filter
+
+Every ledger carries a **Filter by tenant** facet and a **Tenant** column:
+Devices, Alerts, Patches, Sessions and Files, plus the per-tenant rows on the
+dashboard. The filter is URL state — `?client=<slug>` — so a filtered view is a
+link you can paste into a ticket, it survives a reload, and it composes with the
+page's other filters. Administrators also get **Unassigned**, the bucket no tenant
+owns (`?client=unassigned`); a scoped account is not offered it, because for them
+that bucket is empty by definition.
+
+---
+
+## Audit Log
+
+The audit log records every mutating act: who did it, to which tenant and unit,
+and **what the server answered**. Open it with **Audit** (`g i`).
+
+- **Administrators** read the whole installation. **Managers** read the rows of the
+  clients they are granted. A **viewer** is refused the page: the log is an
+  operator surface.
+- **Refusals are rows.** A viewer pressing delete, a technician targeting another
+  tenant's unit, a command that failed — each is recorded with its outcome
+  (*done*, *refused*, *not found*, *failed*). A page full of *refused* entries
+  after a permissions change is the log doing its job, not an outage.
+- **Filters are URL state** — by action, by tenant, from a date. A filtered ledger
+  is a link.
+- **Export CSV** downloads the rows behind the current filters, through the
+  authenticated request (a download link never carries the session token).
+- **Retention**: rows older than `AUDIT_RETENTION_DAYS` (default 365) are pruned by
+  the server's hourly sweep. The page prints the window, the last sweep and how
+  many rows it removed.
+- The log **starts empty on upgrade**: it is not a record of the past. History from
+  before 2.3 is not recoverable.
+
+Asking for a tenant the account is not granted answers an **empty** ledger — the
+ledger's tenant list is a list of which tenants exist in the installation, and an
+error naming one you may not read would leak exactly what the 404 rule closes.
 
 ---
 
@@ -267,10 +369,15 @@ Manage users, roles, and permissions.
 
 | Role | Can View | Can Modify | Can Manage Users | Can Configure |
 |------|----------|------------|-----------------|---------------|
-| Admin | Everything | Everything | Yes | Yes |
-| Manager | Devices, Users, Roles, Alerts | Devices, Alerts, user roles | No | No |
-| Technician | Devices, Users, Roles, Alerts | Devices, Alerts | No | No |
-| Viewer | Devices, Users, Roles, Alerts | Nothing | No | No |
+| Admin | Every tenant and every unit | Everything | Yes | Yes |
+| Manager | The units of the clients granted to them, users, roles, alerts | Those units, alerts, user roles | No | No |
+| Technician | The units of the clients granted to them, users, roles, alerts | Those units, alerts | No | No |
+| Viewer | The units of the clients granted to them | Nothing | No | No |
+
+"The units of the clients granted to them" is the whole of the scope rule (2.3):
+the server answers every read by the account's granted clients, a unit outside
+them answers as if it did not exist, and unassigned units belong to no
+non-admin's fleet. Grants are edited on the client's detail page, not here.
 
 ### Managing Roles
 
@@ -411,6 +518,8 @@ curl -H "Authorization: Bearer owk_<your-key>" https://ourway.example.com/api/de
 ### Keyboard Shortcuts
 
 - `g + d`: Go to Devices
+- `g + c`: Go to Clients
+- `g + i`: Go to Audit
 - `g + a`: Go to Alerts
 - `g + f`: Go to Files
 - `g + p`: Go to Patches
@@ -426,6 +535,18 @@ curl -H "Authorization: Bearer owk_<your-key>" https://ourway.example.com/api/de
 
 - Acknowledge alerts promptly to prevent alert fatigue
 - Alert thresholds are global per metric (CPU, memory, disk) and apply to all devices
+
+### Tenants (2.3)
+
+- Assign a unit to a client at enrollment time, not later: an unassigned unit is
+  invisible to every non-admin account, so "the technician can't see the machine"
+  starts as an assignment gap, not a permissions one
+- Grant clients to accounts, never units — there is no per-unit grant to keep
+  straight, and the client detail page is where the fleet of an account is decided
+- When a technician reports a missing unit, read the scope stamp in the shift bar
+  first; it names the tenants the server applied to that read
+- Paste the filtered URL (`?client=<slug>`) into the ticket: the tenant filter is
+  URL state, so the colleague opening the link sees the same fleet
 
 ### Patching
 

@@ -5,6 +5,75 @@ All notable changes to the OurWay RMM project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - Unreleased
+
+### Added
+- **Clients (tenants) in the data model** — `Client` (name, slug, notes, paused),
+  `Device.ClientID` (nullable, indexed), and the `user_clients` junction that
+  decides what a non-admin account can see. Migration 8
+  (`clients_and_user_client_scope`). Unassigned is `client_id IS NULL`: no row to
+  create, rename, collide with, or delete; the console presents it as the
+  `unassigned` sentinel for the one account that can see those units.
+- **The scope resolver** (`server/api/scope.go`) — one place answers "may this
+  caller see it", from the user row and the junction, never from a token claim.
+  Every read that reaches a unit respects it, enforced server-side; a unit outside
+  the caller's clients answers the **same body a unit that does not exist gets**,
+  on the list, the detail and every action route. Bulk commands refuse
+  out-of-scope targets and name them (`device_ids`, `update_ids`).
+- **`X-Ourway-Client-Scope`** on every scoped response — the client ids the server
+  applied, or `all`. "The technician cannot find the unit" is the support ticket
+  this release is measured by, and the header is the checkable answer.
+- **Client surface**: `GET/POST /api/clients`, `PUT/DELETE /api/clients/:id`,
+  `PUT /api/clients/:id/devices`, `GET/PUT /api/clients/:id/users`,
+  `GET /api/clients/:id/rollup` and `GET /api/clients/rollups` (the dashboard's
+  per-tenant rows, one read, the same `rollupOf` arithmetic as the ledger).
+- **The audit ledger** — `audit_log` (migration 9) with actor, actor roles, action,
+  target, tenant, source IP, details and the **outcome the caller received**,
+  written by a `defer auditForAnswer` at the top of each mutating handler and by
+  `auditRoleDenial` in the RBAC middlewares (which abort before any handler runs,
+  so the viewer's refused delete is a row). `TestEveryMutatingRouteIsAudited`
+  compares the registry against the live router and fails the build on a mutating
+  route with no action and no written reason. Retention is
+  `AUDIT_RETENTION_DAYS` (365), pruned by the metric retention sweep, with the
+  counters printed on the page. `GET /api/audit` scopes like the fleet, filters by
+  action/tenant/actor/date, caps `limit`, and exports CSV.
+- **Console**: the Clients ledger (units, awake, alerts by severity, patch
+  compliance, technicians, last seen; assignment and grants in the detail panel;
+  deletion through `ConfirmSheet`), the Audit page (filters are URL state, CSV
+  export, scope and retention stated), the tenant facet and column on Devices,
+  Alerts, Patches, Sessions and Files (`?client=<slug>`, so a filtered view is a
+  link), the tenant line on the unit record, per-tenant rows on the dashboard, and
+  the scope stamp in the shift bar.
+- **Tenancy at scale** (2.3-8): scoping is a statement over the caller's **clients**
+  — `device_id IN (SELECT id FROM devices WHERE client_id IN (…))` — so a 2,000-unit
+  tenant's list carries the same two bind parameters as a two-unit tenant's, and the
+  scope resolves once per request. Migration 10
+  (`tenant_scoped_read_indexes`) adds the composite indexes the semi-join walks;
+  `TestPostgresScopedReadUsesTheIndexes` asks the Postgres planner to prove it, and
+  three query-count tests fail the build if a check scales with the target count.
+  Measured with `scripts/scale-tenancy.sh`: 10,000 units, technician scoped to
+  2,000, 100 req/s, zero failures, scoped p95 124/64/137 ms against an unscoped
+  baseline of 830/122/746 ms.
+- **Tests**: the scoping matrix over every route × role, the bulk atomicity tests
+  (a technician scoped to A deploying to B changes nothing and names the target),
+  the 2.2 → 2.3 Postgres upgrade test with devices preserved, the
+  `web/e2e/tenancy.spec.ts` flow (scoped sign-in → filtered ledger → unit → act →
+  audit row), and the tenancy scale run.
+
+### Changed
+- **A technician's visible set shrinks.** That is the point of the release: an
+  unassigned unit is visible to administrators and invisible to every other
+  account, so an installation's fleet has to be assigned before non-admins see it.
+  `docs/upgrade-guide.md` states it in its first section.
+- Device writes never touch `device_key`. `DeviceStore.Update` omits the column:
+  the Redis device cache answers a cached row with an empty key (the key is
+  `json:"-"`), so a handler that loaded a unit and saved the whole row — tags,
+  reboot, client assignment, the WS hub — used to blank the unit's credential,
+  locking its agent out, and the next such write failed on the unique index as a
+  500. Enrollment (`Create`) is the only place the key is minted.
+- Agent-facing behaviour, the wire pairing and the installer are untouched: an
+  agent's device simply carries a client assignment.
+
 ## [2.1.0] - 2026-10-26
 
 ### Changed

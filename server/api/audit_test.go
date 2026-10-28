@@ -672,3 +672,112 @@ func dumpAuditRows(rows []models.AuditLog) string {
 	}
 	return b.String()
 }
+
+// TestAuditRecordsClientGrant closes 2.3-1's open criterion: **the act that
+// changes what an account can see is itself a record**.
+//
+// Grants are the most consequential writes in an MSP installation — they decide
+// which technician can see which customer's machines — and they are the writes
+// with no unit, no reboot and no visible side effect to notice them by. A
+// support thread that starts "why can't Sam see the North Grid units?" is
+// answered by this row: who granted, to which tenant, which accounts the grant
+// replaced, and what the server answered.
+func TestAuditRecordsClientGrant(t *testing.T) {
+	f := newScopeFixture(t)
+	admin := f.makeUserWithScope(t, "grant-audit-admin", "admin")
+	f.makeUserWithScope(t, "grant-audit-tech", "technician")
+	tech, err := f.st.Users.GetByUsername("grant-audit-tech")
+	if err != nil {
+		t.Fatalf("load the technician: %v", err)
+	}
+
+	grantPath := "/api/clients/" + f.alice.ID + "/users"
+	code, body, _ := f.do(t, http.MethodPut, f.baseURL+grantPath, admin, map[string]any{
+		"user_ids": []string{tech.ID},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("grant = %d %s", code, body)
+	}
+
+	var grant *models.AuditLog
+	for _, r := range auditRows(t, f.st, 30) {
+		if r.Action == models.AuditClientGrant && r.ActorUsername == "grant-audit-admin" {
+			row := r
+			grant = &row
+		}
+	}
+	if grant == nil {
+		t.Fatalf("no client.grant row after a grant\n%s", dumpAuditRows(auditRows(t, f.st, 30)))
+	}
+	if grant.Outcome != models.AuditOutcomeOK {
+		t.Errorf("grant row outcome = %q, want %q", grant.Outcome, models.AuditOutcomeOK)
+	}
+	// The target is the tenant whose access list changed, and the row carries
+	// the tenant: a manager reading "who changed my client" must find the row
+	// without joining through a device that has since moved.
+	if grant.TargetType != "client" || grant.TargetID != f.alice.ID || grant.ClientID != f.alice.ID {
+		t.Errorf("grant row target = %s/%s client %q, want client/%s client %s",
+			grant.TargetType, grant.TargetID, grant.ClientID, f.alice.ID, f.alice.ID)
+	}
+	// The record says which account was granted and which ones it replaced.
+	if !strings.Contains(grant.Details, tech.ID) {
+		t.Errorf("grant row details do not name the granted account: %s", grant.Details)
+	}
+	if !strings.Contains(grant.Details, "was") {
+		t.Errorf("grant row details do not state the grant set it replaced: %s", grant.Details)
+	}
+
+	// The refusal half. `PUT /api/clients/:id/users` is admin-only, and
+	// `RequireAnyRole` aborts **before** any handler runs, so the handler-side
+	// writer cannot see this attempt: the row exists only because the
+	// middleware records it. A grant attempt by someone who cannot grant is
+	// exactly the event an audit log is read for.
+	techToken := loginUser(t, f.baseURL, "grant-audit-tech", "Passw0rd-2.3!")
+	code, body, _ = f.do(t, http.MethodPut, f.baseURL+grantPath, techToken, map[string]any{
+		"user_ids": []string{tech.ID},
+	})
+	if code != http.StatusForbidden {
+		t.Fatalf("technician grant = %d, want 403 (%s)", code, body)
+	}
+
+	var refusal *models.AuditLog
+	for _, r := range auditRows(t, f.st, 40) {
+		if r.Action == models.AuditClientGrant && r.ActorUsername == "grant-audit-tech" {
+			row := r
+			refusal = &row
+		}
+	}
+	if refusal == nil {
+		t.Fatalf("a refused grant wrote no row\n%s", dumpAuditRows(auditRows(t, f.st, 40)))
+	}
+	if refusal.Outcome != models.AuditOutcomeRefused {
+		t.Errorf("refusal outcome = %q, want %q", refusal.Outcome, models.AuditOutcomeRefused)
+	}
+
+	// And the grant the technician tried did not happen.
+	code, users, _ := f.get(t, "/api/clients/"+f.alice.ID+"/users", techToken)
+	if code == http.StatusOK {
+		var env struct {
+			Users []models.User `json:"users"`
+		}
+		_ = json.Unmarshal(users, &env)
+		if len(env.Users) != 1 {
+			t.Fatalf("the refused grant changed the access list: %+v", env.Users)
+		}
+	}
+
+	// The tenant column is what makes these rows a *tenant's* record. The
+	// ledger scopes a manager with `client_id IN (granted)`, so a grant row
+	// with no tenant is readable by the admin alone — and a client's manager,
+	// asking who changed who can see that client, is told nothing.
+	granted := f.makeUserWithScope(t, "grant-audit-manager", "manager", f.alice.ID)
+	 outsider := f.makeUserWithScope(t, "grant-audit-outsider", "manager", f.bob.ID)
+	_, mine, _ := f.get(t, "/api/audit?action=client.grant", granted)
+	_, theirs, _ := f.get(t, "/api/audit?action=client.grant", outsider)
+	if !jsonHasArrayNamed(mine, "logs", 1) {
+		t.Errorf("the granted client's manager reads no grant row for their own client: %s", mine)
+	}
+	if !jsonHasArrayNamed(theirs, "logs", 0) {
+		t.Errorf("a manager of another tenant reads a grant row: %s", theirs)
+	}
+}
