@@ -2311,6 +2311,32 @@ POST /api/sso/providers/:id/test
 Audited as `sso.test`. Admin only: probing the installation's identity provider is
 not a tenant operation.
 
+### Edit SSO Provider (admin)
+```
+PUT /api/sso/providers/:id
+```
+
+Edits a saved provider **in place** (2.4-4), so enable, order and policy changes are
+not delete-and-recreate. Field by field: **a field the request omits is left alone**,
+and an explicit empty string is a real state (no scope override, no domain allow-list,
+no role mapping). The `client_secret` is sent only to replace it — an empty value keeps
+the stored one, and no response ever contains it.
+
+Discovery re-runs on an edit. A provider that no longer describes a reachable IdP is
+refused with the same named kinds as at save (`discovery_unreachable`,
+`discovery_document`, `issuer_mismatch`, `no_code_flow`), answering
+`{"error":"provider not changed: …","discovery":"issuer_mismatch"}` and leaving the
+stored row working.
+
+**The name is immutable** — `409 {"reason":"name_immutable"}`. It is the identity key
+stored on every account that signed in through this provider (`users.provider`), so
+renaming a provider is not editing a label; it would orphan those identities. Create a
+new provider to change it.
+
+Audited as `sso.update` with name, type, issuer, enabled, link policy, allowed domains,
+verified-email requirement, role mapping and order — never the client secret. Admin
+only, like every provider route.
+
 ### Delete SSO Provider (admin)
 ```
 DELETE /api/sso/providers/:id

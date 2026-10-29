@@ -493,7 +493,8 @@ Configure single sign-on providers for your users.
 ### Adding an SSO Provider
 
 1. Navigate to **Settings** → **SSO**
-2. Click **Add Provider**
+2. Click **Add Provider** — or press a preset (**Google**, **Microsoft**, **Apple**)
+   to start from a pre-filled issuer
 3. Name the provider (a slug: letters, digits, `-`, `_`, `.` — it is part of the
    callback URL), and give it a **client ID** and **client secret** from your IdP
 4. Enter the **issuer** — the one field you have to know:
@@ -502,22 +503,46 @@ Configure single sign-on providers for your users.
    - Zitadel: `https://<instance>.zitadel.cloud`
    - Google: `https://accounts.google.com` (the `google` preset fills this in)
    - Microsoft (work and personal): `https://login.microsoftonline.com/common/v2.0`
-5. Ask OurWay what the IdP publishes **before** saving: `POST
-   /api/sso/providers/discover` (admin) answers the endpoints, the signing
-   algorithms, the scopes, the PKCE methods, the document verbatim, and the
-   **redirect URI you must register with the IdP**. The console surface for this is
-   2.4-4; today the form offers the three presets, and any other IdP is added
-   through the API.
-6. Enable the provider, set its order, and **Save**
+5. Press **Ask the IdP what it publishes** before saving. The panel answers the
+   endpoints, the signing algorithms, the scopes, the PKCE methods, the checks, and
+   the **redirect URI you must register with the IdP**. Nothing is saved by that
+   press, and it is recorded in the ledger as `sso.discover`.
+6. Set the **identity contract** for this door (below), the **order**, and **Enabled**
+7. **Save**
 
 OurWay fetches `<issuer>/.well-known/openid-configuration` at save time and uses the
-endpoints the IdP publishes. Any conformant OIDC provider works. If the issuer does
-not answer, is not an OIDC provider, describes a different issuer, or offers no
-authorization-code flow, the provider is **not saved** and the answer names why
-(`discovery_unreachable`, `discovery_document`, `issuer_mismatch`, `no_code_flow`).
+endpoints the IdP publishes. Any conformant OIDC provider works — the presets are a
+convenience, not a whitelist. If the issuer does not answer, is not an OIDC provider,
+describes a different issuer, or offers no authorization-code flow, the provider is
+**not saved** and the answer names why (`discovery_unreachable`,
+`discovery_document`, `issuer_mismatch`, `no_code_flow`).
 
-Typing endpoints by hand still works as an override (a proxy, a private alias): what
-you typed wins over what the IdP published, and discovery wins over a preset.
+Typing endpoints by hand still works as an override (a proxy, a private alias) through
+the API: what you typed wins over what the IdP published, and discovery wins over a
+preset.
+
+### The provider ledger (2.4-4)
+
+**Settings → SSO** lists the doors in the order the login page will show them, each
+with its issuer, the identity contract that governs logins through it, its order, and
+an enable toggle:
+
+| Column | What it states |
+|---|---|
+| Provider | The name (the identity key stored on accounts that sign in through it — **not editable**) and the client ID |
+| Issuer | The issuer the endpoints are discovered from, and whether PKCE is in force. A provider configured by hand shows `typed endpoints` |
+| Identity contract | `pending` / `links by email`, the domain allow-list size (or `any domain`), `verified email`, `role mapping` |
+| Order | `sort_order` — decides the login page's order |
+| State | Enabled, with a toggle. **Disabling a door keeps the provider**: its accounts keep their identity key |
+| Actions | **Test** (connection, as named states, audited `sso.test`), **Edit**, **Delete** (confirmed in the sheet) |
+
+**Edit** opens the same form with the stored values, and never the client secret — the
+field reads `Saved — type to replace it`, and the name field is locked with the reason.
+An edit changes only what you touched: the enable toggle sends one field, so it cannot
+wipe the domain allow-list you set earlier.
+
+`PUT /api/sso/providers/:id` is the same shape for automation. Changing who the
+installation trusts is recorded as `sso.update`.
 
 ### Test-connection
 

@@ -159,6 +159,10 @@ const (
 	AuditWebhookTest   = "webhook.test"
 
 	AuditSSOCreate = "sso.create"
+	// 2.4-4: the console edits a provider in place (`PUT /api/sso/providers/:id`),
+	// so changing who the installation trusts is a row of its own — the same facts
+	// as `sso.create`, and never the client secret.
+	AuditSSOUpdate = "sso.update"
 	AuditSSOTest   = "sso.test"
 	// 2.4-1: asking an IdP what it publishes is a server-side fetch of an
 	// operator-supplied URL, so it is recorded like the probe of a saved provider.

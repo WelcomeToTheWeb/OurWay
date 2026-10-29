@@ -636,6 +636,53 @@ func (f *ssoFixture) loginThrough(t *testing.T, providerName string, idp *testid
 
 // saveOIDCProvider is the operator's form: a name, a client id/secret, an issuer.
 // Nothing else — 2.4-1's premise is that the IdP publishes the rest.
+// providerID resolves a provider's id from its name through the admin list. The
+// console addresses a provider by id (2.4-4), so the tests name it the way the UI
+// does: by the name the operator typed.
+func (f *ssoFixture) providerID(t *testing.T, admin, name string) string {
+	t.Helper()
+	code, body, _ := f.do(t, http.MethodGet, "/api/sso/providers", admin, nil)
+	if code != http.StatusOK {
+		t.Fatalf("provider list = %d\n%s", code, body)
+	}
+	var listed struct {
+		Providers []models.SSOProvider `json:"providers"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		t.Fatalf("decode: %v\n%s", err, body)
+	}
+	for _, p := range listed.Providers {
+		if p.Name == name {
+			return p.ID
+		}
+	}
+	t.Fatalf("no provider named %q", name)
+	return ""
+}
+
+// loginPageProviders reads the public login-page list and answers the provider names
+// in the order the login page renders them.
+func (f *ssoFixture) loginPageProviders(t *testing.T) []string {
+	t.Helper()
+	code, body, _ := f.do(t, http.MethodGet, "/api/auth/sso/providers", "", nil)
+	if code != http.StatusOK {
+		t.Fatalf("public provider list = %d\n%s", code, body)
+	}
+	var listed struct {
+		Providers []struct {
+			Name string `json:"name"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		t.Fatalf("decode: %v\n%s", err, body)
+	}
+	names := make([]string, 0, len(listed.Providers))
+	for _, p := range listed.Providers {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
 func (f *ssoFixture) saveOIDCProvider(t *testing.T, admin, name, issuer string) {
 	t.Helper()
 	code, body := f.saveProvider(t, admin, map[string]any{

@@ -118,6 +118,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     floor stated in numbers, the per-unit chain preview, the value simulation, and
     deletes carried in the confirm sheet.
 
+- **The provider ledger** (2.4-4) — **Settings → SSO** stopped being a hardcoded
+  dropdown of the big three. The page lists the doors in the order the login page will
+  render them, each with its **issuer**, its identity contract (`pending` / `links by
+  email`, the domain allow-list, `verified email`, `role mapping`), its order, an
+  enable toggle, and **Test** / **Edit** / **Delete**. Presets pre-fill an issuer;
+  **any** issuer is typed and previewed — the panel shows the published endpoints, the
+  signing algorithms, scopes, PKCE methods, the named checks, and **the redirect URI to
+  register with the IdP** (audited `sso.discover`).
+- **`PUT /api/sso/providers/:id`** — edit a provider **in place**, field by field: an
+  omitted field is left alone (the enable toggle sends one field and cannot wipe a
+  policy), an explicit empty value is a real state, and `client_secret` is sent only to
+  replace it. Discovery re-runs; an unreachable issuer answers the named kinds with
+  `provider not changed` and leaves the stored row working. **The name is immutable**
+  (`409`, `name_immutable`): it is the identity key stored on every account signed in
+  through this provider. Audited as `sso.update` — never the secret.
+- Login page: the provider list is the operator's `sort_order` (server-side ordering,
+  page preserves it), and a disabled door disappears without a console rebuild.
+
 ### Fixed
 - `auditOKOnce` / `auditRefusedOnce` marked the request as recorded **before** writing,
   so `recordAudit`'s duplicate-row guard swallowed the row: those helpers wrote nothing.

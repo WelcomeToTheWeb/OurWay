@@ -130,6 +130,9 @@ func registerAuditRoutes() {
 	auditRoute(http.MethodPut, "/api/alerts/thresholds/:id", models.AuditThresholdUpdate)
 	auditRoute(http.MethodDelete, "/api/alerts/thresholds/:id", models.AuditThresholdDelete)
 	auditRoute(http.MethodPost, "/api/sso/providers", models.AuditSSOCreate)
+	// 2.4-4: the console edits a provider in place, so the edit is a row. Changing
+	// who the installation's accounts sign in through is not a label change.
+	auditRoute(http.MethodPut, "/api/sso/providers/:id", models.AuditSSOUpdate)
 	auditRoute(http.MethodDelete, "/api/sso/providers/:id", models.AuditSSODelete)
 	// 2.4-1: probing an IdP is a mutating-verb route (POST) that contacts another
 	// machine on the operator's behalf, so it is audited like the others — the

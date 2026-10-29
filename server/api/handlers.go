@@ -287,6 +287,10 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		// SSO provider management (admin)
 		protected.GET("/sso/providers", RequireRole("admin"), ssoHandler.ListProvidersAdmin)
 		protected.POST("/sso/providers", RequireRole("admin"), ssoHandler.CreateProvider)
+		// 2.4-4: edit in place. The console's provider ledger needs enable, order and
+		// policy changes without delete-and-recreate (which would orphan every account
+		// whose identity key is this provider's name).
+		protected.PUT("/sso/providers/:id", RequireRole("admin"), ssoHandler.UpdateProvider)
 		// 2.4-1: the discovery preview — an issuer the operator has not saved yet.
 		protected.POST("/sso/providers/discover", RequireRole("admin"), ssoHandler.DiscoverIssuer)
 		protected.POST("/sso/providers/:id/test", RequireRole("admin"), ssoHandler.TestProvider)

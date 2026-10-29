@@ -284,20 +284,53 @@ Generic OIDC widens exactly this surface, so it ships with the contract, not aft
 ## 2.4-4 · Console: provider setup and login list
 
 **Do**
-- [ ] Replace the hardcoded provider dropdown with the provider ledger: presets as
+- [x] Replace the hardcoded provider dropdown with the provider ledger: presets as
       a starting point, issuer + client id/secret + discovery preview, claim
       mapping, domain allow-list, verified-email toggle, link policy, enabled order.
-- [ ] Login page renders providers in configured order; a provider the operator
-      disabled disappears without a console rebuild.
-- [ ] All strings in `en`/`de`/`fr` lockstep, with `scripts/i18n-parity.py`
-      (2.2-5) green.
+      — `web/src/pages/SSO.tsx`; the edit path is `PUT /api/sso/providers/:id`
+      (in place, field by field, name immutable).
+- [x] Login page renders providers in configured order (server answers
+      `sort_order, name`; `Login.tsx` preserves it — `web/src/pages/Login.test.tsx`),
+      and a disabled provider disappears without a console rebuild
+      (`TestProviderOrderAndEnableIsTheLoginPagesState`).
+- [x] All strings in `en`/`de`/`fr` lockstep, with `scripts/i18n-parity.py`
+      (2.2-5) green — 632 key paths.
 
 **Acceptance criteria**
-- An operator can add Keycloak, Authentik, and Zitadel from the UI alone, with no
+- [x] An operator can add Keycloak, Authentik, and Zitadel from the UI alone, with no
   server restart, and each appears on the login page in the configured order.
-- `Test-connection` output distinguishes discovery failure, redirect mismatch, and
-  JWKS failure with named states.
-- Secrets never round-trip to the browser after creation.
+  — The form takes **any** issuer (the presets pre-fill one, they do not gate it:
+  `SSO.test.tsx` asserts the name field is editable for a new provider), saving needs
+  no restart, and the order is the ledger's order.
+- [x] `Test-connection` output distinguishes discovery failure, redirect mismatch, and
+  JWKS failure with named states — the checks panel renders `pass / warn / fail /
+  skipped` with the server's detail (`sso.state.*`, `sso.check.*`), and the preview
+  panel names a refused discovery by kind (`issuer_mismatch` asserted in
+  `SSO.test.tsx`).
+- [x] Secrets never round-trip to the browser after creation — `client_secret` is
+  `json:"-"`; the edit form's secret field is empty with the placeholder
+  "Saved — type to replace it" (asserted), an edit sends a secret only to replace it,
+  and the public provider list carries no endpoints and no secret
+  (`TestProviderOrderAndEnableIsTheLoginPagesState` greps for the leak).
+
+**Shipped with 2.4-4**
+- `PUT /api/sso/providers/:id` with field-presence semantics: an omitted field is
+  left alone, an explicit empty string is a state. Create and update share one request
+  shape and one validation path, so no door skips a rule the other applies.
+- The name is immutable (`409 name_immutable`): it is `users.provider`, the identity
+  key of every account signed in through the provider. Editing it is not a label
+  change; it would orphan those identities.
+- Discovery re-runs on an edit and refuses loudly: `provider not changed:
+  issuer_mismatch …`, leaving the stored row working.
+- `sso.update` audit rows (name, type, issuer, enabled, link policy, allowed domains,
+  verified-email requirement, role mapping, order — never the secret), registered in
+  the route↔action table the 2.3-6 coverage test checks.
+
+**Deferred (stated, not silent)**
+- The form exposes the issuer, policy, order, claims (email/groups) and enable. The
+  typed-endpoint overrides and the username/name claim overrides stay API-only: they
+  are proxy workarounds, and 2.4-4's Do list is the ledger for the 2.4-1/2.4-3 fields.
+  A provider with no issuer shows `typed endpoints` in the ledger rather than nothing.
 
 ---
 
