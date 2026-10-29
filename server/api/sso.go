@@ -40,6 +40,63 @@ type SSOHandler struct {
 	// redirect URL (C6: tokens must not sit in query strings/logs).
 	mu      sync.Mutex
 	pending map[string]*pendingSSOToken
+
+	// loginStates is the server-side half of the authorize redirect (2.4-2): the
+	// PKCE verifier and the nonce the provider will echo back, bound to the state
+	// value the browser carries. The cookie proves *this browser* started a login;
+	// this map is what proves *which* login, and it is single-use.
+	statesMu sync.Mutex
+	states   map[string]*loginState
+}
+
+// loginState is what the authorize redirect committed to before the IdP has seen
+// anything: the provider, the PKCE verifier, and the nonce the id_token must carry.
+type loginState struct {
+	provider string
+	verifier string
+	nonce    string
+	expires  time.Time
+}
+
+// ssoStateTTL is how long an authorize redirect may sit open before its verifier
+// and nonce are dead. It matches the `sso_state` cookie's 300 seconds: a login that
+// was not completed inside that window is restarted, not resumed later.
+const ssoStateTTL = 5 * time.Minute
+
+// storeLoginState records the verifier and nonce for one authorize redirect, and
+// sweeps the entries whose window has passed. An unpruned map is a memory leak with
+// a login form attached (the M11 lesson), so the sweep rides on the write.
+func (h *SSOHandler) storeLoginState(state, provider, verifier, nonce string) {
+	h.statesMu.Lock()
+	defer h.statesMu.Unlock()
+	now := time.Now()
+	for key, st := range h.states {
+		if now.After(st.expires) {
+			delete(h.states, key)
+		}
+	}
+	h.states[state] = &loginState{
+		provider: provider,
+		verifier: verifier,
+		nonce:    nonce,
+		expires:  now.Add(ssoStateTTL),
+	}
+}
+
+// takeLoginState consumes the record for a state value: a replayed callback has no
+// verifier and no nonce to present, which is the point of binding them server-side.
+func (h *SSOHandler) takeLoginState(state string) (*loginState, bool) {
+	h.statesMu.Lock()
+	defer h.statesMu.Unlock()
+	st, ok := h.states[state]
+	if !ok {
+		return nil, false
+	}
+	delete(h.states, state)
+	if time.Now().After(st.expires) {
+		return nil, false
+	}
+	return st, true
 }
 
 // pendingSSOToken is a one-time token pair awaiting exchange.
@@ -62,6 +119,7 @@ func NewSSOHandler(store *store.Store, jwtAuth *auth.JWTAuth, redirectURI string
 		http:     sso.DefaultHTTPClient(),
 		jwks:     sso.NewJWKSClient(sso.DefaultHTTPClient()),
 		pending:  make(map[string]*pendingSSOToken),
+		states:   make(map[string]*loginState),
 	}
 }
 
@@ -125,12 +183,38 @@ func (h *SSOHandler) Authorize(c *gin.Context) {
 	}
 	state := hex.EncodeToString(stateBytes)
 
+	// 2.4-2: the login's secrets are committed **server-side**, bound to that
+	// state. A provider with an issuer is an OIDC provider, so its `id_token` is
+	// verified — and a verified token is only worth having if it is *this* login's,
+	// which is what the nonce says. PKCE is sent when the provider published a
+	// code-challenge method (discovered at save time, so a login costs no extra
+	// round trip to find that out).
+	var nonce, verifier, challenge string
+	if strings.TrimSpace(provider.Issuer) != "" && strings.TrimSpace(provider.JwksURI) != "" {
+		nonce, err = sso.RandomNonce()
+		if err != nil {
+			log.Printf("sso: failed to generate nonce: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			return
+		}
+	}
+	if provider.PKCESupported {
+		verifier, err = sso.NewCodeVerifier()
+		if err != nil {
+			log.Printf("sso: failed to generate code verifier: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			return
+		}
+		challenge = sso.CodeChallenge(verifier)
+	}
+	h.storeLoginState(state, provider.Name, verifier, nonce)
+
 	// Store state in session cookie. Secure=true: this is a CSRF state
 	// cookie on a flow that must not be replayable over plaintext HTTP.
 	c.SetCookie("sso_state", state, 300, "/", "", true, true)
 
 	redirectURI := h.redirectURIFor(provider)
-	authorizeURL := h.oauth.AuthorizeURL(provider, redirectURI, state)
+	authorizeURL := h.oauth.AuthorizeURL(provider, redirectURI, state, nonce, challenge)
 
 	c.Redirect(http.StatusFound, authorizeURL)
 }
@@ -158,10 +242,21 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 	// Verify state, then consume the cookie so it cannot be replayed (M13).
 	expectedState, err := c.Cookie("sso_state")
 	if err != nil || expectedState != c.Query("state") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+		h.auditSSORefusal(c, provider, sso.ReasonStateMismatch, http.StatusBadRequest, "", "")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state", "reason": sso.ReasonStateMismatch})
 		return
 	}
 	c.SetCookie("sso_state", "", -1, "/", "", true, true)
+
+	// The state's server-side half is consumed here: the PKCE verifier and the
+	// nonce live only on the login they were generated for, and a callback that
+	// presents no record is a replay of a state value, not a login in progress.
+	login, ok := h.takeLoginState(expectedState)
+	if !ok || login.provider != provider.Name {
+		h.auditSSORefusal(c, provider, sso.ReasonStateExpired, http.StatusBadRequest, "", "")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state", "reason": sso.ReasonStateExpired})
+		return
+	}
 
 	code := c.Query("code")
 	if code == "" {
@@ -170,14 +265,29 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 	}
 
 	redirectURI := h.redirectURIFor(provider)
-	token, refreshToken, err := h.oauth.HandleCallback(c.Request.Context(), provider, code, redirectURI)
+	outcome, err := h.oauth.HandleCallback(c.Request.Context(), provider, code, redirectURI, login.nonce, login.verifier)
 	if err != nil {
-		log.Printf("sso: callback failed for provider %s: %v", providerName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "SSO login failed"})
+		reason := sso.ReasonCodeExchange
+		subject := ""
+		email := ""
+		var iderr *sso.IdentityError
+		if errors.As(err, &iderr) {
+			reason = iderr.Reason
+			subject = iderr.Subject
+			email = iderr.Email
+		}
+		log.Printf("sso: callback refused for provider %s: %v", providerName, err)
+		// A refused identity is a named answer and a ledger row, never a 500: the
+		// person standing at the browser wants to know the login was refused, and
+		// the operator wants to know which rule refused it.
+		h.auditSSORefusal(c, provider, reason, http.StatusUnauthorized, subject, email)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "SSO login refused", "reason": reason})
 		return
 	}
 
-	loginCode, err := h.storePendingToken(token, refreshToken)
+	h.auditSSOLogin(c, outcome, provider)
+
+	loginCode, err := h.storePendingToken(outcome.AccessToken, outcome.RefreshToken)
 	if err != nil {
 		log.Printf("sso: failed to store pending token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
@@ -289,10 +399,26 @@ func providerPreset(name string) (issuer, scope string) {
 // Discovery failure is an error, and the caller saves nothing on error. A provider
 // row that was saved from a guess is a login that fails with a 500 at 2 a.m.
 func (h *SSOHandler) applyDiscovery(provider *models.SSOProvider, requestedAuthURL, requestedTokenURL, requestedUserInfoURL string) error {
+	// The precedence, in the one place it is decided.
+	set := func(target *string, discovered, requestedValue string) {
+		if strings.TrimSpace(requestedValue) != "" {
+			*target = requestedValue
+			return
+		}
+		if strings.TrimSpace(discovered) != "" {
+			*target = discovered
+		}
+	}
+
 	if strings.TrimSpace(provider.Issuer) == "" {
 		// No issuer means no discovery, which is the pre-2.4 shape: an operator
-		// who typed every endpoint by hand. Accepted, and stated as such by the
-		// empty `discovered_at`.
+		// who typed every endpoint by hand. The typed endpoints are still what the
+		// flow calls — dropping them here would save a provider that authorizes to
+		// an empty URL.
+		set(&provider.AuthURL, "", requestedAuthURL)
+		set(&provider.TokenURL, "", requestedTokenURL)
+		set(&provider.UserInfoURL, "", requestedUserInfoURL)
+		provider.PKCESupported = false
 		return nil
 	}
 	doc, err := sso.Discover(h.http, provider.Issuer, provider.DiscoveryURL)
@@ -308,18 +434,12 @@ func (h *SSOHandler) applyDiscovery(provider *models.SSOProvider, requestedAuthU
 	}
 	provider.JwksURI = doc.JwksURI
 
-	set := func(target *string, discovered, requestedValue string) {
-		if strings.TrimSpace(requestedValue) != "" {
-			*target = requestedValue
-			return
-		}
-		if strings.TrimSpace(discovered) != "" {
-			*target = discovered
-		}
-	}
 	set(&provider.AuthURL, doc.AuthorizationEndpoint, requestedAuthURL)
 	set(&provider.TokenURL, doc.TokenEndpoint, requestedTokenURL)
 	set(&provider.UserInfoURL, doc.UserInfoEndpoint, requestedUserInfoURL)
+	// 2.4-2: the code flow is PKCE when the IdP says it understands it. Recorded
+	// here, at save time, because the authorize redirect cannot ask the IdP.
+	provider.PKCESupported = doc.PKCESupported()
 	return nil
 }
 
@@ -408,6 +528,65 @@ func (h *SSOHandler) TestProvider(c *gin.Context) {
 // provider's own configured one when the operator set it (a server behind a proxy
 // answers on a name that is not its internal one), and the installation default
 // otherwise.
+// auditSSORefusal records a refused SSO login. The actor of a refused login is, by
+// construction, not established — the row's value is the door it was refused at, the
+// outcome, and the details: **which rule** refused it, and whom the provider
+// asserted. "SSO login failed" in a server log is not a record; the ledger row is
+// what an operator reads when a user says "the door is closed".
+func (h *SSOHandler) auditSSORefusal(c *gin.Context, provider *models.SSOProvider, reason string, status int, subject, email string) {
+	if h.store == nil || h.store.Audit == nil {
+		return
+	}
+	details := map[string]any{"reason": reason, "provider": provider.Name}
+	if subject != "" {
+		details["subject"] = subject
+	}
+	if email != "" {
+		details["asserted_email"] = email
+	}
+	auditRefusedOnce(c, h.store, models.AuditAuthLoginFailed, status,
+		AuditTarget{Type: "sso-provider", ID: provider.Name}, details)
+}
+
+// auditSSOLogin records a login that arrived through an identity provider. The actor
+// comes from the account the identity mapped to, because the request carries no
+// session yet — this is the act that creates one. `id_token_verified` is stated, not
+// hidden: false means the provider has no `jwks_uri` (its endpoints were typed by
+// hand), so its identity rested on the userinfo call alone.
+func (h *SSOHandler) auditSSOLogin(c *gin.Context, outcome *sso.LoginOutcome, provider *models.SSOProvider) {
+	if h.store == nil || h.store.Audit == nil || outcome == nil || outcome.User == nil {
+		return
+	}
+	roles := ""
+	if roleRows, err := h.store.UserRoles.GetUserRoles(outcome.User.ID); err == nil {
+		names := make([]string, 0, len(roleRows))
+		for _, r := range roleRows {
+			names = append(names, r.Name)
+		}
+		roles = joinRoles(names)
+	}
+	markAudited(c)
+	_ = h.store.Audit.Record(&models.AuditLog{
+		ID:            models.NewAuditID(),
+		ActorUserID:   outcome.User.ID,
+		ActorUsername: outcome.User.Username,
+		ActorRoles:    roles,
+		ActorProvider: provider.Name,
+		Action:        models.AuditAuthLogin,
+		TargetType:    "sso-provider",
+		TargetID:      provider.Name,
+		Outcome:       models.AuditOutcomeOK,
+		Details: store.EncodeDetails(map[string]any{
+			"provider":          provider.Name,
+			"subject":           outcome.Subject,
+			"email":             outcome.Email,
+			"email_verified":    outcome.EmailVerified,
+			"id_token_verified": outcome.VerifiedByIDToken,
+		}),
+		SourceIP: c.ClientIP(),
+	})
+}
+
 func (h *SSOHandler) redirectURIFor(provider *models.SSOProvider) string {
 	if strings.TrimSpace(provider.RedirectURI) != "" {
 		return provider.RedirectURI

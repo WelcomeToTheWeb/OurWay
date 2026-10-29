@@ -36,6 +36,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the public provider list carries `id`/`type`/`name`/`label`/`sort_order` and
   nothing else: no endpoints, no secret (`client_secret` stays `json:"-"`).
 
+- **The `id_token` is verified before any identity is trusted** (2.4-2) — signature
+  against the provider's published `jwks_uri` (RS256, `kid` lookup, a refresh on an
+  unknown `kid` so a key rotation keeps logins working), `iss` = the configured issuer,
+  `aud` = this provider's client id, `exp` required (60s leeway), and the `nonce` = the
+  one this login sent. **PKCE** (`S256`) on the code flow when the provider publishes a
+  challenge method, with the verifier and nonce held server-side against the CSRF state
+  and consumed once.
+- **userinfo and the signed token must agree on `sub`.** Disagreement is a refused
+  login, audited — OurWay does not pick which of the two people a provider named.
+- **SSO refusals answer a named reason and write a ledger row.** 401, never a 500, with
+  `code_exchange_failed`, `missing_id_token`, `id_token_verification_failed`,
+  `nonce_mismatch`, `subject_mismatch`, `userinfo_failed`, `no_identity_claim`,
+  `state_mismatch`, `state_expired` — and an `auth.login_failed` row naming the reason
+  **and the asserted email**. A refused login provisions no account.
+- **A completed SSO login is audited as `auth.login`** with the account it arrived as,
+  its roles at the time, and the verification state stated
+  (`id_token_verified`, `email_verified`). No token material in the row.
+- **`users.sso_attributes` is a claim summary, not a credential** — `provider`,
+  `provider_id`, `name`, `email`, `email_verified`, mapped `groups`, as JSON. The raw
+  `id_token` (an access credential to another system, in the table a backup copies) is
+  gone.
+
+### Fixed
+- `auditOKOnce` / `auditRefusedOnce` marked the request as recorded **before** writing,
+  so `recordAudit`'s duplicate-row guard swallowed the row: those helpers wrote nothing.
+  Found by 2.4-2's login refusals, their first callers.
+- A provider saved with **no issuer** (endpoints typed by hand, the pre-2.4 shape)
+  lost the typed endpoints in 2.4-1's discovery refactor and authorized to an empty
+  URL. The typed > discovered > preset precedence is now applied on both paths.
+
 ---
 
 ## [2.3.0] - 2026-10-28

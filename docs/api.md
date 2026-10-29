@@ -1910,16 +1910,39 @@ GET /api/auth/sso/:provider/authorize
 ```
 
 Sets the one-shot `sso_state` cookie and redirects to the provider's published
-`authorization_endpoint`.
+`authorization_endpoint`. For an OIDC provider the redirect also carries **PKCE**
+(`code_challenge`, `code_challenge_method=S256`, when the provider published a
+challenge method) and a **nonce** the `id_token` must echo back. The verifier and the
+nonce are held server-side against the state value and are single-use.
 
 ### SSO Callback
-Handles the SSO provider's redirect back to OurWay. Exchanges the code for tokens
-(server to server), verifies the identity, provisions the account on first login
-(JIT), and redirects to `/login?sso_code=…`.
+Handles the SSO provider's redirect back to OurWay: exchange the code (presenting the
+PKCE verifier), read userinfo, **verify the `id_token`** against the provider's
+published keys, require the two identity sources to agree, and provision the account
+on first login (JIT). Then redirect to `/login?sso_code=…`.
 
 ```
 GET /api/auth/sso/:provider/callback?code=xxx&state=yyy
 ```
+
+Verification (2.4-2): signature against `jwks_uri` (RS256, rotation-tolerant), `iss`
+= the configured issuer, `aud` = this provider's client id, `exp` required (60s
+leeway), and the `nonce` = the one this login sent. A provider with **no issuer** has
+no key set to verify against; its identity rests on the userinfo call, and the login's
+audit row states that (`id_token_verified: false`).
+
+Refusals answer **401** with a named reason and write an `auth.login_failed` ledger
+row naming the reason and the asserted identity:
+
+| `reason` | What was refused |
+|---|---|
+| `code_exchange_failed` | The token endpoint refused the code (expired, replayed, verifier mismatch) |
+| `missing_id_token` | The provider published a `jwks_uri` and returned no `id_token` |
+| `id_token_verification_failed` | Signature, `iss`, `aud`, or `exp` did not check out |
+| `nonce_mismatch` | The token was minted for a different login |
+| `subject_mismatch` | userinfo and the signed token name different people |
+| `userinfo_failed` / `no_identity_claim` | No usable identity was asserted |
+| `state_mismatch` / `state_expired` | The CSRF state is not this login's (single-use) |
 
 The access and refresh tokens **never appear in a URL** (C6). The console redeems
 the one-time code below for them; a code is single-use and expires in 60 seconds.
@@ -1953,6 +1976,7 @@ GET /api/sso/providers
       "jwks_uri": "https://idp.corp/realms/ourway/protocol/openid-connect/certs",
       "redirect_uri": "https://rmm.example/api/auth/sso/keycloak-corp/callback",
       "discovered_at": "2026-10-28T14:00:00Z",
+      "pkce_supported": true,
       "auth_url": "https://idp.corp/realms/ourway/protocol/openid-connect/auth",
       "token_url": "https://idp.corp/realms/ourway/protocol/openid-connect/token",
       "user_info_url": "https://idp.corp/realms/ourway/protocol/openid-connect/userinfo",

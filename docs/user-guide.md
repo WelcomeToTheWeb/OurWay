@@ -490,6 +490,20 @@ recorded on the account, and an admin assigns a higher one on the **Users** page
 The client secret never leaves the server: provider rows serialize without it, and
 the login page's provider list carries only the name, label and order.
 
+### What a login verifies
+
+A provider configured by **issuer** is verified before it is trusted (2.4-2): the
+`id_token` is checked against the keys that issuer publishes (`iss`, `aud` = this
+provider's client id, `exp`, the signature), its `nonce` must be the one this login
+sent, the code flow carries a **PKCE** challenge when the provider supports it, and the
+userinfo call and the signed token must name the **same** subject. When a login is
+refused, the browser gets a named reason (`subject_mismatch`,
+`id_token_verification_failed`, `nonce_mismatch`, `missing_id_token`, …) and the audit
+ledger records which rule refused it and the email the provider asserted.
+
+A provider configured by **hand-typed endpoints** (no issuer) has no key set to verify
+against. It works, and its login records say `id_token_verified: false`.
+
 ---
 
 ## Webhooks

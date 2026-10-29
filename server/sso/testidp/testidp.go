@@ -13,6 +13,7 @@ package testidp
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -39,6 +40,18 @@ type Claims struct {
 	// Extra carries the claim shapes the mapping must handle (a group claim under
 	// a non-standard name, an email claim under `upn`, a user with no email).
 	Extra map[string]any
+	// IDTokenSubject makes the signed token name a **different** person from the
+	// userinfo call: the shape 2.4-2's agreement rule refuses.
+	IDTokenSubject string
+	// TokenSabotage makes the token endpoint mint an id_token the verifier must
+	// refuse: "expired", "foreign_aud", "wrong_key", "none", "hs256",
+	// "sub_mismatch", "missing".
+	TokenSabotage string
+	// codeChallenge and nonce are captured from the /authorize request, the way a
+	// real IdP captures them: what the client sent at the start of this login is
+	// what the token endpoint must bind the code to.
+	codeChallenge string
+	nonce         string
 }
 
 // IdP is a running provider fixture.
@@ -58,6 +71,13 @@ type IdP struct {
 	// test cannot know it in advance — this is the one-user IdP a real operator
 	// signs in to.
 	defaultClaims *Claims
+	// lastChallenge and verifierOK record what the token endpoint saw, so a test can
+	// assert that the client presented a PKCE verifier instead of asserting that a
+	// stub of itself did. requirePKCE is the strict-IdP setting: refuse a token
+	// request that presents no verifier at all.
+	lastChallenge string
+	verifierOK    bool
+	requirePKCE   bool
 }
 
 // New starts a provider at a random localhost port.
@@ -230,6 +250,17 @@ func (p *IdP) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, redirect+"?error=unsupported_response_type&state="+url.QueryEscape(q.Get("state")), http.StatusFound)
 		return
 	}
+	// The fixture binds the login's PKCE challenge and nonce to the code, the way a
+	// real IdP does: the client sent them at the start of this login, and the token
+	// endpoint is where they have to come back (2.4-2).
+	p.mu.Lock()
+	if stored, ok := p.codes[code]; ok {
+		stored.codeChallenge = q.Get("code_challenge")
+		if n := q.Get("nonce"); n != "" {
+			stored.nonce = n
+		}
+	}
+	p.mu.Unlock()
 	realCode := "code-" + code
 	p.mu.Lock()
 	p.tokens["at-"+realCode] = claims
@@ -257,13 +288,112 @@ func (p *IdP) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 	clientID := r.Form.Get("client_id")
 
+	// PKCE, enforced: a code that was issued with a challenge is only spendable by
+	// the client that can present the verifier it corresponds to. `RequirePKCE` is
+	// the strict-provider setting, so a test can prove the client sends a verifier
+	// at all rather than proving it sent one that matched.
+	challenge := claims.codeChallenge
+	p.mu.Lock()
+	p.lastChallenge = challenge
+	requireVerifier := challenge != "" || p.requirePKCE
+	p.mu.Unlock()
+	if requireVerifier {
+		verifier := r.Form.Get("code_verifier")
+		matched := verifier != "" && (challenge == "" || s256(verifier) == challenge)
+		if !matched {
+			p.mu.Lock()
+			p.verifierOK = false
+			p.mu.Unlock()
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"code_verifier does not match the challenge the code was issued with"}`))
+			return
+		}
+		p.mu.Lock()
+		p.verifierOK = true
+		p.mu.Unlock()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	resp := map[string]any{
 		"access_token": "at-" + realCode,
 		"token_type":   "Bearer",
 		"expires_in":   3600,
-		"id_token":     p.MintIDToken(*claims, clientID, "RS256"),
-	})
+	}
+	if idToken := p.MintFor(*claims, clientID); idToken != "" {
+		resp["id_token"] = idToken
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// MintFor mints the id_token this login's token response carries, honoring
+// `TokenSabotage` — the fixture's way of producing the tokens 2.4-2's acceptance
+// criteria name: expired, minted for another client, signed by an unpublished key,
+// `alg: none`, HS256 against an RSA set, a subject that disagrees with userinfo, and
+// no id_token at all.
+func (p *IdP) MintFor(c Claims, clientID string) string {
+	minted := c
+	if c.nonce != "" {
+		minted.Nonce = c.nonce
+	}
+	switch c.TokenSabotage {
+	case "missing":
+		return ""
+	case "nonce_swap":
+		// A token minted for some earlier login: same subject, same audience, a
+		// nonce that is not the one this authorize redirect sent.
+		minted.Nonce = "a-nonce-from-another-login"
+		return p.MintIDToken(minted, clientID, "RS256")
+	case "expired":
+		return p.MintExpiredIDToken(minted, clientID)
+	case "foreign_aud":
+		return p.MintIDToken(minted, "some-other-client", "RS256")
+	case "wrong_key":
+		return p.MintIDTokenWithKey(minted, clientID)
+	case "none":
+		return p.MintIDToken(minted, clientID, "none")
+	case "hs256":
+		return p.MintIDToken(minted, clientID, "HS256")
+	case "sub_mismatch":
+		sub := c.IDTokenSubject
+		if sub == "" {
+			sub = "signed-as-" + c.Subject
+		}
+		minted.Subject = sub
+		return p.MintIDToken(minted, clientID, "RS256")
+	default:
+		return p.MintIDToken(minted, clientID, "RS256")
+	}
+}
+
+// LastCodeChallenge is the PKCE challenge the last /authorize carried, empty when
+// the client sent none.
+func (p *IdP) LastCodeChallenge() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastChallenge
+}
+
+// VerifierAccepted reports whether the last token request presented a verifier that
+// matched the challenge.
+func (p *IdP) VerifierAccepted() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.verifierOK
+}
+
+// RequirePKCE makes the provider refuse a token request that presents no verifier at
+// all — a strict IdP, and the only way to prove the client sends one.
+func (p *IdP) RequirePKCE() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.requirePKCE = true
+}
+
+// s256 is the PKCE S256 transform, computed here so the fixture can check a
+// verifier without importing the code under test.
+func s256(verifier string) string {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // takeCode exchanges a code for its claims and consumes it (single use, as a real
