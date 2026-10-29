@@ -379,7 +379,18 @@
     "admin": "Admin",
     "manager": "Manager",
     "technician": "Technician",
-    "viewer": "Viewer"
+    "viewer": "Viewer",
+    "pendingTitle": "Pending SSO identities",
+    "pendingBody": "These emails were asserted by an identity provider, and each one belongs to an account that already exists. OurWay does not link them by itself: none of these can sign in, and none of them has a role, until you approve the identity as its own account, merge it into the account its email points at, or delete it.",
+    "pendingNone": "No pending identities.",
+    "pendingAsserted": "Asserted email",
+    "pendingProvider": "Provider",
+    "pendingSubject": "Subject",
+    "pendingTarget": "Points at",
+    "pendingVerified": "Email verified by the provider",
+    "pendingUnverified": "Email not verified by the provider",
+    "approve": "Approve as own account",
+    "merge": "Merge into account"
   },
   "sso": {
     "title": "SSO Providers",
@@ -530,6 +541,16 @@
       "title": "Revoke “{{name}}”?",
       "body": "Units already enrolled keep reporting and stay in {{client}}. An agent presenting this token is refused, and the token cannot be shown again — the server stores only its hash.",
       "action": "Revoke token"
+    },
+    "approveIdentity": {
+      "title": "Approve {{email}} as its own account?",
+      "body": "The identity signs in as a new account of its own at the viewer floor — it does not touch the account its email belongs to. Change its roles on the Users list afterwards. This is recorded in the ledger.",
+      "action": "Approve identity"
+    },
+    "mergeIdentity": {
+      "title": "Merge {{subject}} into {{name}}?",
+      "body": "The account {{name}} will sign in through this provider from now on, keeping its own roles and client assignments. The provider's password no longer applies to it. This is recorded in the ledger.",
+      "action": "Merge identity"
     }
   },
   "clients": {

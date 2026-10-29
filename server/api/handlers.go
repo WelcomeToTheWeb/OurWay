@@ -221,6 +221,12 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		userGroup := protected.Group("/users")
 		{
 			userGroup.GET("", RequireAnyRole("admin", "manager"), userHandler.ListUsers)
+			// 2.4-3: the identities an identity provider asserted that OurWay will not
+			// link by itself. Reads are admin-only: a pending identity names somebody
+			// else's account, and a tenant's manager has no business seeing it.
+			userGroup.GET("/pending", RequireRole("admin"), userHandler.ListPendingIdentities)
+			userGroup.POST("/:id/approve", RequireRole("admin"), userHandler.ApproveIdentity)
+			userGroup.POST("/:id/merge", RequireRole("admin"), userHandler.MergeIdentity)
 			userGroup.POST("", RequireRole("admin"), userHandler.CreateUser)
 			userGroup.PUT("/:id/roles", RequireAnyRole("admin", "manager"), userHandler.UpdateUserRoles)
 			userGroup.DELETE("/:id", RequireRole("admin"), userHandler.DeleteUser)

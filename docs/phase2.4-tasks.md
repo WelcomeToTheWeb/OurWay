@@ -25,9 +25,11 @@ versions. 2.3.0 shipped **8** (`clients_and_user_client_scope`), **9**
 (`client_enrollment_tokens`) — the plan's "2.3.0 ships 7 and 8" was written before the
 scoped read indexes and the enrollment tokens landed inside 2.3. So this release
 starts at **12**: **12 (oidc provider discovery + identity policy)**,
-**13 (alert threshold scopes)**, **14 (notification channels)**,
-**15 (session recordings)**. Migration 12 is in `migrate.go` as
-`oidc_provider_discovery_and_identity_policy`.
+**13 (SSO pending identities)**, **14 (alert threshold scopes)**,
+**15 (notification channels)**, **16 (session recordings)**. Migrations 12
+(`oidc_provider_discovery_and_identity_policy`) and 13 (`sso_pending_identities`)
+are in `migrate.go` — 13 was consumed by 2.4-3's pending-identity columns, which the
+plan listed with the identity tasks, not the threshold task.
 
 ---
 
@@ -208,33 +210,74 @@ authenticated admin account. `UserInfo.EmailVerified` is parsed and never checke
 Generic OIDC widens exactly this surface, so it ships with the contract, not after.
 
 **Do**
-- [ ] **Domain allow-list** enforced on the provider: an asserted email outside the
-      list is refused. `link_policy` is per provider.
-- [ ] **Verified email required** when `require_verified_email` is set — honor
-      `email_verified` / the mapped email-claim, per IdP claim shape.
-- [ ] **No silent linking of existing accounts.** New provider/email pairs create a
-      user in a **pending** state with no role (the `viewer` floor from
-      `HandleCallback` stays the floor); linking to an existing account requires an
-      admin to confirm the match in Users, which is audited (2.3-6).
-- [ ] **Role mapping is opt-in**: if configured, the mapped claim decides roles;
-      if not configured, nothing above `viewer` is granted. Mapping is
-      admin-declared against a claim the operator controls, never a self-editable
-      profile claim.
-- [ ] The JIT path for OIDC and SAML is **one** path, sharing this contract.
-- [ ] Users page: pending SSO identities need an explicit approve/merge action,
-      showing provider, asserted email, and the account they would link to.
+- [x] **Domain allow-list** enforced on the provider: an asserted email outside the
+      list is refused (`domain_not_allowed`, nothing provisioned). `link_policy` is
+      per provider. — `server/sso/contract.go:domainAllowed`, applied by
+      `contractGate` in `server/sso/oauth.go`.
+- [x] **Verified email required** when `require_verified_email` is set — the
+      `email_verified` claim is honored, not parsed and ignored
+      (`email_unverified`).
+- [x] **No silent linking of existing accounts.** The `Users.FindByEmail` fallback in
+      `findOrCreateUser` is gone. A provider asserting an existing account's email
+      creates a **pending** identity — no roles, no login, an audit row — and an admin
+      decides: `POST /api/users/:id/approve` (its own account, `viewer` floor) or
+      `POST /api/users/:id/merge` (attached to the account its email belongs to,
+      roles untouched), audited `user.approve` / `user.merge`. Migration 13
+      (`sso_pending_identities`): `users.status` (`active`/`pending`),
+      `users.pending_provider`, `users.pending_link_user_id`.
+- [x] **Role mapping is opt-in**: `role_mapping` empty ⇒ every SSO identity lands at
+      the `viewer` floor; configured ⇒ the mapping **owns** the roles it names
+      (granted while the group claim asserts them, removed when it stops), and never
+      touches roles outside itself. Admin-declared on the provider row, never a
+      self-editable profile claim.
+- [x] The JIT path for OIDC and SAML is **one** path, sharing this contract —
+      `resolveAccount` in `server/sso/oauth.go` is the only place an SSO identity
+      becomes an account, and it is contract-gated. 2.4-7 asserts the SAML half of
+      this criterion.
+- [x] Users page: the pending band (admin only) states provider, subject, asserted
+      email, the verified-by-IdP fact, and the target account with its roles on one
+      row; Approve and Merge confirm in the sheet (`confirm.approveIdentity.*`,
+      `confirm.mergeIdentity.*`, `en`/`de`/`fr` lockstep).
 
 **Acceptance criteria**
-- **The headline test:** with a permissive fixture IdP, asserting the email of an
+- [x] **The headline test:** with a permissive fixture IdP, asserting the email of an
   existing **admin** local account produces a **pending** identity and no access —
   the admin's roles are unchanged, the login is refused, and the attempt is audited.
   This test is the release's gate, and it must be visibly green in CI.
-- An email outside the allow-list is refused at callback.
-- Unverified email with `require_verified_email` set is refused.
-- With no role mapping configured, a JIT user is `viewer` and cannot escalate; with
-  mapping configured to `admin`, the login yields admin.
-- Local password auth for existing users is unaffected (the whole existing
-  `server/api/auth` suite passes unchanged).
+  — `TestSSOCannotClaimAnExistingAdminAccount` (`server/api/sso_contract_test.go`):
+  refuses with 403 `identity_pending`, the admin keeps `admin` alone and its password,
+  the pending row has no roles and names the target, the `auth.login_failed` row names
+  reason + asserted email + target account, and a repeat assertion is
+  `account_pending` on the same record.
+- [x] An email outside the allow-list is refused at callback —
+      `TestSSODomainAllowListRefusesAnOutsideEmail` (inside the list, both domains,
+      still logs in).
+- [x] Unverified email with `require_verified_email` set is refused —
+      `TestSSOUnverifiedEmailIsRefusedWhenRequired`.
+- [x] With no role mapping configured, a JIT user is `viewer` and cannot escalate;
+      with mapping configured to `admin`, the login yields admin —
+      `TestSSOJITFloorIsViewerAndCannotEscalate`,
+      `TestSSORoleMappingIsOptInAndOwnsRoles` (including the role taken back when the
+      group claim stops asserting it).
+- [x] Local password auth for existing users is unaffected (the whole existing
+      `server/api/auth` suite passes unchanged) — and stated directly by
+      `TestContractLeavesLocalPasswordAuthWorking`,
+      `TestContractLeavesManagerScopeAlone`,
+      `TestContractLeavesASubjectSSOLoginWorking`
+      (`server/api/sso_contract_scope_test.go`).
+
+**Shipped with 2.4-3**
+- Refusals split by which half refused: **401** = identity not proven (2.4-2),
+  **403** = proven and refused by the contract. `HandleLogin` refuses a pending
+  account by name rather than issuing a session for an account with no roles.
+- `server/sso/contract.go` — the contract as one module, so 2.4-7's SAML callback
+  reaches the same gate.
+- The Users page now reports refusals at **page level**: `formError` rendered only
+  inside the modals, so a rejected act looked like nothing had happened.
+- **Found on the way:** `Users.Update` is a full `Save`, and `GetByID` preloads the
+  role associations — saving a row fetched that way re-inserts the `user_roles` join
+  rows (`[technician technician]`). Merge and approve clear the preloaded
+  associations; the role change is made through `UserRoles` alone.
 
 ---
 
@@ -428,8 +471,9 @@ scripts/release.sh --check 2.4.0
 
 Plus, non-negotiable for this release:
 
-- [ ] The 2.4-3 headline test — asserting an existing admin's email via a permissive
-      IdP lands in **pending**, grants nothing, and is audited — green in CI.
+- [x] The 2.4-3 headline test — asserting an existing admin's email via a permissive
+      IdP lands in **pending**, grants nothing, and is audited — green in CI
+      (`TestSSOCannotClaimAnExistingAdminAccount`).
 - [ ] OIDC accepted against Keycloak by issuer alone; SAML round trip green; the
       negative fixtures in 2.4-2 and 2.4-7 each refused.
 - [ ] Threshold precedence suite green, including the `v2.3.x` byte-identical

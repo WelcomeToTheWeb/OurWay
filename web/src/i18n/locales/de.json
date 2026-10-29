@@ -379,7 +379,18 @@
     "admin": "Administrator",
     "manager": "Manager",
     "technician": "Techniker",
-    "viewer": "Betrachter"
+    "viewer": "Betrachter",
+    "pendingTitle": "Ausstehende SSO-Identitäten",
+    "pendingBody": "Diese E-Mail-Adressen wurden von einem Identitätsanbieter erklärt, und jede gehört zu einem Konto, das es schon gibt. OurWay verknüpft sie nicht von selbst: Keine dieser Identitäten kann sich anmelden und keine hat eine Rolle, bis Sie die Identität als eigenes Konto freigeben, sie in das Konto mit dieser E-Mail-Adresse einfügen oder löschen.",
+    "pendingNone": "Keine ausstehenden Identitäten.",
+    "pendingAsserted": "Erklärte E-Mail",
+    "pendingProvider": "Anbieter",
+    "pendingSubject": "Subjekt",
+    "pendingTarget": "Zeigt auf",
+    "pendingVerified": "E-Mail vom Anbieter bestätigt",
+    "pendingUnverified": "E-Mail vom Anbieter nicht bestätigt",
+    "approve": "Als eigenes Konto freigeben",
+    "merge": "In Konto einfügen"
   },
   "sso": {
     "title": "SSO-Anbieter",
@@ -530,6 +541,16 @@
       "title": "Registrierungs-Token „{{name}}“ entziehen?",
       "body": "Bereits registrierte Geräte melden weiter und bleiben bei {{client}}. Ein Agent mit diesem Token wird abgelehnt, und das Token kann nicht erneut angezeigt werden — der Server speichert nur den Hash.",
       "action": "Token entziehen"
+    },
+    "approveIdentity": {
+      "title": "{{email}} als eigenes Konto freigeben?",
+      "body": "Die Identität meldet sich als neues eigenes Konto auf der Viewer-Stufe — das Konto mit dieser E-Mail-Adresse bleibt unberührt. Rollen ändern Sie danach in der Benutzerliste. Das wird im Logbuch festgehalten.",
+      "action": "Identität freigeben"
+    },
+    "mergeIdentity": {
+      "title": "{{subject}} in {{name}} einfügen?",
+      "body": "Das Konto {{name}} meldet sich künftig über diesen Anbieter an und behält seine eigenen Rollen und Mandantenzuweisungen. Das Passwort des Anbieters gilt dann nicht mehr für es. Das wird im Logbuch festgehalten.",
+      "action": "Identität einfügen"
     }
   },
   "clients": {

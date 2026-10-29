@@ -379,7 +379,18 @@
     "admin": "Administrateur",
     "manager": "Manager",
     "technician": "Technicien",
-    "viewer": "Visionneur"
+    "viewer": "Visionneur",
+    "pendingTitle": "Identités SSO en attente",
+    "pendingBody": "Ces adresses ont été affirmées par un fournisseur d'identité, et chacune appartient à un compte qui existe déjà. OurWay ne les associe pas tout seul : aucune ne peut se connecter et aucune n'a de rôle tant que vous n'approuvez pas l'identité comme compte à part, ne l'intégrez pas au compte concerné ou ne la supprimez pas.",
+    "pendingNone": "Aucune identité en attente.",
+    "pendingAsserted": "Adresse affirmée",
+    "pendingProvider": "Fournisseur",
+    "pendingSubject": "Sujet",
+    "pendingTarget": "Vise",
+    "pendingVerified": "Adresse vérifiée par le fournisseur",
+    "pendingUnverified": "Adresse non vérifiée par le fournisseur",
+    "approve": "Approuver comme compte à part",
+    "merge": "Intégrer au compte"
   },
   "sso": {
     "title": "Fournisseurs SSO",
@@ -530,6 +541,16 @@
       "title": "Révoquer le jeton « {{name}} » ?",
       "body": "Les appareils déjà inscrits continuent de remonter et restent chez {{client}}. Un agent qui présente ce jeton est refusé, et le jeton ne peut pas être réaffiché : le serveur ne stocke que son empreinte.",
       "action": "Révoquer le jeton"
+    },
+    "approveIdentity": {
+      "title": "Approuver {{email}} comme compte à part ?",
+      "body": "L'identité se connecte comme un nouveau compte à part, au niveau viewer — le compte qui possède cette adresse n'est pas touché. Changez ses rôles ensuite dans la liste des utilisateurs. L'acte est consigné dans le registre.",
+      "action": "Approuver l'identité"
+    },
+    "mergeIdentity": {
+      "title": "Intégrer {{subject}} au compte {{name}} ?",
+      "body": "Le compte {{name}} se connectera désormais par ce fournisseur et garde ses propres rôles et ses affectations de clients. Le mot de passe du fournisseur ne s'applique plus à lui. L'acte est consigné dans le registre.",
+      "action": "Intégrer l'identité"
     }
   },
   "clients": {

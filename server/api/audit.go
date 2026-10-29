@@ -106,6 +106,9 @@ func registerAuditRoutes() {
 
 	// Accounts, roles, keys, integrations.
 	auditRoute(http.MethodPost, "/api/users", models.AuditUserCreate)
+	// 2.4-3: the admin's two decisions about a pending SSO identity.
+	auditRoute(http.MethodPost, "/api/users/:id/approve", models.AuditUserApprove)
+	auditRoute(http.MethodPost, "/api/users/:id/merge", models.AuditUserMerge)
 	auditRoute(http.MethodPut, "/api/users/:id/roles", models.AuditUserRoleChange)
 	auditRoute(http.MethodDelete, "/api/users/:id", models.AuditUserDelete)
 	auditRoute(http.MethodPost, "/api/roles", models.AuditRoleCreate)

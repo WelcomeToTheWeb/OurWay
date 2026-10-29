@@ -504,6 +504,47 @@ ledger records which rule refused it and the email the provider asserted.
 A provider configured by **hand-typed endpoints** (no issuer) has no key set to verify
 against. It works, and its login records say `id_token_verified: false`.
 
+### The identity-linking contract (2.4-3)
+
+**An SSO identity claims the account it already belongs to, never the account its
+email names.** This is the rule that makes a permissive IdP safe to point at OurWay:
+an IdP that lets users assert any email cannot take over an account, because asserting
+an email is not what identifies an account here — the provider and the subject it
+signs are.
+
+Each provider carries four policy fields (set them on `POST /api/sso/providers`; the
+console form for them is 2.4-4):
+
+| Field | Effect |
+|---|---|
+| `allowed_domains` | Comma-separated list. An assertion outside it is refused (`domain_not_allowed`) and nothing is provisioned. Empty means the provider may assert any domain. |
+| `require_verified_email` | When on, the provider's `email_verified` claim must be true, or the login is refused (`email_unverified`). |
+| `link_policy` | `pending` (default): a new identity asserting an existing account's email becomes a **pending identity**. `link`: the operator's explicit choice to link, as 2.3 and earlier did — audited as `sso.link`. |
+| `role_mapping` | JSON, e.g. `{"rmm-admins":"admin"}`. Empty (default) means the provider grants nothing and every SSO identity lands at the `viewer` floor. Configured, it **owns** the roles it names: the role is granted when the group claim asserts it and taken back when it stops asserting it. Roles outside the mapping are never touched. |
+
+#### When an identity is pending
+
+A provider asserted an email that belongs to an account that already exists. OurWay
+created no session, changed no roles, and wrote a ledger row naming the attempt. On
+**Users** (admin) the assertion appears with the account it points at, and you decide:
+
+- **Approve as own account** — the identity becomes a new account of its own at the
+  `viewer` floor. The account its email belongs to is untouched.
+- **Merge into account** — the existing account now signs in through that provider,
+  keeping its roles and client assignments. The provider's password no longer applies
+  to it.
+- **Nothing yet** — it stays pending. It cannot sign in, and it has no roles.
+
+Both decisions are recorded in the ledger (`user.approve`, `user.merge`) with your
+username, your roles at the time, the provider, the subject and the asserted email.
+
+#### What the contract does not touch
+
+Local password logins keep working, including for accounts with a pending identity
+pointing at them. Existing sessions keep their scope. A manager never sees the pending
+list. And an SSO login through a provider with no policy set completes — the contract
+refuses identities that would take over an account, not SSO itself.
+
 ---
 
 ## Webhooks

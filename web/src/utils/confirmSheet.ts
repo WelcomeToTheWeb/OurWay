@@ -27,7 +27,12 @@ export type ConfirmAction =
   // 2.3-4c: revoking a tenant's enrollment credential. It destroys nothing, and
   // it is exactly the kind of act the sheet exists for — the consequence is "an
   // agent will be refused", which an operator must read before pressing.
-  | 'revokeToken';
+  | 'revokeToken'
+  // 2.4-3: the two decisions about a pending SSO identity. Neither destroys
+  // anything, and both grant an identity that did not exist a minute ago — exactly
+  // the act an operator should read the consequence of before pressing.
+  | 'approveIdentity'
+  | 'mergeIdentity';
 
 export function confirmRequest(
   t: TFunction,
