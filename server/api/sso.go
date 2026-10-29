@@ -815,6 +815,43 @@ func issuerIsConfigurable(issuer string) string {
 	return ""
 }
 
+// providerRequest is the payload for saving a provider row: create (by name) and
+// update (by id) share one shape, so a provider cannot be edited through a door that
+// skips a validation the create door applies (2.4-4).
+//
+// Pointers are "the operator sent this field": an absent field is left alone, and an
+// explicit empty string is a real state — no scope override, no domain allow-list, no
+// role mapping. `auth_url`/`token_url`/`user_info_url` are plain strings because empty
+// *is* their state there: it means "use what the IdP published".
+type providerRequest struct {
+	Type         string `json:"type"`
+	Name         string `json:"name"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+
+	Issuer       string `json:"issuer"`
+	DiscoveryURL string `json:"discovery_url"`
+	RedirectURI  string `json:"redirect_uri"`
+	AuthURL      string `json:"auth_url"`
+	TokenURL     string `json:"token_url"`
+	UserInfoURL  string `json:"user_info_url"`
+
+	Scope          *string `json:"scope"`
+	ClaimsEmail    *string `json:"claims_email"`
+	ClaimsUsername *string `json:"claims_username"`
+	ClaimsName     *string `json:"claims_name"`
+	ClaimsGroups   *string `json:"claims_groups"`
+
+	// The 2.4-3 contract's knobs, per provider (2.4-4 puts them in the console).
+	AllowedDomains       *string `json:"allowed_domains"`
+	RequireVerifiedEmail *bool   `json:"require_verified_email"`
+	LinkPolicy           string  `json:"link_policy"`
+	RoleMapping          *string `json:"role_mapping"`
+
+	SortOrder *int  `json:"sort_order"`
+	Enabled   *bool `json:"enabled"`
+}
+
 // CreateProvider creates or updates an SSO provider (admin).
 //
 // The row is saved only if the provider proved itself: an issuer is discovered at
@@ -822,30 +859,7 @@ func issuerIsConfigurable(issuer string) string {
 // (2.4-1's acceptance criterion — "no half-saved provider row"). The endpoints the
 // flow will call are the ones the IdP published, unless the operator named them.
 func (h *SSOHandler) CreateProvider(c *gin.Context) {
-	var req struct {
-		Type                 string `json:"type" binding:"required"`
-		Name                 string `json:"name" binding:"required"`
-		ClientID             string `json:"client_id" binding:"required"`
-		ClientSecret         string `json:"client_secret"`
-		Issuer               string `json:"issuer"`
-		DiscoveryURL         string `json:"discovery_url"`
-		RedirectURI          string `json:"redirect_uri"`
-		AuthURL              string `json:"auth_url"`
-		TokenURL             string `json:"token_url"`
-		UserInfoURL          string `json:"user_info_url"`
-		Scope                string `json:"scope"`
-		ClaimsEmail          string `json:"claims_email"`
-		ClaimsUsername       string `json:"claims_username"`
-		ClaimsName           string `json:"claims_name"`
-		ClaimsGroups         string `json:"claims_groups"`
-		AllowedDomains       string `json:"allowed_domains"`
-		RequireVerifiedEmail *bool  `json:"require_verified_email"`
-		LinkPolicy           string `json:"link_policy"`
-		RoleMapping          string `json:"role_mapping"`
-		SortOrder            *int   `json:"sort_order"`
-		Enabled              *bool  `json:"enabled"`
-	}
-
+	var req providerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -859,6 +873,10 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
 		return
 	}
+	if strings.TrimSpace(req.ClientID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "client_id is required"})
+		return
+	}
 
 	// The provider name is a URL path segment (`/api/auth/sso/<name>/callback`),
 	// so it is validated as one. A name with a slash, a dot-dot, or a space in it
@@ -866,20 +884,6 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 	// with the IdP.
 	if !providerNameIsSlug(req.Name) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "provider name must be a slug: letters, digits and dashes (it is used in the callback URL)"})
-		return
-	}
-
-	// 2.4-3's knobs, validated at the door rather than at the callback.
-	if req.LinkPolicy != "" && req.LinkPolicy != models.SSOLinkPolicyPending && req.LinkPolicy != models.SSOLinkPolicyLink {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "link_policy must be pending or link"})
-		return
-	}
-	if msg, ok := validRoleMapping(req.RoleMapping); !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
-		return
-	}
-	if msg, ok := validDomains(req.AllowedDomains); !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
 
@@ -891,51 +895,9 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 		provider = &models.SSOProvider{ID: uuid.New().String(), Name: req.Name, Enabled: true}
 	}
 
-	provider.Type = req.Type
-	provider.ClientID = req.ClientID
-	if req.ClientSecret != "" {
-		provider.ClientSecret = req.ClientSecret
-	}
-	issuer, presetScope := providerPreset(req.Name)
-	if strings.TrimSpace(req.Issuer) != "" {
-		issuer = strings.TrimSpace(req.Issuer)
-		if problem := issuerIsConfigurable(issuer); problem != "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": problem})
-			return
-		}
-		provider.Issuer = issuer
-	} else if strings.TrimSpace(provider.Issuer) == "" {
-		provider.Issuer = issuer
-	}
-	provider.DiscoveryURL = strings.TrimSpace(req.DiscoveryURL)
-	provider.RedirectURI = strings.TrimSpace(req.RedirectURI)
-	if req.Scope != "" {
-		provider.Scope = req.Scope
-	} else if provider.Scope == "" {
-		provider.Scope = presetScope
-	}
-	provider.ClaimsEmail = req.ClaimsEmail
-	provider.ClaimsUsername = req.ClaimsUsername
-	provider.ClaimsName = req.ClaimsName
-	provider.ClaimsGroups = req.ClaimsGroups
-	provider.AllowedDomains = strings.ToLower(strings.TrimSpace(req.AllowedDomains))
-	if req.RequireVerifiedEmail != nil {
-		provider.RequireVerifiedEmail = *req.RequireVerifiedEmail
-	}
-	if req.LinkPolicy != "" {
-		provider.LinkPolicy = req.LinkPolicy
-	}
-	if provider.LinkPolicy == "" {
-		// The contract's default, and it is not neutral: `pending` means an IdP
-		// cannot claim a local account by asserting its email.
-		provider.LinkPolicy = models.SSOLinkPolicyPending
-	}
-	provider.RoleMapping = req.RoleMapping
-	if req.SortOrder != nil {
-		provider.SortOrder = *req.SortOrder
-	}
-	if req.Enabled != nil {
-		provider.Enabled = *req.Enabled
+	if problem, ok := h.applyProviderEdits(provider, &req); !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": problem})
+		return
 	}
 
 	if err := h.applyDiscovery(provider, req.AuthURL, req.TokenURL, req.UserInfoURL); err != nil {
@@ -953,11 +915,7 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 
 	// An identity provider is the door to every account, so editing one is
 	// recorded with its name, type and issuer — and never with its client secret.
-	defer auditForAnswer(c, h.store, models.AuditSSOCreate, AuditTarget{Type: "sso-provider", ID: provider.ID}, map[string]any{
-		"name":   provider.Name,
-		"type":   provider.Type,
-		"issuer": provider.Issuer,
-	})
+	defer auditForAnswer(c, h.store, models.AuditSSOCreate, AuditTarget{Type: "sso-provider", ID: provider.ID}, providerAuditDetails(provider))
 
 	var saveErr error
 	if existing != nil && provider.ID == existing.ID {
@@ -971,6 +929,184 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"provider": provider})
+}
+
+// UpdateProvider edits a saved provider in place (2.4-4): `PUT /api/sso/providers/:id`.
+// Field by field, so the console's enable toggle cannot wipe a policy the operator set
+// from the API. Discovery re-runs — a provider row that no longer describes a
+// reachable IdP is refused with the same named kinds as at create, and the stored row
+// is left as it was.
+//
+// The name is immutable. It is the key stored on every account that signed in through
+// this provider (`users.provider`), so renaming a provider is not editing a label: it
+// orphans those identities. Create a new provider to change the name.
+func (h *SSOHandler) UpdateProvider(c *gin.Context) {
+	providerID := c.Param("id")
+	provider, err := h.store.SSOProviders.GetByID(providerID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
+	}
+
+	var req providerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Type != "" {
+		switch strings.ToLower(req.Type) {
+		case "oauth2", "oauth", "oidc":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
+			return
+		}
+	}
+	if req.Name != "" && req.Name != provider.Name {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":  "provider name cannot be changed: it is the identity key stored on every account signed in through this provider",
+			"reason": "name_immutable",
+		})
+		return
+	}
+
+	if problem, ok := h.applyProviderEdits(provider, &req); !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": problem})
+		return
+	}
+
+	// Typed endpoint overrides are the stored ones unless this request typed new
+	// ones: an update that omits them must not silently drop an override a proxy
+	// depends on.
+	typedAuth, typedToken, typedUserInfo := provider.AuthURL, provider.TokenURL, provider.UserInfoURL
+	if req.AuthURL != "" {
+		typedAuth = req.AuthURL
+	}
+	if req.TokenURL != "" {
+		typedToken = req.TokenURL
+	}
+	if req.UserInfoURL != "" {
+		typedUserInfo = req.UserInfoURL
+	}
+	if err := h.applyDiscovery(provider, typedAuth, typedToken, typedUserInfo); err != nil {
+		kind := sso.DiscoveryUnreachable
+		var de *sso.DiscoveryError
+		if errors.As(err, &de) {
+			kind = de.Kind
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provider not changed: " + err.Error(), "discovery": kind})
+		return
+	}
+
+	defer auditForAnswer(c, h.store, models.AuditSSOUpdate, AuditTarget{Type: "sso-provider", ID: provider.ID}, providerAuditDetails(provider))
+
+	if err := h.store.SSOProviders.Update(provider); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save provider"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"provider": provider})
+}
+
+// applyProviderEdits validates and applies one request onto a provider row — the
+// 2.4-3 contract's knobs included — and answers the operator-actionable reason when a
+// value is not admissible. Discovery is the caller's job: the row is only stored once
+// discovery has confirmed it.
+func (h *SSOHandler) applyProviderEdits(provider *models.SSOProvider, req *providerRequest) (string, bool) {
+	if req.LinkPolicy != "" && req.LinkPolicy != models.SSOLinkPolicyPending && req.LinkPolicy != models.SSOLinkPolicyLink {
+		return "link_policy must be pending or link", false
+	}
+	if req.RoleMapping != nil {
+		if msg, ok := validRoleMapping(*req.RoleMapping); !ok {
+			return msg, false
+		}
+	}
+	if req.AllowedDomains != nil {
+		if msg, ok := validDomains(*req.AllowedDomains); !ok {
+			return msg, false
+		}
+	}
+
+	if req.Type != "" {
+		provider.Type = req.Type
+	}
+	if strings.TrimSpace(req.ClientID) != "" {
+		provider.ClientID = strings.TrimSpace(req.ClientID)
+	}
+	if req.ClientSecret != "" {
+		provider.ClientSecret = req.ClientSecret
+	}
+
+	// The issuer is the one field the operator types; the presets supply it for the
+	// big three. It is validated as an HTTPS URL before it is stored, because it is
+	// where the server is about to make an outbound request (the SSRF lesson, 2.4-1).
+	issuer, presetScope := providerPreset(provider.Name)
+	if typed := strings.TrimSpace(req.Issuer); typed != "" {
+		if problem := issuerIsConfigurable(typed); problem != "" {
+			return problem, false
+		}
+		provider.Issuer = typed
+	} else if strings.TrimSpace(provider.Issuer) == "" {
+		provider.Issuer = issuer
+	}
+	provider.DiscoveryURL = strings.TrimSpace(req.DiscoveryURL)
+	provider.RedirectURI = strings.TrimSpace(req.RedirectURI)
+
+	if req.Scope != nil {
+		provider.Scope = *req.Scope
+	} else if provider.Scope == "" {
+		provider.Scope = presetScope
+	}
+	if req.ClaimsEmail != nil {
+		provider.ClaimsEmail = strings.TrimSpace(*req.ClaimsEmail)
+	}
+	if req.ClaimsUsername != nil {
+		provider.ClaimsUsername = strings.TrimSpace(*req.ClaimsUsername)
+	}
+	if req.ClaimsName != nil {
+		provider.ClaimsName = strings.TrimSpace(*req.ClaimsName)
+	}
+	if req.ClaimsGroups != nil {
+		provider.ClaimsGroups = strings.TrimSpace(*req.ClaimsGroups)
+	}
+	if req.AllowedDomains != nil {
+		provider.AllowedDomains = strings.ToLower(strings.TrimSpace(*req.AllowedDomains))
+	}
+	if req.RequireVerifiedEmail != nil {
+		provider.RequireVerifiedEmail = *req.RequireVerifiedEmail
+	}
+	if req.LinkPolicy != "" {
+		provider.LinkPolicy = req.LinkPolicy
+	}
+	if provider.LinkPolicy == "" {
+		// The contract's default, and it is not neutral: `pending` means an IdP
+		// cannot claim a local account by asserting its email.
+		provider.LinkPolicy = models.SSOLinkPolicyPending
+	}
+	if req.RoleMapping != nil {
+		provider.RoleMapping = strings.TrimSpace(*req.RoleMapping)
+	}
+	if req.SortOrder != nil {
+		provider.SortOrder = *req.SortOrder
+	}
+	if req.Enabled != nil {
+		provider.Enabled = *req.Enabled
+	}
+	return "", true
+}
+
+// providerAuditDetails records enough about a provider to reconstruct the change, and
+// never the client secret.
+func providerAuditDetails(provider *models.SSOProvider) map[string]any {
+	return map[string]any{
+		"name":                   provider.Name,
+		"type":                   provider.Type,
+		"issuer":                 provider.Issuer,
+		"enabled":                provider.Enabled,
+		"link_policy":            provider.LinkPolicy,
+		"allowed_domains":        provider.AllowedDomains,
+		"require_verified_email": provider.RequireVerifiedEmail,
+		"role_mapping":           provider.RoleMapping,
+		"sort_order":             provider.SortOrder,
+	}
 }
 
 // providerNameIsSlug accepts what a URL path segment can carry.

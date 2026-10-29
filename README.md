@@ -290,9 +290,10 @@ discover it in production. Each item is tracked in
   save with a named reason when discovery fails, and nothing is written. The
   `id_token` is verified (signature against the published JWKS, `iss`, `aud`, `exp`,
   `nonce`), the code flow carries PKCE when the provider supports it, and userinfo and
-  the signed token must name the same subject. **The console's provider UI is still the
-  hardcoded big three** (2.4-4) — any other IdP is added through the API today.
-  Planned in 2.4.0 — see `docs/roadmap-2.x.md`.
+  the signed token must name the same subject. The console's **SSO** page is the
+  provider ledger: presets pre-fill an issuer, any issuer is typed and previewed
+  ("what the IdP published", with the redirect URI to register), the contract knobs are
+  per provider, and enable/order act on the saved row.
 - **The identity-linking contract is enforced.** An SSO identity claims the account
   it already belongs to — a new provider/subject pair is a new identity, and the one
   that logs in is the one the `id_token` names. A provider asserting the email of an
