@@ -185,6 +185,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     recipients and the other kinds for an endpoint, so it cannot ask for a column a
     mailbox does not have.
 
+- **SAML 2.0 single sign-on** (2.4-7) — the second protocol the identity contract
+  serves. An SSO provider row is now `oidc` **or** `saml`: a SAML door is configured by
+  the IdP's own published identity — `idp_entity_id`, `idp_sso_url`, an optional
+  `idp_logout_url`, and the **pinned IdP signing certificate** — plus the attribute
+  names the claims travel in and the NameID format to ask for. No discovery document to
+  fetch, no client id: the SP's identity is `urn:ourway:<name>:<id>`, derived from the
+  provider's immutable name and id, because the assertion's audience must name **this**
+  installation. Migration 16 (`saml_single_sign_on`) adds the columns to
+  `sso_providers` and backfills `nameid_format`; **2.4-8's session recordings move to
+  migration 17** (2.4-6 and 2.4-7 consumed 15 and 16).
+  - **SP metadata + assertion consumer service.**
+    `GET /api/auth/sso/saml/:name/metadata` (public) serves the `EntityDescriptor` an
+    operator uploads to the IdP — entity ID, ACS location, NameID format,
+    `AuthnRequestsSigned`, `WantAssertionsSigned="true"`, the SP signing certificate
+    when there is one, and **no key material**, ever.
+    `POST /api/auth/sso/saml/:name/acs` is the only door that accepts an assertion: the
+    IdP's posted `SAMLResponse` (base64, capped at 1 MiB before anything is parsed),
+    validated **as an identity** before any account is looked at. SP-initiated logins
+    answer **this** login's `AuthnRequest` (deflated, RSA-SHA256-signed when the
+    provider has an SP key, its request ID held server-side against the CSRF state);
+    an IdP-initiated post is accepted on the audience, recipient, destination and
+    expiry rules alone.
+  - **What validation means.** RSA-SHA256 signature over the assertion (exclusive
+    canonicalization) against the certificate **the operator pinned**; the response
+    signature when the provider asks for it; issuer = `idp_entity_id`;
+    `Destination` = this installation's ACS URL; `AudienceRestriction` naming this SP
+    entity ID; `SubjectConfirmationData.Recipient` and bearer confirmation;
+    `NotOnOrAfter` / `IssueInstant` / the session window with 90 s of clock-skew
+    tolerance; and **replay protection** — a consumed assertion `ID` is remembered for
+    the whole window in which it would still validate. An unsigned, misaddressed,
+    expired, foreign-audience, wrapped or replayed assertion provisions no account.
+  - **One contract, two protocols.** The asserted identity goes through the 2.4-3 gate
+    unchanged — `contractGate` then `resolveAccount`, the same functions the OIDC path
+    uses: domain allow-list, verified email (`verified_email_attribute` names the
+    attribute, because SAML has no standard one and OurWay does not guess),
+    pending-by-default, the `viewer` floor, role mapping from the group **attribute**.
+    Refusals keep 2.4-2's split — **401** the assertion was not proven, **403** proven
+    and refused by the contract — with 17 named SAML reasons (`assertion_unsigned` and
+    `assertion_signature_invalid` are deliberately separate: “not signing” and “not
+    verifying against your pinned certificate” are different fixes on the IdP side),
+    each written to the ledger. A completed login ends at the same one-time `sso_code`
+    exchange (C6): no token in a URL, and the posted assertion is never logged. The
+    `auth.login` row names the `protocol` and states
+    `assertion_signature_verified`.
+  - **Refused at save, loudly, exactly like an unreachable issuer** — and no row is
+    written: a missing `idp_entity_id`, an `http`, `localhost`, port-named or
+    IP-literal SSO location (2.4-1's issuer SSRF rule, applied to every endpoint a
+    provider row names), a certificate that does not parse or whose validity window has
+    closed, an unknown `nameid_format`, a verified-email requirement with no attribute
+    named, a signing key with no certificate. The IdP certificate and the SP's private
+    key are `json:"-"`: the console sees the certificate's **SHA-256 fingerprint** and
+    expiry, and the audit row records the fingerprint, never the PEM.
+  - **The protocol is immutable** once the provider is saved — `409 type_immutable`:
+    a SAML provider files its accounts by asserted **NameID**, an OIDC provider by
+    **subject**, and a row switched under an operator's feet would answer logins with
+    rules it never had. The OIDC callback answers a SAML provider with `saml_uses_acs`
+    and the URL that works, and `authorize` starts the SAML login from the same route.
+  - Console: the provider form asks **OpenID Connect or SAML 2.0**, takes the IdP's
+    facts, can generate the SP signing key pair, puts **Metadata** on the row for
+    download, and stamps every row `OIDC` / `SAML 2.0` with the SP entity ID, the
+    pinned certificate's fingerprint and its expiry. `Test-connection` asks the
+    questions SAML can answer — certificate fingerprint, expiry and days left (`fail`
+    once expired, the failure that otherwise arrives as a wave of refused logins), the
+    sign-in URL rule, the ACS URL and entity ID the IdP must be told about, whether the
+    metadata parses, whether the SP signs its requests, and whether a verified-email
+    requirement has an attribute to read. `en`/`de`/`fr` in lockstep (782 key paths).
+  - **Not in 2.4-7** (stated, not silent): artifact binding, IdP-initiated single
+    logout, and encrypted assertions.
 - Login page: the provider list is the operator's `sort_order` (server-side ordering,
   page preserves it), and a disabled door disappears without a console rebuild.
 

@@ -30,7 +30,7 @@ The server reads configuration from environment variables. All variables have se
 | `RATE_LIMIT_BURST` | Instantaneous burst allowed before the sustained rate applies. `0` means one tenth of `RATE_LIMIT_PER_MINUTE`. | `0` (a tenth of the budget) | No |
 | `REDIS_URL` | Redis connection URL | (none) | No |
 | `REDIS_ENABLED` | Enable Redis-backed rate limiting and distributed WebSocket pub/sub | `false` | No |
-| `WEB_URL` | Public URL of the web dashboard | `http://localhost:3000` | No |
+| `WEB_URL` | Public URL of the web dashboard. It is also the base of every SSO redirect URI and — since 2.4-7 — of the SAML assertion consumer service URL (`WEB_URL/api/auth/sso/saml/<provider>/acs`), which has no per-provider override: an assertion addressed to any other URL is refused with `destination_mismatch`, so behind a reverse proxy this must be the URL the IdP and the browser see | `http://localhost:3000` | No |
 | `INSTALLERS_DIR` | Directory served by `GET /api/v2/installers` | `./dist/agents` | No |
 | `METRIC_RETENTION_DAYS` | How many days of metric history to keep; the retention manager deletes older rows hourly | `365` | No |
 | `AUDIT_RETENTION_DAYS` | How many days of the audit ledger to keep. Pruned by the same hourly sweep as metric history, with a counter the ledger page reports (2.3-6) | `365` | No |

@@ -93,6 +93,11 @@ type LoginOutcome struct {
 	// published keys. False means the provider has no `jwks_uri` (no issuer: an
 	// operator typed the endpoints), and identity rests on the userinfo call.
 	VerifiedByIDToken bool
+	// VerifiedBySignature is SAML's half of the same fact (2.4-7): the identity
+	// arrived on an assertion signed by the certificate the operator pinned,
+	// addressed to this installation, inside its expiry window, and never seen
+	// before. The audit row records which of the two it rests on.
+	VerifiedBySignature bool
 	// LinkedExisting is the `link_policy=link` case: the identity was stamped onto an
 	// account that already existed, which is the pre-2.4 behaviour and only ever
 	// happens because the operator chose it for this provider. It is an audited act,
@@ -400,6 +405,61 @@ func (h *OAuthHandler) HandleCallback(ctx context.Context, provider *models.SSOP
 		VerifiedByIDToken: claims != nil,
 		LinkedExisting:    account.LinkedExisting,
 		MappedRoles:       account.MappedRoles,
+	}, nil
+}
+
+// IssueSAMLIdentity completes a SAML login: it takes the identity a validated
+// assertion asserted and runs it through **the same door the OIDC path runs through**
+// — `contractGate`, then `resolveAccount` — and issues the session. The 2.4-3
+// contract is one contract: a SAML IdP that asserts the email of an existing local
+// account is parked as a pending identity exactly as an OIDC IdP is, and a provider's
+// role mapping owns role assignment in both protocols.
+//
+// Signature verification is not here. It happened in `ValidateResponse`, before an
+// identity existed to be trusted; by the time this runs, the assertion has been
+// signed by the certificate the operator pinned, addressed to this installation's
+// assertion consumer service, in this login's window, and not seen before.
+func (h *OAuthHandler) IssueSAMLIdentity(ctx context.Context, provider *models.SSOProvider, info *UserInfo) (*LoginOutcome, error) {
+	if info.Subject == "" && info.Email == "" {
+		return nil, &IdentityError{Reason: ReasonNoIdentity, Email: info.Email,
+			Err: fmt.Errorf("the assertion asserted neither a subject nor an email")}
+	}
+	if gateErr := contractGate(provider, info); gateErr != nil {
+		gateErr.Subject, gateErr.Email = info.Subject, info.Email
+		return nil, gateErr
+	}
+
+	user, account, err := h.resolveAccount(ctx, provider, info)
+	if err != nil {
+		if iderr, ok := err.(*IdentityError); ok {
+			iderr.Subject, iderr.Email = info.Subject, info.Email
+		}
+		return nil, err
+	}
+
+	roles := h.rolesOf(user)
+	token, err := h.jwtAuth.GenerateToken(user.ID, user.Username, roles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate JWT: %w", err)
+	}
+	refreshToken, err := h.jwtAuth.GenerateRefreshToken(user.ID, user.Username, roles)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+
+	return &LoginOutcome{
+		AccessToken:    token,
+		RefreshToken:   refreshToken,
+		User:           user,
+		Subject:        info.Subject,
+		Email:          info.Email,
+		EmailVerified:  info.EmailVerified,
+		LinkedExisting: account.LinkedExisting,
+		MappedRoles:    account.MappedRoles,
+		// VerifiedBySignature says the identity rests on a signature the operator
+		// pinned, which is SAML's equivalent of 2.4-2's `id_token` verification and
+		// is the fact the audit row records.
+		VerifiedBySignature: true,
 	}, nil
 }
 

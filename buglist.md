@@ -20,6 +20,17 @@ feature gap not covered by the October sweep — see
 documentation items were fixed the same day; the macOS input gap and the
 scope/tenancy gaps are scoped in `docs/roadmap-2.x.md`.
 
+**Status (2026-10-30, in v2.4.0):** **L8 closed — SAML 2.0 shipped (2.4-7).**
+Low is 12 of 12, and the SSO feature row below is closed: `Type: saml` is a
+working Service Provider (SP metadata, assertion consumer service, XML-DSig
+assertion verification against the operator's pinned certificate, replay
+protection) whose asserted identity passes the same 2.4-3 contract an OIDC
+identity passes. The guard L8 asked for is kept as the product's rule, not as
+a refusal: a `saml` row that cannot answer logins is refused at save with the
+field named, and an unknown protocol type is still refused. **Open half:** the
+round trip is proven against OurWay's own signing IdP fixture
+(`server/sso/testsaml`), not against Keycloak/AD FS.
+
 ---
 
 ## Legend
@@ -559,7 +570,7 @@ does.
 5. ✅ **`User.Email` not unique** — duplicate e-mail collisions return 409 in `Register`/`UpdateProfile` instead of 500. *(Fixed 2026-10-02)*
 6. ✅ **Dead middleware** (`api/middleware.go::DeviceKeyMiddleware`) — deleted (no callers, validated nothing). *(Fixed 2026-10-02)*
 7. ✅ **Alert dedup map unpruned** (`alerts/engine.go`) — entries are pruned against the dedup window on every evaluation. *(Fixed 2026-10-02)*
-8. **SAML selectable but unimplemented** — `Type: saml` accepted; OAuth-only handler. *(Open — tracked as the SAML SSO feature below.)*
+8. ✅ **SAML selectable but unimplemented** — `Type: saml` accepted; OAuth-only handler. *(Closed 2026-10-30, 2.4-7: SAML is implemented — `server/sso/saml.go`, `server/api/sso.go`; the type gate now accepts a `saml` row that carries its IdP facts and refuses, at save, one that cannot validate an assertion. Test: `TestSSOProviderTypeGuard`.)*
 9. ✅ **Tokens in `localStorage`** (`web/src/api/client.ts`) — XSS-stealable trade-off documented in SECURITY.md ("Token storage"). *(Fixed 2026-10-02)*
 10. ✅ **`SendData` unused** (`sessions/gateway.go`) — deleted with the WebRTC removal (H4). *(Fixed 2026-10-02)*
 11. ✅ **`installers.ts` double-prefix workaround** — the server now returns an API-relative `url` (`v2/installers/<name>`); the client-side prefix strip is gone. *(Fixed 2026-10-02)*
@@ -574,7 +585,7 @@ does.
 | Patch policy scheduling | ✅ Fixed 2026-10-03 — `server/patching/policy.go` `PolicyEngine` runs hourly, evaluates each policy against its Schedule (daily/weekly/monthly) and drives scan → approve → deploy; tests in `policy_test.go` |
 | Patch policy scoping | ✅ Fixed 2026-10-03 — `PolicyEngine.resolveScope` enforces Scope (all/devices; `ScopeValue` matches device IDs, names, or hostnames, comma-separated) |
 | Auto-reboot after patching | ✅ Fixed 2026-10-03 — `PolicyEngine` reboots devices whose deploy result is `success` when `AutoReboot` is set; deploy batching honors `MaxDevicesPerBatch` |
-| SAML SSO | ⚠️ Guarded (see L8) — API rejects non-oauth2/oidc types at create *and* at authorize/callback; `oidc` now accepted on the OAuth2 code path |
+| SAML SSO | ✅ Fixed 2026-10-30 (2.4-7) — SAML 2.0 Service Provider: SP metadata (`GET /api/auth/sso/saml/:name/metadata`), assertion consumer (`POST /api/auth/sso/saml/:name/acs`), XML-DSig assertion verification against the pinned IdP certificate, audience/recipient/destination/expiry/subject-confirmation checks, assertion-ID replay protection, and the 2.4-3 identity contract unchanged on the asserted identity. An unknown protocol type is still refused at create, and a SAML row that cannot answer logins is refused at save (`TestSSOProviderTypeGuard`, `TestSAMLProviderRefusesAFormThatCannotDeliver`). **Open:** proven against `server/sso/testsaml` (a peer IdP that signs real assertions), not against Keycloak/AD FS |
 
 **Resolved 2026-10-02:** WebRTC remote control (removed — the agent never
 negotiated it; frames already flow over the WS/HTTP paths), detail-page 2 s

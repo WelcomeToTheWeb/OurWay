@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 )
 
@@ -76,4 +77,59 @@ type SSOProvider struct {
 
 	// The login page lists providers in this order (2.4-1: several enabled at once).
 	SortOrder int `gorm:"not null;default:0" json:"sort_order"`
+
+	// --- 2.4-7 · SAML 2.0.
+	//
+	// A SAML provider is a different door, not an OIDC provider with extra fields: the
+	// identity arrives on a POSTed assertion signed by the IdP, there is no issuer
+	// document to discover and no token endpoint to call. What the operator configures
+	// is the IdP's own identity (entity ID, SSO location, signing certificate) and the
+	// attribute names that carry the claims OurWay reads.
+	//
+	// `IdpCertificate` and `SPKeyPEM` are key material: both are `json:"-"`. The
+	// console sees the **fingerprint** of the IdP certificate instead, which is the
+	// value an operator compares with what the IdP published.
+	IdpEntityID    string `gorm:"column:idp_entity_id" json:"idp_entity_id"`
+	IdpSSOURL      string `gorm:"column:idp_sso_url" json:"idp_sso_url"`
+	IdpLogoutURL   string `gorm:"column:idp_logout_url" json:"idp_logout_url"`
+	IdpCertificate string `gorm:"column:idp_certificate" json:"-"`
+	// SPEntityID names **this** installation to the IdP. It is what the assertion's
+	// `Audience` must name, so it is generated and displayed, not typed.
+	SPEntityID string `gorm:"column:sp_entity_id" json:"sp_entity_id"`
+	// The SP's own signing key pair, for providers that require a signed AuthnRequest.
+	// Optional: a provider whose IdP accepts unsigned requests does not need it, and
+	// the certificate is public information while the key is not.
+	SPCertPEM string `gorm:"column:sp_cert_pem" json:"-"`
+	SPKeyPEM  string `gorm:"column:sp_key_pem" json:"-"`
+	// RequireResponseSignature makes the **response** signature mandatory too. The
+	// assertion signature is always mandatory — an unsigned assertion is an identity
+	// anyone can forge — so this knob only tightens, never loosens.
+	RequireResponseSignature bool `gorm:"column:require_response_signature;not null;default:false" json:"require_response_signature"`
+	// NameIDFormat is what the SP asks the IdP for. `emailaddress` is the SAML 2.0
+	// profile's email format, and OurWay reads the asserted NameID as the person's
+	// email when it is that format.
+	NameIDFormat string `gorm:"column:nameid_format;not null;default:'emailaddress'" json:"nameid_format"`
+	// The SAML attribute names carrying each claim, when the IdP does not use the
+	// conventional ones. `VerifiedEmailAttribute` names the boolean attribute that
+	// states the email is verified — SAML has no standard for it, and
+	// `require_verified_email` must read the attribute the IdP actually sends.
+	AttrEmail              string `gorm:"column:attr_email" json:"attr_email"`
+	AttrUsername           string `gorm:"column:attr_username" json:"attr_username"`
+	AttrName               string `gorm:"column:attr_name" json:"attr_name"`
+	AttrGroups             string `gorm:"column:attr_groups" json:"attr_groups"`
+	VerifiedEmailAttribute string `gorm:"column:verified_email_attribute" json:"verified_email_attribute"`
 }
+
+// Provider types. `saml` is the second protocol the 2.4-3 identity contract serves.
+const (
+	SSOTypeOIDC = "oidc"
+	SSOTypeSAML = "saml"
+)
+
+// IsSAML reports the provider whose identity arrives on an assertion.
+func (p *SSOProvider) IsSAML() bool {
+	return p != nil && strings.EqualFold(strings.TrimSpace(p.Type), SSOTypeSAML)
+}
+
+// SAMLNameIDFormatEmail is the SAML 2.0 profile's email address format.
+const SAMLNameIDFormatEmail = "emailaddress"

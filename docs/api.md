@@ -2089,16 +2089,21 @@ GET /api/auth/sso/providers
 ```json
 {
   "providers": [
-    { "id": "uuid", "type": "oidc", "name": "keycloak-corp", "label": "https://idp.corp/realms/ourway", "sort_order": 0 },
-    { "id": "uuid", "type": "oidc", "name": "google", "label": "https://accounts.google.com", "sort_order": 1 }
+    { "id": "uuid", "type": "oidc", "protocol": "oidc", "name": "keycloak-corp", "label": "https://idp.corp/realms/ourway", "sort_order": 0 },
+    { "id": "uuid", "type": "saml", "protocol": "saml", "name": "adfs-corp", "label": "adfs-corp", "sort_order": 1 }
   ]
 }
 ```
 
-Only `id`, `type`, `name`, `label` (the issuer), `sort_order` and any custom
-`redirect_uri` are exposed. Endpoints, scopes and the client secret are not: this
-list is public (2.4-1). Providers appear in `sort_order`, then name — the order on
-the login page is a promise to the person logging in.
+Only `id`, `type`, `protocol`, `name`, `label`, `sort_order` and any custom
+`redirect_uri` are exposed. Endpoints, scopes, IdP entity IDs, certificates and the
+client secret are not: this list is public (2.4-1). Providers appear in `sort_order`,
+then name — the order on the login page is a promise to the person logging in.
+
+`label` is a **place**, not a machine identifier: the issuer for an OIDC provider,
+and the provider's own name for a SAML one — an entity ID (`urn:ourway:…`) is not a
+thing a person can check on a login page, and the login button renders `label`.
+`protocol` names the door the button is (2.4-7) for a client that wants to say so.
 
 ### Authorize (redirect)
 Redirects the user to the SSO provider's authorization page.
@@ -2113,6 +2118,15 @@ Sets the one-shot `sso_state` cookie and redirects to the provider's published
 challenge method) and a **nonce** the `id_token` must echo back. The verifier and the
 nonce are held server-side against the state value and are single-use.
 
+For a **SAML provider** (2.4-7) the same route starts the SAML Web SSO login: a
+deflated (and, when the provider has an SP signing key, RSA-SHA256-signed)
+`AuthnRequest` is sent to the provider's `idp_sso_url`, and the request ID is held
+server-side against that same state record — it is what the assertion's
+`InResponseTo` must name. The browser comes back to the assertion consumer service
+below, not to the OIDC callback. A provider whose SP key cannot be used answers
+**400** `assertion_unsigned` and **sends the browser nowhere**: an IdP that requires
+signed requests refuses a request it cannot verify.
+
 ### SSO Callback
 Handles the SSO provider's redirect back to OurWay: exchange the code (presenting the
 PKCE verifier), read userinfo, **verify the `id_token`** against the provider's
@@ -2122,6 +2136,11 @@ on first login (JIT). Then redirect to `/login?sso_code=…`.
 ```
 GET /api/auth/sso/:provider/callback?code=xxx&state=yyy
 ```
+
+A **SAML provider does not answer here**: its assertion arrives on a posted form at
+the assertion consumer service, and this route says so — **400**
+`{"reason": "saml_uses_acs", "error": "a SAML provider delivers its assertion to
+/api/auth/sso/saml/<name>/acs"}` — rather than treating an assertion as a code.
 
 Verification (2.4-2): signature against `jwks_uri` (RS256, rotation-tolerant), `iss`
 = the configured issuer, `aud` = this provider's client id, `exp` required (60s
@@ -2165,6 +2184,95 @@ the one-time code below for them; a code is single-use and expires in 60 seconds
 
 **Response:** `{ "access_token": "…", "refresh_token": "…", "expires_in": 3600 }`
 
+Both protocols end at this route. A SAML login and an OIDC login produce the same
+one-time code and the same redemption — the protocol decides how the identity is
+proven, not how a session is issued.
+
+### SAML Assertion Consumer Service (public)
+
+The SAML half of the callback (2.4-7): the IdP's POST of a `Response` carrying a
+signed assertion. This is the **only** door that accepts an assertion, and it is the
+door an IdP-initiated login arrives at.
+
+```
+POST /api/auth/sso/saml/:provider/acs
+```
+
+**Request:** a browser form encoding with `SAMLResponse` (base64 XML, capped at 1 MiB
+before anything is parsed). Only that field is read: `RelayState` is **ignored** on the
+ACS (the SP sends its own entity ID as `RelayState` on the redirect, and the CSRF
+binding is the `sso_state` cookie, so nothing a posted value names decides where a
+login lands). Nothing in the posted body is logged, and no token ever appears in a URL
+(C6).
+
+**Success:** `302` to `/login?sso_code=…` — exactly the OIDC callback's answer.
+
+The order is the security property, and it is the order the SAML Web SSO profile
+prescribes: the document is validated **as an identity** (signature against the
+certificate the operator pinned, issuer, destination, `InResponseTo`, expiry,
+audience, recipient, subject confirmation, replay) and **only then** is the identity
+run through the 2.4-3 contract. Nothing here trusts an assertion because it arrived.
+
+An SP-initiated login must answer *this* login: the `sso_state` cookie names the
+server-side state record, whose request ID the assertion's `InResponseTo` must match.
+An **IdP-initiated** POST carries no state and is accepted on the audience, recipient,
+destination and expiry rules alone — an IdP-initiated post that arrives as an answer
+to a request we sent, without `InResponseTo`, is refused.
+
+**Refusals** are named, audited as `auth.login_failed`, and provision no account:
+
+| `reason` | Status | What was refused |
+|---|---|---|
+| `provider_not_saml` | 400 | The named provider is not a SAML door |
+| `provider_disabled` | 400 | The door is closed |
+| `assertion_unparseable` | 400 / 401 | 400 when the form carries no readable `SAMLResponse`; 401 when the value is not base64, not XML, over the size cap, or rooted at something other than `Response` |
+| `state_expired` | 400 | The state cookie names a login this installation no longer has (state is single-use) |
+| `status_refused` | 401 | The IdP's own `StatusCode` is not `Success` |
+| `issuer_mismatch` | 401 | The assertion names an IdP other than this provider's `idp_entity_id` |
+| `destination_mismatch` | 401 | The response is addressed to a location other than this installation's ACS URL |
+| `in_response_to_mismatch` | 401 | The response answers a request this login did not send |
+| `no_assertion` | 401 | The response carries no assertion |
+| `assertion_unsigned` | 401 | The assertion is not signed — an unsigned assertion is an identity anyone can forge |
+| `assertion_signature_invalid` | 401 | The signature does not verify against the pinned certificate (canonicalized `exc-c14n`, RSA-SHA256) |
+| `response_signature_invalid` | 401 | The provider requires a signed **response** and it does not verify |
+| `response_expired` / `response_not_yet_valid` | 401 | `NotOnOrAfter` / `IssueInstant` fall outside the window (90 s clock-skew tolerance) |
+| `audience_mismatch` | 401 | `AudienceRestriction` does not name this installation's SP entity ID |
+| `recipient_mismatch` | 401 | `SubjectConfirmationData.Recipient` is not this ACS URL |
+| `subject_confirmation_method` | 401 | The subject is not confirmed `bearer` |
+| `session_start_in_future` | 401 | `SessionNotOnOrAfter` precedes `AuthnStatement.SessionStart` |
+| `assertion_replayed` | 401 | This assertion `ID` was already consumed (remembered for the assertion's whole accepted window) |
+| `no_identity_claim` | 401 | The assertion asserts no usable identity |
+| `domain_not_allowed`, `email_unverified`, `identity_pending`, `account_pending` | 403 | The assertion **was** proven and the 2.4-3 contract refused it — the same reasons, and the same split of 401/403, as the OIDC callback |
+
+The status keeps 2.4-2's meaning: **401** the assertion was not proven, **403** it was
+proven and the linking contract refused it. `idp_certificate` expiry is the failure an
+operator would otherwise meet as a wave of `assertion_signature_invalid`, which is why
+`POST /api/sso/providers/:id/test` reports it by name.
+
+### SAML SP Metadata (public)
+
+The document an operator uploads to the IdP so it knows this installation:
+
+```
+GET /api/auth/sso/saml/:provider/metadata
+```
+
+**Response:** `200`, `application/samlmetadata+xml` — an `EntityDescriptor` naming the
+SP entity ID, `AuthnRequestsSigned`, `WantAssertionsSigned="true"`, the `NameIDFormat`,
+the ACS `Location` and binding, and the SP's **signing certificate** when the provider
+has one. Public, like the login page it belongs to: it carries no key material, ever.
+
+The SP entity ID is derived from the provider's immutable name and id
+(`urn:ourway:<name>:<id>`), not typed — the assertion's audience names this
+installation, and an operator who could type it could point two installations'
+assertions at each other.
+
+The ACS URL is `WEB_URL` + `/api/auth/sso/saml/<name>/acs`. There is **no
+per-provider override** for it (unlike OIDC's `redirect_uri`): the `Destination`
+and `Recipient` checks compare against it exactly, so an installation behind a
+reverse proxy must have `WEB_URL` set to the URL the IdP and the browser see, and
+the metadata endpoint serves that URL. (`docs/configuration.md`.)
+
 ### List SSO Providers (admin)
 Returns all SSO providers with configuration details.
 
@@ -2198,13 +2306,54 @@ GET /api/sso/providers
       "sort_order": 0,
       "enabled": true,
       "created_at": "2026-10-28T00:00:00Z"
+    },
+    {
+      "id": "uuid",
+      "type": "saml",
+      "name": "adfs-corp",
+      "client_id": "",
+      "issuer": "",
+      "auth_url": "",
+      "token_url": "",
+      "user_info_url": "",
+      "allowed_domains": "corp.example",
+      "require_verified_email": true,
+      "link_policy": "pending",
+      "role_mapping": "",
+      "sort_order": 2,
+      "enabled": true,
+      "created_at": "2026-10-29T00:00:00Z",
+      "saml": {
+        "idp_entity_id": "https://idp.corp/saml",
+        "idp_sso_url": "https://idp.corp/saml/sso",
+        "idp_logout_url": "https://idp.corp/saml/logout",
+        "sp_entity_id": "urn:ourway:adfs-corp:6f2c1e90-…",
+        "acs_url": "https://rmm.example/api/auth/sso/saml/adfs-corp/acs",
+        "idp_certificate_sha256": "9C:1A:…:04",
+        "idp_certificate_expires": "2027-06-01T00:00:00Z",
+        "signs_requests": true,
+        "require_response_signature": false,
+        "nameid_format": "emailaddress",
+        "attr_email": "",
+        "attr_username": "username",
+        "attr_name": "displayName",
+        "attr_groups": "memberOf",
+        "verified_email_attribute": "emailVerified"
+      }
     }
   ]
 }
 ```
 
 `client_secret` is never serialized (`json:"-"`), on any route. `discovered_at` is
-null for a provider configured by hand-typed endpoints with no issuer.
+null for a provider configured by hand-typed endpoints with no issuer, and a SAML
+provider never has one (there is no discovery document to fetch).
+
+A SAML provider row carries a `saml` object; an OIDC provider row does not. The
+**PEM the operator pasted is never sent back** — `idp_certificate`, `sp_cert_pem` and
+`sp_key_pem` are `json:"-"`. What the console gets instead is the pinned certificate's
+SHA-256 **fingerprint** (the value to compare with what the IdP published) and its
+expiry (the fact that explains a wave of refused logins before it happens).
 
 ### Discover an Issuer (admin)
 
@@ -2266,7 +2415,8 @@ POST /api/sso/providers
 
 **Request** (`issuer` is the field an operator fills in; the endpoints are the
 provider's published ones. `auth_url`/`token_url`/`user_info_url` are an override,
-for a proxy or a private alias — precedence is typed > discovered > preset):
+for a proxy or a private alias — precedence is typed > discovered > preset). An
+`oidc` provider:
 ```json
 {
   "type": "oidc",
@@ -2289,7 +2439,59 @@ for a proxy or a private alias — precedence is typed > discovered > preset):
 }
 ```
 
-Discovery runs at save time. A provider whose issuer does not answer, answers with
+A **SAML provider** (2.4-7) is a different door, not an OIDC provider with extra
+fields — no issuer to discover, no client id, no token endpoint. It is the same route,
+and the fields that decide whether an assertion can be validated:
+
+```json
+{
+  "type": "saml",
+  "name": "adfs-corp",
+  "idp_entity_id": "https://idp.corp/saml",
+  "idp_sso_url": "https://idp.corp/saml/sso",
+  "idp_logout_url": "https://idp.corp/saml/logout",
+  "idp_certificate": "-----BEGIN CERTIFICATE-----\n…",
+  "generate_sp_key": true,
+  "require_response_signature": false,
+  "nameid_format": "emailaddress",
+  "attr_email": "",
+  "attr_username": "username",
+  "attr_name": "displayName",
+  "attr_groups": "memberOf",
+  "verified_email_attribute": "emailVerified",
+  "allowed_domains": "corp.example",
+  "require_verified_email": true,
+  "link_policy": "pending",
+  "role_mapping": "{\"RMM Admins\":\"admin\"}",
+  "sort_order": 2,
+  "enabled": true
+}
+```
+
+What the SAML door requires, refused at save with the sentence the console puts
+beside the field — **no row is written**, exactly as a provider whose issuer does not
+answer is not saved:
+
+| Field | Rule |
+|---|---|
+| `idp_entity_id` | Required: it is who must sign the assertion |
+| `idp_sso_url` | Required, **https only**, no port, no `localhost`, no `.local`, no IP literal, no loopback/link-local/metadata address. The browser is redirected there and the assertion is posted back from it — 2.4-1's issuer SSRF rule, applied to every endpoint a provider row names |
+| `idp_logout_url` | Optional, same rule when set |
+| `idp_certificate` | Required, must parse as a certificate with a validity window that has not closed |
+| `nameid_format` | `emailaddress` (default), `persistent`, `transient` or `unspecified` |
+| `verified_email_attribute` | Required when `require_verified_email` is on: SAML has no standard "this email is verified" attribute and OurWay does not guess one |
+| `generate_sp_key` | When true, OurWay generates the SP signing key pair (cert + key) for signed `AuthnRequest`s. The key is write-only, and a key with no certificate is refused |
+
+`sp_entity_id` and the ACS URL are not accepted as input: they are derived from the
+provider's immutable name and id and this installation's public URL, and reported by
+`GET /api/sso/providers` and the metadata endpoint.
+
+Discovery runs at save time **for OIDC providers**; a SAML provider skips it — its
+endpoints are the IdP's entity ID and SSO location, which the rules above checked, and
+fetching an issuer a SAML row does not have would refuse a correctly configured
+provider. A SAML provider needs **no `client_id`**; every other type does.
+
+Discovery of an OIDC issuer: a provider whose issuer does not answer, answers with
 no usable document, describes a **different** issuer, or offers no authorization-code
 flow answers **400** with `{"error": "provider not saved: …", "discovery": "<kind>"}`
 and **writes no row**.
@@ -2311,6 +2513,26 @@ POST /api/sso/providers/:id/test
 Audited as `sso.test`. Admin only: probing the installation's identity provider is
 not a tenant operation.
 
+A **SAML provider** is probed with the questions SAML can answer — there is no
+discovery document and no token endpoint to call — and the answers keep the same
+named states:
+
+| Check | What it states |
+|---|---|
+| `protocol` | `saml` |
+| `idp_certificate` | The fingerprint, the expiry, and the days left — `fail` when it has expired, `warn` under 14 days |
+| `idp_sso_url` | The https/port/host rule above, with the sentence it failed |
+| `acs_url`, `sp_entity_id` | The values the IdP must be told about — the ACS URL is the one the assertion's `Destination` must name |
+| `metadata` | That the metadata this installation serves parses, and its route |
+| `signed_requests` | `warn` when the SP sends unsigned `AuthnRequest`s: an IdP that requires signed requests will refuse logins |
+| `response_signature` | `warn` when the provider does not require the response signature |
+| `verified_email` | `fail` when required and no attribute is configured to state it |
+
+The OIDC checks are still answered, as `skipped`: a SAML row has no issuer to
+discover and no `jwks_uri`, and `redirect_uri` reports the OIDC callback URL this
+installation would use — which a SAML provider does not; `acs_url` is the value that
+matters for it.
+
 ### Edit SSO Provider (admin)
 ```
 PUT /api/sso/providers/:id
@@ -2326,16 +2548,30 @@ Discovery re-runs on an edit. A provider that no longer describes a reachable Id
 refused with the same named kinds as at save (`discovery_unreachable`,
 `discovery_document`, `issuer_mismatch`, `no_code_flow`), answering
 `{"error":"provider not changed: …","discovery":"issuer_mismatch"}` and leaving the
-stored row working.
+stored row working. A SAML provider has no discovery to re-run; its SAML fields
+(`idp_entity_id`, `idp_sso_url`, `idp_certificate`, the attribute names, the NameID
+format) are all optional in the request body, so the rule that protects them is field
+presence: **an edit that omits them changes nothing** — the console's enable toggle
+cannot erase a pinned certificate, and the certificate is never read back to be
+re-sent.
 
 **The name is immutable** — `409 {"reason":"name_immutable"}`. It is the identity key
 stored on every account that signed in through this provider (`users.provider`), so
 renaming a provider is not editing a label; it would orphan those identities. Create a
 new provider to change it.
 
+**The protocol is immutable too** — `409 {"reason":"type_immutable"}` (2.4-7). A
+SAML provider files its accounts by asserted **NameID** and an OIDC provider by
+**subject**; a row switched from one to the other would answer logins with rules it
+never had. (`oauth2`, `oauth` and `oidc` are spellings of the one flow, so they may
+be exchanged.)
+
 Audited as `sso.update` with name, type, issuer, enabled, link policy, allowed domains,
-verified-email requirement, role mapping and order — never the client secret. Admin
-only, like every provider route.
+verified-email requirement, role mapping and order — never the client secret. For a
+SAML provider, also `idp_entity_id`, `idp_sso_url`, `sp_entity_id`, the pinned
+certificate's **fingerprint**, the response-signature requirement, the NameID format,
+the verified-email attribute, and a boolean for "has an SP signing key": never the
+certificate, never the key. Admin only, like every provider route.
 
 ### Delete SSO Provider (admin)
 ```

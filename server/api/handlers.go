@@ -128,6 +128,13 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		authGroup.GET("/sso/:provider/authorize", ssoHandler.Authorize)
 		authGroup.GET("/sso/:provider/callback", ssoHandler.Callback)
 		authGroup.POST("/sso/exchange", ssoHandler.Exchange)
+
+		// 2.4-7 · SAML 2.0. The assertion consumer service is a POST from the
+		// operator's browser to us, and the SP metadata is the document the operator
+		// uploads to the IdP: both are public, like the login page they belong to,
+		// and both are scoped to one provider by name.
+		authGroup.POST("/sso/saml/:provider/acs", ssoHandler.SAMLACS)
+		authGroup.GET("/sso/saml/:provider/metadata", ssoHandler.SAMLMetadata)
 	}
 
 	// Agent routes (device key auth via header)

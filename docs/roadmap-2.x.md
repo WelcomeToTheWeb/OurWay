@@ -106,11 +106,11 @@ story stops being three vendors' hosted endpoints.
 
 | Scope | Detail |
 |---|---|
-| **Generic OIDC provider** (lead item) | Configure OurWay against **any** conformant IdP — Keycloak, Authentik, Zitadel, kanidm, Okta, Entra ID with a fixed tenant, JumpCloud, a home IdP. Today the flow is already generic OAuth2 (`server/sso/oauth.go` builds auth/token/userinfo calls from the provider row) and the create API already accepts `auth_url`/`token_url`/`user_info_url`/`scope` overrides, but `applyProviderDefaults` hardcodes the big-3 endpoints, the UI dropdown is hardcoded to `google`/`microsoft`/`apple` (`web/src/pages/SSO.tsx:14-16`), and nothing discovers an IdP's endpoints. Add: **issuer + OIDC discovery** (`.well-known/openid-configuration`), **`id_token` verification** (JWKS, `iss`/`aud`/`exp` — identity today comes from the userinfo call alone and the raw `id_token` is stored in `users.sso_attributes`), **claim mapping**, **role mapping**, **domain allow-list**, multiple concurrent providers, and a **test-connection** probe. |
-| Per-device / per-group thresholds | Threshold overrides on device, client, and tag; the engine resolves device → tag → client → global. Alert-rule configuration UI in the console (roadmap 2.0 Phase 1 open item, `docs/phase1-tasks.md:50-56`). |
-| Notification channels | Email (SMTP), Slack, and Microsoft Teams on top of `server/events` — the webhook machinery (HMAC signatures, retries, delivery tracking) already exists and is reused, not duplicated. Per-client routing: "client A's critical alerts go to my phone". |
-| SAML 2.0 SSO | The one feature declared and guarded as missing (`buglist.md` L8; `server/api/sso.go` rejects it at create, authorize, and callback, with tests). Ordered **after** generic OIDC: discovery-based OIDC covers Keycloak/ Authentik/ Zitadel/ Okta in a day of work, SAML needs SP metadata, XML signing, and an assertion consumer — a larger surface for the same class of customer. |
-| Session recording | Frame-sequence recording with playback, written into the audit log, so "who was controlling that machine at 14:00" is answerable. (Roadmap 2.0 §2.1.) |
+| **Generic OIDC provider** (lead item) | **Delivered 2026-10-29** (2.4-1 discovery, 2.4-2 verification, 2.4-3 contract, 2.4-4 console). Configure OurWay against **any** conformant IdP — Keycloak, Authentik, Zitadel, kanidm, Okta, Entra ID with a fixed tenant, JumpCloud, a home IdP: **issuer + OIDC discovery**, **`id_token` verification** (JWKS, `iss`/`aud`/`exp`/`nonce`, PKCE), **claim mapping**, **role mapping**, **domain allow-list**, multiple concurrent providers ordered, a **test-connection** probe as named states, and the provider ledger. The pre-2.4 shape this replaced: `applyProviderDefaults` hardcoded the big-3 endpoints and `web/src/pages/SSO.tsx` hardcoded the dropdown, and identity came from the userinfo call alone with the raw `id_token` stored in `users.sso_attributes`. |
+| Per-device / per-group thresholds | **Delivered 2026-10-29** (2.4-5): threshold overrides on device, client, and tag; the engine resolves device → tag → client → global. Alert-rule configuration UI in the console (roadmap 2.0 Phase 1 open item, `docs/phase1-tasks.md:50-56`). |
+| Notification channels | **Delivered 2026-10-29** (2.4-6): Email (SMTP), Slack, and Microsoft Teams on top of `server/events` — the webhook machinery (HMAC signatures, retries, delivery tracking) reused, not duplicated. Per-client routing: "client A's critical alerts go to my phone". |
+| SAML 2.0 SSO | **Delivered 2026-10-30** (2.4-7): the feature `buglist.md` L8 declared and guarded as missing is implemented, and L8's guard survives as its rule — a provider row that cannot answer logins is refused at save, loudly, and an unknown protocol type is still refused. A provider row is `oidc` **or** `saml`: SP metadata per provider (public, no key material), an assertion consumer service, XML-DSig assertion verification against the operator's pinned certificate, audience/recipient/destination/expiry/subject-confirmation checks, replay protection, and the **2.4-3 identity contract unchanged** on the asserted identity — one contract, two protocols. Ordered **after** generic OIDC as planned: discovery-based OIDC covered Keycloak/Authentik/Zitadel/Okta; SAML needed SP metadata, XML signing and an assertion consumer. **Open:** the round trip is green against OurWay's Go peer-IdP fixture (`server/sso/testsaml`), which proves the rules and not vendor interop — a Keycloak/AD FS container pass over the metadata + pinned-certificate path is owed before 2.4.0 is tagged. |
+| Session recording | **Open (2.4-8, migration 17).** Frame-sequence recording with playback, written into the audit log, so "who was controlling that machine at 14:00" is answerable. (Roadmap 2.0 §2.1.) |
 
 ### The security contract the OIDC item must ship with
 
@@ -143,8 +143,11 @@ channel delivery + retry tests with a mock SMTP/Slack/Teams endpoint (the Phase 
 unit-test items, `docs/phase3-tasks.md:83-86`); an OIDC test-IdP fixture covering
 discovery, JWKS rotation, a bad `aud`, a domain outside the allow-list, an
 unverified email, and an attempt to link an existing admin account (which must
-land in pending, not linked); SAML round-trip against a real IdP fixture;
-recording/playback test on a recorded frame sequence.
+land in pending, not linked); SAML round-trip against a real IdP fixture (**shipped
+2026-10-30 against `server/sso/testsaml`, a Go peer IdP that signs real XML-DSig
+assertions and sabotages itself on command; the vendor-container pass over the
+metadata + pinned-certificate path is the open half**); recording/playback test on a
+recorded frame sequence.
 
 **Wire contract:** new event types and new routes → MINOR. New provider fields
 are additive on the provider row; the admin-only provider endpoint keeps
@@ -213,7 +216,7 @@ Deliberately not in 2.x, so the four releases above stay four:
 |---|---|
 | 2.2.0 | Remote control works on all three OSes. A dashboard mount costs under 10 reads. Zero hardcoded English in the console. Every documented endpoint exists. |
 | 2.3.0 | A technician scoped to one client cannot read another client's devices on any route. Every mutating action appears in the audit log. |
-| 2.4.0 | A critical alert on a client reaches a human outside the console within one engine pass. OurWay logs in against a self-hosted Keycloak via issuer + discovery, with `iss`/`aud` verified and no identity accepted outside the domain allow-list. SAML works against a real IdP. |
+| 2.4.0 | A critical alert on a client reaches a human outside the console within one engine pass. OurWay logs in against a self-hosted IdP via issuer + discovery, with `iss`/`aud` verified and no identity accepted outside the domain allow-list. SAML works against a real IdP — proven against a signing peer-IdP fixture, with the Keycloak/AD FS interop pass owed. |
 | 2.5.0 | WS drops are counted, visible in the console, and non-zero drops are explainable. Linux fleets beyond apt/dnf are patchable. |
 
 **2.x line-level metric:** a 200-endpoint, three-client MSP can run a full shift
