@@ -270,6 +270,9 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		// SSO provider management (admin)
 		protected.GET("/sso/providers", RequireRole("admin"), ssoHandler.ListProvidersAdmin)
 		protected.POST("/sso/providers", RequireRole("admin"), ssoHandler.CreateProvider)
+		// 2.4-1: the discovery preview — an issuer the operator has not saved yet.
+		protected.POST("/sso/providers/discover", RequireRole("admin"), ssoHandler.DiscoverIssuer)
+		protected.POST("/sso/providers/:id/test", RequireRole("admin"), ssoHandler.TestProvider)
 		protected.DELETE("/sso/providers/:id", RequireRole("admin"), ssoHandler.DeleteProvider)
 
 		// Client (tenant) routes — 2.3-4. Reads respect the caller's client

@@ -263,6 +263,50 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 12, name: "oidc_provider_discovery_and_identity_policy", fn: func(db *gorm.DB) error {
+		// 2.4-1: a provider configured by **issuer**, with the endpoints the
+		// provider publishes, plus the per-provider knobs the 2.4-3 identity
+		// contract needs. Columns are added, never rebuilt: a 2.3 installation
+		// has provider rows that log people in today, and a 2.4 upgrade that
+		// dropped them would lock operators out of their own console.
+		//
+		// Defaults are what makes the upgrade safe, and they are not neutral:
+		// `link_policy` defaults to `pending`, so a provider that exists before
+		// the contract ships stops silently claiming local accounts by asserted
+		// email the moment 2.4 is applied. An operator who wants the old behaviour
+		// chooses it, per provider, in the UI.
+		for _, col := range []struct{ name, field string }{
+			{"issuer", "Issuer"},
+			{"discovery_url", "DiscoveryURL"},
+			{"jwks_uri", "JwksURI"},
+			{"redirect_uri", "RedirectURI"},
+			{"discovery_doc", "DiscoveryDoc"},
+			{"discovered_at", "DiscoveredAt"},
+			{"claims_email", "ClaimsEmail"},
+			{"claims_username", "ClaimsUsername"},
+			{"claims_name", "ClaimsName"},
+			{"claims_groups", "ClaimsGroups"},
+			{"allowed_domains", "AllowedDomains"},
+			{"require_verified_email", "RequireVerifiedEmail"},
+			{"link_policy", "LinkPolicy"},
+			{"role_mapping", "RoleMapping"},
+			{"sort_order", "SortOrder"},
+		} {
+			if !db.Migrator().HasColumn(&models.SSOProvider{}, col.name) {
+				if err := db.Migrator().AddColumn(&models.SSOProvider{}, col.field); err != nil {
+					return err
+				}
+			}
+		}
+		// `AddColumn` on an existing table does not apply the model's `default:`
+		// to the rows already there (migration 8 met the same thing with the
+		// device index). Existing providers must land on `pending`, not on an
+		// empty string that no code path reads.
+		if err := db.Exec("UPDATE sso_providers SET link_policy = 'pending' WHERE link_policy IS NULL OR link_policy = ''").Error; err != nil {
+			return err
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

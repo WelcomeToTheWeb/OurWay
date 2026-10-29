@@ -20,70 +20,118 @@ Two themes, deliberately kept apart:
    signing and an assertion consumer for the same class of customer.
 
 **Migration numbering.** `server/store/migrate.go` is append-only with contiguous
-versions; 2.3.0 ships 7 and 8, so this release uses **9 (oidc fields)**,
-**10 (alert threshold scopes)**, **11 (notification channels)**,
-**12 (session recordings)**.
+versions. 2.3.0 shipped **8** (`clients_and_user_client_scope`), **9**
+(`audit_log`), **10** (`tenant_scoped_read_indexes`) and **11**
+(`client_enrollment_tokens`) — the plan's "2.3.0 ships 7 and 8" was written before the
+scoped read indexes and the enrollment tokens landed inside 2.3. So this release
+starts at **12**: **12 (oidc provider discovery + identity policy)**,
+**13 (alert threshold scopes)**, **14 (notification channels)**,
+**15 (session recordings)**. Migration 12 is in `migrate.go` as
+`oidc_provider_discovery_and_identity_policy`.
 
 ---
 
 ## 2.4-0 · Fixtures this release needs before it needs code
 
 **Do**
-- [ ] A test IdP in CI: Keycloak (OIDC **and** SAML from the same fixture), seeded
+- [~] A test IdP in CI: Keycloak (OIDC **and** SAML from the same fixture), seeded
       with users covering every claim shape the mapping must handle — verified and
       unverified email, domain inside and outside the allow-list, a group claim that
       maps to admin, and a user with no email claim.
+      **2.4-1 shipped `server/sso/testidp` instead** for the OIDC half: an OpenID
+      Provider in Go — publishes `.well-known/openid-configuration`, serves a JWKS
+      from a key it generated, mints RS256 `id_token`s with `iss`/`aud`/`exp`/`nonce`,
+      runs the code exchange (single-use codes, redirect-URI enforcement,
+      `invalid_grant`), rotates its key, and sabotages itself on command. A stub of
+      the verifier agrees with whatever the verifier does; the tests that matter need
+      a provider that can disagree. Keycloak-as-a-container is still owed for the
+      **SAML** half (2.4-7): a Go assertion signer would be a mock of the layer under
+      test, which is exactly what this section forbids.
 - [ ] Mock SMTP (accepting, rejecting, and TLS-failing), Slack, and Teams webhook
       endpoints for channel tests.
-- [ ] JWKS fixtures: key rotation (kid changes), a token signed by the wrong key,
-      a token with `aud` = a different client, an expired token.
+- [x] JWKS fixtures: key rotation (kid changes), a token signed by the wrong key,
+      a token with `aud` = a different client, an expired token. — `testidp.Rotate`,
+      `PublishOnlyCurrentKey`, `MintIDTokenWithKey`, `MintIDToken(claims, clientID, alg)`
+      and `MintExpiredIDToken`, exercised in `server/sso/oidc_test.go`.
 - [ ] A macOS/Linux agent fixture emitting metric sequences that cross thresholds
       for the precedence tests.
 
 **Acceptance criteria**
 - The IdP fixture runs in CI (`tests` job) with no network dependency beyond the
   image, and the suite proves a **real authorization-code round trip**, not a stub.
+  **Met for OIDC** (2.4-1): `TestSSOLoginRoundTripThroughADiscoveredProvider` walks
+  authorize → IdP → callback → `sso_code` → exchange against the fixture, and
+  `TestSSOTwoEnabledProvidersBothCompleteLogins` walks it twice, through two providers.
 - Every 2.4 acceptance test below runs against these fixtures, not against a mock of
   the OIDC/SAML layer itself.
 
 ---
 
-## 2.4-1 · Generic OIDC provider: issuer + discovery
+## 2.4-1 · Generic OIDC provider: issuer + discovery · ✅ delivered 2026-10-29
+
+**Delivered (2.4-1)** — `server/sso/discovery.go`, `server/sso/jwks.go`,
+`server/sso/testidp/`, `server/api/sso.go`, migration 12. Tests:
+`server/sso/oidc_test.go` (discovery kinds, verification refusals, rotation) and
+`server/api/sso_oidc_test.go` (issuer-only save, no-row-on-failure, public list,
+test-connection states, the discovery preview, the login round trip, two providers
+at once). Measured: `go test ./... -race -count=1` green across all server packages
+on `ourway/2.4-1-oidc-discovery`.
 
 **Context:** `applyProviderDefaults` (`server/api/sso.go:254-280`) hardcodes the
 big-3 endpoints; `web/src/pages/SSO.tsx:14-16` hardcodes the dropdown to
 `google`/`microsoft`/`apple`.
 
 **Do**
-- [ ] Migration 9: `sso_providers.issuer`, `.discovery_url`, `.jwks_uri`,
-      `.claims_email`, `.claims_username`, `.claims_name`, `.claims_groups`,
-      `.allowed_domains`, `.require_verified_email`, `.link_policy`, `.redirect_uri`.
-- [ ] `OIDCHandler` beside the OAuth2 handler: input **an issuer URL**, fetch
-      `.well-known/openid-configuration`, store the discovered
-      `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` /
-      `jwks_uri` / `id_token_signing_alg_values_supported`, and show the operator
-      exactly what was discovered before they save it.
-- [ ] Preserve the big three as **presets of the generic provider** — one code path,
-      one UI. No separate "custom" branch.
-- [ ] Multiple concurrent enabled providers, ordered, with the login page listing
-      them (the page already maps over `GET /api/auth/sso/providers` and
-      `ProviderIcon`/`providerDisplayName` already fall back for unknown names).
-- [ ] `Test-connection`: discovery probe + a signed-redirect dry run, reporting
-      redirect-URI mismatch, discovery failure, and JWKS failure as named console
-      states, not a 500.
-- [ ] `client_secret` stays `json:"-"` on the provider row as today; provider
+- [x] Migration 12 (numbering corrected above): `sso_providers.issuer`,
+      `.discovery_url`, `.jwks_uri`, `.redirect_uri`, `.discovery_doc`,
+      `.discovered_at`, `.claims_email`, `.claims_username`, `.claims_name`,
+      `.claims_groups`, `.allowed_domains`, `.require_verified_email`,
+      `.link_policy`, `.role_mapping`, `.sort_order`. The migration lands
+      pre-existing rows on `link_policy='pending'`, so an install stops being able
+      to have a local account claimed by asserting its email the moment 2.4 is
+      applied.
+- [x] Input **an issuer URL**, fetch `.well-known/openid-configuration`, store the
+      discovered `authorization_endpoint` / `token_endpoint` /
+      `userinfo_endpoint` / `jwks_uri` / `id_token_signing_alg_values_supported`,
+      and show the operator exactly what was discovered before they save it —
+      **`POST /api/sso/providers/discover`** (admin, audited `sso.discover`): the
+      endpoints, the signing algorithms, the scopes, the PKCE methods, the document
+      verbatim, the redirect URI this installation will send, and the named checks.
+      It writes nothing; the row is written by the save.
+      Precedence at save: **typed > discovered > preset**.
+- [x] Preserve the big three as **presets of the generic provider** — one code path,
+      one UI. No separate "custom" branch. `providerPreset` supplies an issuer and a
+      scope and nothing else; Google/Microsoft/Apple endpoints are now discovered,
+      so a provider that moves an endpoint stops being a OurWay release.
+- [x] Multiple concurrent enabled providers, ordered (`sort_order, name`), with the
+      login page listing them. Proven by
+      `TestSSOTwoEnabledProvidersBothCompleteLogins`: two IdPs, two round trips, two
+      JIT accounts, and no collapse onto one account.
+- [x] `Test-connection` (`POST /api/sso/providers/:id/test`, admin, audited
+      `sso.test`): discovery, the redirect URI the flow will send, the JWKS, the
+      `email` scope, PKCE, and the id_token signing algorithm, each as a named
+      state (`pass`/`warn`/`fail`/`skipped`) — never a 500.
+- [x] `client_secret` stays `json:"-"` on the provider row as today; provider
       endpoints remain `RequireRole("admin")`.
 
 **Acceptance criteria**
 - Adding Keycloak with **only an issuer + client id/secret** yields a working login
-  round trip in the fixture suite.
+  round trip in the fixture suite. ✅ `TestSSOProviderSavedFromIssuerAlone` +
+  `TestSSOLoginRoundTripThroughADiscoveredProvider`.
 - A provider whose issuer returns no `.well-known` document is refused at save time,
   with a named error, and no half-saved provider row (fails loudly,
-  `CONTRIBUTING.md`).
+  `CONTRIBUTING.md`). ✅ `TestSSODiscoveryFailureWritesNoProviderRow`.
 - `GET /api/sso/providers` (admin) never serializes `client_secret`; the public
-  provider list exposes id/name/label only.
+  provider list exposes id/name/label only. ✅
+  `TestSSOPublicProviderListCarriesNoSecretAndNoEndpoints` (canary secrets, no
+  endpoints, order).
 - Two providers enabled at once both complete a login; `sso_code` exchange (C6 fix)
-  is unchanged.
+  is unchanged. ✅ `TestSSOTwoEnabledProvidersBothCompleteLogins`; the replay
+  refusal is asserted in `TestSSOLoginRoundTripThroughADiscoveredProvider`.
+
+**Not in 2.4-1** (the console half is 2.4-4, and the verification is 2.4-2): the
+provider ledger UI — `web/src/pages/SSO.tsx` still offers the hardcoded big-3
+dropdown, so an operator can add Keycloak by API today and not by UI.
 
 ---
 
@@ -183,7 +231,7 @@ wholesale. `docs/phase1-tasks.md:50-56` declared per-device thresholds and an al
 rule UI; neither exists.
 
 **Do**
-- [ ] Migration 10: `alert_thresholds` rows — `(scope_type: device|tag|client|global,
+- [ ] Migration 13: `alert_thresholds` rows — `(scope_type: device|tag|client|global,
       scope_value, metric, warning, critical, dedup_window, enabled)`.
 - [ ] Engine resolution **device → tag → client → global**, most specific wins per
       metric; a device with no applicable row behaves exactly as today.
@@ -220,7 +268,7 @@ rule UI; neither exists.
 one place an operator can read.
 
 **Do**
-- [ ] Migration 11: `webhooks.kind`, `webhooks.config`, `webhooks.scope_clients`,
+- [ ] Migration 14: `webhooks.kind`, `webhooks.config`, `webhooks.scope_clients`,
       `webhooks.min_severity`, `webhooks.tags`. Note `webhooks.url` is `not null`
       today and is meaningless for an email channel — migration 12 drops the
       NOT-NULL on `url` and the API validates it **per kind** (required for
@@ -300,7 +348,7 @@ one place an operator can read.
 (directory, per-transfer file, cleanup sweep) — recordings follow it.
 
 **Do**
-- [ ] Migration 12: `session_recordings` — `session_id`, `device_id`, `user_id`,
+- [ ] Migration 15: `session_recordings` — `session_id`, `device_id`, `user_id`,
       `client_id`, `started_at`, `ended_at`, `frame_count`, `bytes`, `path`,
       `retention_until`, `reason`.
 - [ ] Recording written as an append-only JPEG sequence file under

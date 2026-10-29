@@ -219,23 +219,65 @@ func (h *OAuthHandler) findOrCreateUser(ctx context.Context, provider *models.SS
 	}
 
 	user := &models.User{
-		ID:            uuid.New().String(),
-		Username:      username,
-		Email:         email,
-		PasswordHash:  "",
-		Provider:      provider.Name,
-		ProviderID:    info.Subject,
-		SSOAttributes: "",
+		ID:           uuid.New().String(),
+		Username:     username,
+		Email:        email,
+		PasswordHash: "",
+		Provider:     provider.Name,
+		ProviderID:   info.Subject,
 	}
 
-	// Store ID token in attributes
-	if idToken != "" {
-		user.SSOAttributes = fmt.Sprintf(`{"id_token":"%s"}`, idToken)
-	}
+	// The raw `id_token` is not stored (2.4-2). It is an access credential to
+	// another system — one that expires, and that a dump of `users` would hand to
+	// anyone holding a database read. What the product needs from it is the claim
+	// summary, written as JSON the code can read back, not a string-concatenated
+	// fragment of a token.
+	user.SSOAttributes = ssoAttributeSummary(provider.Name, info)
 
+	// The JIT floor is a role, recorded on the account: `HandleCallback` has always
+	// issued a `viewer` token for a new SSO user, and an account with no role rows
+	// is an account whose access is decided at login time by whoever calls it
+	// next. Recording the floor is what 2.4-3's pending state means.
 	if err := h.store.Users.Create(user); err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
+	if err := h.grantFloorRole(user.ID); err != nil {
+		return nil, fmt.Errorf("failed to record the JIT floor role: %w", err)
+	}
 
 	return user, nil
+}
+
+// ssoAttributeSummary is the claim record the product keeps: who the provider
+// asserted, and what it said about the email. Structured JSON, so a reader can
+// tell a verified email from an asserted one.
+func ssoAttributeSummary(providerName string, info *UserInfo) string {
+	type summary struct {
+		Provider      string `json:"provider"`
+		ProviderID    string `json:"provider_id"`
+		Name          string `json:"name,omitempty"`
+		Email         string `json:"email,omitempty"`
+		EmailVerified bool   `json:"email_verified"`
+	}
+	encoded, err := json.Marshal(summary{
+		Provider:      providerName,
+		ProviderID:    info.Subject,
+		Name:          info.Name,
+		Email:         info.Email,
+		EmailVerified: info.EmailVerified,
+	})
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
+// grantFloorRole gives a JIT user the `viewer` role — the access the console has
+// always given a new SSO account, now on the account itself.
+func (h *OAuthHandler) grantFloorRole(userID string) error {
+	role, err := h.store.Roles.GetRoleByName("viewer")
+	if err != nil {
+		return err
+	}
+	return h.store.UserRoles.AssignRole(userID, role.ID)
 }

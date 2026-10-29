@@ -1891,11 +1891,16 @@ GET /api/auth/sso/providers
 ```json
 {
   "providers": [
-    { "type": "oauth2", "name": "google" },
-    { "type": "oauth2", "name": "microsoft" }
+    { "id": "uuid", "type": "oidc", "name": "keycloak-corp", "label": "https://idp.corp/realms/ourway", "sort_order": 0 },
+    { "id": "uuid", "type": "oidc", "name": "google", "label": "https://accounts.google.com", "sort_order": 1 }
   ]
 }
 ```
+
+Only `id`, `type`, `name`, `label` (the issuer), `sort_order` and any custom
+`redirect_uri` are exposed. Endpoints, scopes and the client secret are not: this
+list is public (2.4-1). Providers appear in `sort_order`, then name — the order on
+the login page is a promise to the person logging in.
 
 ### Authorize (redirect)
 Redirects the user to the SSO provider's authorization page.
@@ -1904,12 +1909,28 @@ Redirects the user to the SSO provider's authorization page.
 GET /api/auth/sso/:provider/authorize
 ```
 
+Sets the one-shot `sso_state` cookie and redirects to the provider's published
+`authorization_endpoint`.
+
 ### SSO Callback
-Handles the SSO provider's redirect back to OurWay. Exchanges the code for tokens, retrieves user info, provisions the user if needed (JIT), and redirects to the frontend with a JWT.
+Handles the SSO provider's redirect back to OurWay. Exchanges the code for tokens
+(server to server), verifies the identity, provisions the account on first login
+(JIT), and redirects to `/login?sso_code=…`.
 
 ```
 GET /api/auth/sso/:provider/callback?code=xxx&state=yyy
 ```
+
+The access and refresh tokens **never appear in a URL** (C6). The console redeems
+the one-time code below for them; a code is single-use and expires in 60 seconds.
+
+### Exchange SSO Login Code (public)
+
+```POST /api/auth/sso/exchange```
+
+**Request:** `{ "code": "<sso_code>" }`
+
+**Response:** `{ "access_token": "…", "refresh_token": "…", "expires_in": 3600 }`
 
 ### List SSO Providers (admin)
 Returns all SSO providers with configuration details.
@@ -1924,19 +1945,83 @@ GET /api/sso/providers
   "providers": [
     {
       "id": "uuid",
-      "type": "oauth2",
-      "name": "google",
-      "client_id": "your-client-id",
-      "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-      "token_url": "https://oauth2.googleapis.com/token",
-      "user_info_url": "https://openidconnect.googleapis.com/v1/userinfo",
+      "type": "oidc",
+      "name": "keycloak-corp",
+      "client_id": "ourway",
+      "issuer": "https://idp.corp/realms/ourway",
+      "discovery_url": "https://idp.corp/realms/ourway/.well-known/openid-configuration",
+      "jwks_uri": "https://idp.corp/realms/ourway/protocol/openid-connect/certs",
+      "redirect_uri": "https://rmm.example/api/auth/sso/keycloak-corp/callback",
+      "discovered_at": "2026-10-28T14:00:00Z",
+      "auth_url": "https://idp.corp/realms/ourway/protocol/openid-connect/auth",
+      "token_url": "https://idp.corp/realms/ourway/protocol/openid-connect/token",
+      "user_info_url": "https://idp.corp/realms/ourway/protocol/openid-connect/userinfo",
       "scope": "openid profile email",
+      "allowed_domains": "corp.example",
+      "require_verified_email": true,
+      "link_policy": "pending",
+      "role_mapping": "",
+      "sort_order": 0,
       "enabled": true,
-      "created_at": "2026-09-25T00:00:00Z"
+      "created_at": "2026-10-28T00:00:00Z"
     }
   ]
 }
 ```
+
+`client_secret` is never serialized (`json:"-"`), on any route. `discovered_at` is
+null for a provider configured by hand-typed endpoints with no issuer.
+
+### Discover an Issuer (admin)
+
+Fetches `<issuer>/.well-known/openid-configuration` and reports what the provider
+publishes, **before any provider row exists** — the console shows this preview and
+only writes the row when the operator saves (2.4-1).
+
+```
+POST /api/sso/providers/discover
+```
+
+**Request:**
+```json
+{
+  "issuer": "https://idp.corp/realms/ourway",
+  "discovery_url": "",
+  "provider_name": "keycloak-corp",
+  "redirect_uri": ""
+}
+```
+
+**Response (200, `ok` false when the provider is unusable):**
+```json
+{
+  "ok": true,
+  "discovery": "ok",
+  "issuer": "https://idp.corp/realms/ourway",
+  "discovery_url": "https://idp.corp/realms/ourway/.well-known/openid-configuration",
+  "redirect_uri": "https://rmm.example/api/auth/sso/keycloak-corp/callback",
+  "endpoints": { "authorization": "…", "token": "…", "userinfo": "…", "jwks": "…" },
+  "signing_algs": ["RS256"],
+  "response_types": ["code"],
+  "scopes": ["openid", "profile", "email"],
+  "pkce_methods": ["S256"],
+  "checks": [
+    { "name": "discovery", "state": "pass", "detail": "https://idp.corp/realms/ourway" },
+    { "name": "pkce", "state": "pass", "detail": "S256" },
+    { "name": "email_scope", "state": "pass", "detail": "email" },
+    { "name": "id_token_alg", "state": "pass", "detail": "RS256" },
+    { "name": "userinfo", "state": "pass", "detail": "…" },
+    { "name": "jwks", "state": "pass", "detail": "…" },
+    { "name": "redirect_uri", "state": "pass", "detail": "…" }
+  ],
+  "document": { "…": "the document exactly as the provider published it" }
+}
+```
+
+`discovery` is a named kind: `ok`, `discovery_unreachable`, `discovery_document`,
+`issuer_mismatch`, `no_code_flow`. A malformed `issuer` (not an http(s) URL, or one
+carrying credentials) answers **400** and is never fetched. The call is audited as
+`sso.discover`.
 
 ### Create/Update SSO Provider (admin)
 Creates a new SSO provider or updates an existing one (by name).
@@ -1945,20 +2030,52 @@ Creates a new SSO provider or updates an existing one (by name).
 POST /api/sso/providers
 ```
 
-**Request:**
+**Request** (`issuer` is the field an operator fills in; the endpoints are the
+provider's published ones. `auth_url`/`token_url`/`user_info_url` are an override,
+for a proxy or a private alias — precedence is typed > discovered > preset):
 ```json
 {
-  "type": "oauth2",
-  "name": "google",
-  "client_id": "your-client-id",
-  "client_secret": "your-client-secret",
-  "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-  "token_url": "https://oauth2.googleapis.com/token",
-  "user_info_url": "https://openidconnect.googleapis.com/v1/userinfo",
+  "type": "oidc",
+  "name": "keycloak-corp",
+  "client_id": "ourway",
+  "client_secret": "secret",
+  "issuer": "https://idp.corp/realms/ourway",
   "scope": "openid profile email",
+  "redirect_uri": "",
+  "claims_email": "",
+  "claims_username": "",
+  "claims_name": "",
+  "claims_groups": "",
+  "allowed_domains": "corp.example",
+  "require_verified_email": true,
+  "link_policy": "pending",
+  "role_mapping": "",
+  "sort_order": 0,
   "enabled": true
 }
 ```
+
+Discovery runs at save time. A provider whose issuer does not answer, answers with
+no usable document, describes a **different** issuer, or offers no authorization-code
+flow answers **400** with `{"error": "provider not saved: …", "discovery": "<kind>"}`
+and **writes no row**.
+
+`google`, `microsoft` and `apple` are **presets of the same path**: they supply an
+issuer, and their endpoints come from discovery like any other IdP. `name` must be
+a slug (letters, digits, `-`, `_`, `.`), because it is a path segment of the
+callback URL.
+
+### Test an SSO Provider (admin)
+
+Reports discovery, the redirect URI this installation will send, and the JWKS
+endpoint as named states (`pass` / `warn` / `fail` / `skipped`) — not a 500.
+
+```
+POST /api/sso/providers/:id/test
+```
+
+Audited as `sso.test`. Admin only: probing the installation's identity provider is
+not a tenant operation.
 
 ### Delete SSO Provider (admin)
 ```

@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -29,9 +31,21 @@ func TestSSOProviderTypeGuard(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// The provider name is a URL path segment (`/api/auth/sso/<name>/callback`),
+			// and 2.4-1 validates it as one. `t.Name()` inside a subtest contains a
+			// slash, so the fixture slugifies it rather than leaning on the test
+			// framework's naming.
+			slug := "provider-" + strings.Map(func(r rune) rune {
+				switch {
+				case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+					return r
+				}
+				return '-'
+			}, tt.ssoType)
+
 			body, _ := json.Marshal(map[string]string{
 				"type":          tt.ssoType,
-				"name":          "provider-" + tt.ssoType + "-" + t.Name(),
+				"name":          slug,
 				"client_id":     "cid",
 				"client_secret": "secret",
 			})
@@ -47,7 +61,8 @@ func TestSSOProviderTypeGuard(t *testing.T) {
 			}
 			defer resp.Body.Close()
 			if resp.StatusCode != tt.want {
-				t.Errorf("create provider type %q: got %d, want %d", tt.ssoType, resp.StatusCode, tt.want)
+				payload, _ := io.ReadAll(resp.Body)
+				t.Errorf("create provider type %q: got %d, want %d\n%s", tt.ssoType, resp.StatusCode, tt.want, payload)
 			}
 		})
 	}

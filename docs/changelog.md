@@ -5,6 +5,39 @@ All notable changes to the OurWay RMM project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - Unreleased
+
+### Added
+- **Generic OIDC by issuer + discovery** (2.4-1) — an SSO provider is configured by
+  naming its **issuer**; OurWay fetches
+  `<issuer>/.well-known/openid-configuration` at save time and stores the endpoints
+  the provider publishes (`authorization_endpoint`, `token_endpoint`,
+  `userinfo_endpoint`, `jwks_uri`, `id_token_signing_alg_values_supported`).
+  Precedence: what the operator typed > what the IdP published > the preset.
+  Keycloak, Authentik, Zitadel, kanidm, Okta and a home IdP are now a form, not a
+  code change: `google`/`microsoft`/`apple` stopped being six hardcoded URLs each and
+  became **presets of the same path** (they supply an issuer). Migration 12
+  (`oidc_provider_discovery_and_identity_policy`).
+- **Discovery refuses loudly, at save time.** An issuer that does not answer, answers
+  with a document that is not a usable OIDC configuration, describes a **different**
+  issuer, or offers no authorization-code flow answers `400` with a named kind
+  (`discovery_unreachable`, `discovery_document`, `issuer_mismatch`, `no_code_flow`)
+  and **writes no provider row**. No half-saved provider, no login that 500s at 2 a.m.
+- **`POST /api/sso/providers/discover`** (admin, audited `sso.discover`) — the
+  discovery **preview**: the endpoints, signing algorithms, scopes, PKCE methods, the
+  document verbatim, the redirect URI this installation will send, and the named
+  checks, shown **before** anything is saved. Admin only: probing the installation's
+  identity provider is not a tenant operation.
+- **`POST /api/sso/providers/:id/test`** (admin, audited `sso.test`) — test-connection
+  as named states, never a 500: discovery, the redirect URI the flow will send,
+  the JWKS, the `email` scope, PKCE support, and the id_token signing algorithm
+  (OurWay verifies RS256, so an ES256-only IdP is named as unusable).
+- **Multiple providers, ordered** — `sort_order, name` decides the login page's order,
+  and the public provider list carries `id`/`type`/`name`/`label`/`sort_order` and
+  nothing else: no endpoints, no secret (`client_secret` stays `json:"-"`).
+
+---
+
 ## [2.3.0] - 2026-10-28
 
 ### Added
