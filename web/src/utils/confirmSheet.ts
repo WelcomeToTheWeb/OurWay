@@ -32,7 +32,8 @@ export type ConfirmAction =
   // anything, and both grant an identity that did not exist a minute ago — exactly
   // the act an operator should read the consequence of before pressing.
   | 'approveIdentity'
-  | 'mergeIdentity';
+  | 'mergeIdentity'
+  | 'deleteThreshold';
 
 export function confirmRequest(
   t: TFunction,

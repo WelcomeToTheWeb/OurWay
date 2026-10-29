@@ -29,9 +29,13 @@ func dialRole(t *testing.T, tsURL, cred, role string) (*websocket.Conn, error) {
 }
 
 // readBinary reads until a binary message arrives.
+//
+// The same budget as every other hop here: a binary frame crossing the hub is
+// the same scheduler-exposed round trip as a JSON one, so it does not get a
+// tighter deadline.
 func readBinary(t *testing.T, conn *websocket.Conn) []byte {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), relayBudget)
 	defer cancel()
 	for {
 		typ, data, err := conn.Read(ctx)
@@ -46,7 +50,7 @@ func readBinary(t *testing.T, conn *websocket.Conn) []byte {
 
 func writeBinary(t *testing.T, conn *websocket.Conn, data []byte) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), relayBudget)
 	defer cancel()
 	if err := conn.Write(ctx, websocket.MessageBinary, data); err != nil {
 		t.Fatalf("binary write: %v", err)
@@ -61,7 +65,13 @@ func writeBinary(t *testing.T, conn *websocket.Conn, data []byte) {
 // is compiling and racing. A tight deadline here reads as "the relay is slow"
 // when nothing is wrong with the relay, and a test that fails under load and
 // passes on re-run teaches people to ignore the suite.
-const relayBudget = 20 * time.Second
+//
+// 20 s was starved on a 8-core box running `go -C server test -race ./...` with
+// the 2.4-5 threshold suite added to the parallel load: the hop was late, the
+// relay was correct. The budget now covers a scheduler that starves the hub for
+// the length of a package's compile, not just a context switch. What this test
+// asserts is which frames reach which socket, never how fast a saturated hub is.
+const relayBudget = 60 * time.Second
 
 func TestViewerSessionRelay(t *testing.T) {
 	ts, st, hub := setupHubTest(t)

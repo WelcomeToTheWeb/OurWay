@@ -19,6 +19,8 @@ const SSO = lazy(() => import('./pages/SSO').then((m) => ({ default: m.SSO })));
 const Webhooks = lazy(() => import('./pages/Webhooks').then((m) => ({ default: m.Webhooks })));
 const Clients = lazy(() => import('./pages/Clients').then((m) => ({ default: m.Clients })));
 const Audit = lazy(() => import('./pages/Audit').then((m) => ({ default: m.Audit })));
+// 2.4-5: the threshold ledger (admin, manager)
+const Thresholds = lazy(() => import('./pages/Thresholds').then((m) => ({ default: m.Thresholds })));
 
 function RouteFallback() {
   return (
@@ -166,6 +168,16 @@ export function App() {
               <RoleRoute roles={['admin']}>
                 <Suspense fallback={<RouteFallback />}>
                   <SSO />
+                </Suspense>
+              </RoleRoute>
+            }
+          />
+          <Route
+            path="thresholds"
+            element={
+              <RoleRoute roles={['admin', 'manager']}>
+                <Suspense fallback={<RouteFallback />}>
+                  <Thresholds />
                 </Suspense>
               </RoleRoute>
             }

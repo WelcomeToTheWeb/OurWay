@@ -169,6 +169,12 @@ const (
 	// provider. It gives an existing account's access to a new door, so it is a row.
 	AuditSSOLink = "sso.link"
 
+	// 2.4-5: the threshold rules. A rule decides when a unit raises its hand, so
+	// the act of changing one is on the record with its scope and numbers.
+	AuditThresholdCreate = "alert.threshold_create"
+	AuditThresholdUpdate = "alert.threshold_update"
+	AuditThresholdDelete = "alert.threshold_delete"
+
 	AuditAlertResolve     = "alert.resolve"
 	AuditAlertAcknowledge = "alert.acknowledge"
 	AuditAlertAssign      = "alert.assign"

@@ -124,7 +124,9 @@
     "message": "Nachricht",
     "createdAt": "Erstellt am",
     "resolvedAt": "Aufgelöst am",
-    "resolved": "Aufgelöst"
+    "resolved": "Aufgelöst",
+    "warning": "Warnung",
+    "critical": "Kritisch"
   },
   "settings": {
     "title": "Einstellungen",
@@ -551,6 +553,11 @@
       "title": "{{subject}} in {{name}} einfügen?",
       "body": "Das Konto {{name}} meldet sich künftig über diesen Anbieter an und behält seine eigenen Rollen und Mandantenzuweisungen. Das Passwort des Anbieters gilt dann nicht mehr für es. Das wird im Logbuch festgehalten.",
       "action": "Identität einfügen"
+    },
+    "deleteThreshold": {
+      "title": "Diese Schwellen-Regel löschen?",
+      "body": "Geräte, die nur diese Regel abdeckt, fallen auf die Grundgrenze zurück: {{scope}} {{target}}, {{metric}}.",
+      "action": "Regel löschen"
     }
   },
   "clients": {
@@ -662,5 +669,53 @@
   },
   "sessions": {
     "colTenant": "Mandant"
+  },
+  "thresholds": {
+    "title": "Alarm-Schwellen",
+    "subtitle": "Die Werte, an denen ein Gerät gemessen wird. Der spezifischste Wert gewinnt, je Messwert — Gerät, Kennzeichnung, Mandant, dann die Grundgrenze.",
+    "addRule": "Regel hinzufügen",
+    "editRule": "Regel bearbeiten",
+    "formBody": "Warnung liegt unter Kritisch. Der spezifischste Geltungsbereich gewinnt, Messwert für Messwert.",
+    "floor": "Vorgegebene Grundgrenze",
+    "floorBody": "Ein Gerät ohne Regel wird an diesen Werten gemessen — dieselben Zahlen, mit denen jede Installation alarmierte, bevor es Regeln gab.",
+    "scope": "Geltungsbereich",
+    "scopeLocked": "Geltungsbereich und Messwert sind nach dem Speichern fest. Regel löschen und neu anlegen, um sie zu verschieben.",
+    "tag": "Kennzeichnung",
+    "device": "Gerät",
+    "client": "Mandant",
+    "globalBody": "Diese Regel gilt für alle Geräte, die keine engere Regel abdeckt.",
+    "metricLabel": "Messwert",
+    "warning": "Warnung",
+    "critical": "Kritisch",
+    "levels": "Warnung / kritisch",
+    "dedup": "Wiederholungsfenster",
+    "dedupBody": "Sekunden, die ein Gerät wartet, bevor dieselbe Warnung erneut ausgelöst wird. 0 nutzt die Vorgabe des Systems.",
+    "dedupDefault": "Systemvorgabe",
+    "enabled": "Aktiv",
+    "state": "Zustand",
+    "none": "Noch keine Regeln. Jedes Gerät wird an der Grundgrenze gemessen.",
+    "needNumbers": "Warnung und kritisch müssen Zahlen sein.",
+    "previewTitle": "Was für ein Gerät gilt",
+    "previewBody": "Die Regel, die jeden Messwert beantwortet, dann alle Regeln, die zur Wahl standen — in der Reihenfolge, in der sie gewinnen.",
+    "previewDeviceLabel": "Gerät für die Vorschau wählen",
+    "pickDevice": "Gerät wählen…",
+    "simulateTitle": "Ein Wert anfragen",
+    "simulateBody": "Es wird nichts aufgezeichnet. Die Antwort ist die Meldung, die die Warnung tragen würde.",
+    "simulateValue": "Wert %",
+    "simulateGo": "Simulieren",
+    "simulateQuiet": "Keine Warnung",
+    "simulateFrom": "Beantwortet von {{scope}} {{target}}.",
+    "scopeKind": {
+      "device": "Gerät",
+      "tag": "Kennzeichnung",
+      "client": "Mandant",
+      "global": "Global"
+    },
+    "metric": {
+      "cpu": "CPU",
+      "ram": "Speicher",
+      "disk": "Festplatte"
+    },
+    "globalName": "alle Geräte"
   }
 }

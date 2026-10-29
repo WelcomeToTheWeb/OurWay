@@ -86,6 +86,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     target account and its roles — with Approve and Merge confirming in the sheet. A
     page-level alert now carries refusals; `formError` used to render only inside the
     modals, so a rejected act looked like nothing had happened.
+- **Alert thresholds are rules, with precedence** (2.4-5) — `alert_thresholds`
+  (migration 14, **no seeded rules**): a rule names a scope (`device` | `tag` |
+  `client` | `global`), a metric (`cpu`/`ram`/`disk`), `warning`, `critical`, an
+  optional `dedup_window_seconds`, and `enabled`. The engine measures each metric
+  against the **most specific enabled rule** — device → tag → client → global,
+  per metric independently, no blending — and a unit no rule covers is measured
+  against exactly the numbers `v2.4.0` alerted with (cpu 80/90, ram 85/95,
+  disk 85/95), stated on the API as `defaults`.
+  - **Auto-resolution follows the resolved rule**: a unit whose warning is 50 is
+    recovered at 48. Measuring recovery against the installation's 80 leaves an
+    alert open that the operator's own rule says is over. The alert's `threshold`
+    and its message name the rule that fired, and the rule's repeat window wins
+    over the engine's 5-minute default.
+  - **`GET/POST/PUT/DELETE /api/alerts/thresholds`** (admin, manager; audited
+    `alert.threshold_create` / `_update` / `_delete` with scope, metric and the
+    numbers). Managers act inside their tenants — a device/client rule for a tenant
+    they cannot see answers the body an absent tenant gets, and `tag`/`global`
+    rules are admin-only. Warning must sit below critical, percentages are 0–100,
+    a scope value is required, one rule per (scope, metric) — a duplicate answers
+    `409` naming the rule to edit — and a saved rule's **scope and metric are
+    immutable** (`409`): moving a rule to another unit is a delete and an add.
+  - **`GET /api/alerts/thresholds/resolve?device=`** — the precedence preview: per
+    metric, the rule that applies plus the whole chain in the order it wins, ending
+    at the built-in floor. **`GET /api/alerts/thresholds/simulate`** answers a value
+    with the severity, the scope that answered and **the engine's own message**,
+    recording nothing. Both walk the 2.3.0 scoped-device door: an out-of-scope unit
+    answers the body an absent unit gets.
+  - Console: **Alert rules** page (admin, manager) — the ledger (scope, the name of
+    what it points at, metric, levels, repeat window, enable toggle), the built-in
+    floor stated in numbers, the per-unit chain preview, the value simulation, and
+    deletes carried in the confirm sheet.
 
 ### Fixed
 - `auditOKOnce` / `auditRefusedOnce` marked the request as recorded **before** writing,
@@ -94,6 +125,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A provider saved with **no issuer** (endpoints typed by hand, the pre-2.4 shape)
   lost the typed endpoints in 2.4-1's discovery refactor and authorized to an empty
   URL. The typed > discovered > preset precedence is now applied on both paths.
+- `models.AlertThreshold.Enabled` carried a GORM `default:true`, so a rule saved
+  **disabled** was stored enabled (GORM substitutes the column default for a
+  zero-valued field on insert): the toggle lied. The default is gone and `Create`
+  writes every field explicitly.
+- `TestViewerSessionRelay`'s hop deadlines: the message polls were given a
+  scheduler-aware 20 s budget, the binary-frame hops kept a hard 5 s. Under
+  `go test -race ./...` with the 2.4-5 suite in the parallel load, a hop was late
+  and the relay was correct; every hop in that test now shares one budget.
 
 ---
 

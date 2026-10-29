@@ -341,6 +341,18 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 14, name: "alert_threshold_scopes", fn: func(db *gorm.DB) error {
+		// 2.4-5: alert thresholds with scope precedence.
+		//
+		// Nothing is seeded here on purpose. The engine's built-in numbers (cpu
+		// 80/90, ram 85/95, disk 85/95) stay the answer for every device that no
+		// rule covers, so an installation upgrades with the alerts it already
+		// knows — a migrated rule would be a rule the operator never asked for.
+		//
+		// Numbering: the plan listed thresholds as 13; 13 was consumed by 2.4-3's
+		// pending identities, so thresholds are 14 (see `docs/phase2.4-tasks.md`).
+		return db.AutoMigrate(&models.AlertThreshold{})
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

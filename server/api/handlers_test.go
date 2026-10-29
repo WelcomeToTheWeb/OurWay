@@ -47,6 +47,8 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *auth.JWTAuth)
 	jwtAuth := auth.NewJWTAuth("test-secret-key")
 	hub := ws.NewHub("http://localhost:3000", "")
 	engine := alerts.NewEngine(st.Alerts)
+	// 2.4-5: the test server wires thresholds exactly as production does.
+	alerts.WireDeviceScopes(engine, st)
 
 	router := SetupRouter(context.Background(), st, jwtAuth, hub, engine, "http://localhost:3000", "", 100, 0)
 	ts := httptest.NewServer(router)
