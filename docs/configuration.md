@@ -34,6 +34,15 @@ The server reads configuration from environment variables. All variables have se
 | `INSTALLERS_DIR` | Directory served by `GET /api/v2/installers` | `./dist/agents` | No |
 | `METRIC_RETENTION_DAYS` | How many days of metric history to keep; the retention manager deletes older rows hourly | `365` | No |
 | `AUDIT_RETENTION_DAYS` | How many days of the audit ledger to keep. Pruned by the same hourly sweep as metric history, with a counter the ledger page reports (2.3-6) | `365` | No |
+| `SMTP_HOST` | Mail server email channels deliver through. With it unset, email channels are refused when they are defined — the console states that the installation has no mail server, rather than a channel dying at 2 a.m. | (none — mail off) | No |
+| `SMTP_PORT` | Mail server port | `587` | No |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | Mail server credentials, used when the server asks for authentication | (none — unauthenticated) | No |
+| `SMTP_FROM` | The address OurWay sends as, when a channel does not override it (`config.from`) | (none — a channel must name `from`) | For email channels |
+| `SMTP_STARTTLS` | Upgrade to TLS when the mail server offers STARTTLS, and **refuse to send in clear when it does not** — including credentials | `true` | No |
+
+Mail is a transport, not a feature toggle: the recipients are a per-channel setting,
+so "client A's criticals to the on-call mailbox, everything else to the team chat"
+is one row per destination. See [User guide → Notification Channels](user-guide.md#notification-channels-24-6).
 
 ### Health Check Endpoints
 
@@ -64,6 +73,14 @@ export DATABASE_URL="postgresql://ourway:securepassword@db.example.com:5432/ourw
 export JWT_SECRET="a-very-long-random-64-character-secret-key"
 export WS_PATH="/ws"
 export WEB_URL="http://localhost:3000"
+
+# Mail transport for email notification channels (2.4-6). Omit to leave mail off.
+export SMTP_HOST="mail.corp.example"
+export SMTP_PORT="587"
+export SMTP_USERNAME="ourway"
+export SMTP_PASSWORD="a-mail-password"
+export SMTP_FROM="ourway@corp.example"
+export SMTP_STARTTLS="true"
 ```
 
 ---

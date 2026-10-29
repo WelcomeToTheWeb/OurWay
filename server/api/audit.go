@@ -124,6 +124,14 @@ func registerAuditRoutes() {
 	auditRoute(http.MethodDelete, "/api/v2/webhooks/:id", models.AuditWebhookDelete)
 	auditRoute(http.MethodPost, "/api/v2/webhooks/:id/test", models.AuditWebhookTest)
 	auditRoute(http.MethodPost, "/api/v2/webhooks/:id/deliveries/:delivery_id/retry", models.AuditWebhookTest)
+	// 2.4-6: the channel name is the same ledger under a second door, so the
+	// audit mapping names it under both — a route the ledger records under one
+	// name and not the other is a route whose acts go unrecorded.
+	auditRoute(http.MethodPost, "/api/v2/channels", models.AuditWebhookCreate)
+	auditRoute(http.MethodPut, "/api/v2/channels/:id", models.AuditWebhookUpdate)
+	auditRoute(http.MethodDelete, "/api/v2/channels/:id", models.AuditWebhookDelete)
+	auditRoute(http.MethodPost, "/api/v2/channels/:id/test", models.AuditWebhookTest)
+	auditRoute(http.MethodPost, "/api/v2/channels/:id/deliveries/:delivery_id/retry", models.AuditWebhookTest)
 	// 2.4-5: a threshold rule decides when a unit raises its hand, so defining,
 	// retargeting or removing one is an act with a record.
 	auditRoute(http.MethodPost, "/api/alerts/thresholds", models.AuditThresholdCreate)

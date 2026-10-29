@@ -353,6 +353,53 @@ var migrations = []migration{
 		// pending identities, so thresholds are 14 (see `docs/phase2.4-tasks.md`).
 		return db.AutoMigrate(&models.AlertThreshold{})
 	}},
+	{version: 15, name: "notification_channels", fn: func(db *gorm.DB) error {
+		// 2.4-6: the webhook row becomes a notification **channel** — the same
+		// ledger delivers an HTTP webhook, an email, a Slack endpoint and a Teams
+		// webhook, so an operator reads "what reaches a person" in one place and
+		// the delivery history stays comparable across kinds.
+		for _, col := range []struct{ name, field string }{
+			{"kind", "Kind"},
+			{"config", "Config"},
+			{"scope_clients", "ScopeClients"},
+			{"min_severity", "MinSeverity"},
+			{"tags", "Tags"},
+		} {
+			if !db.Migrator().HasColumn(&models.Webhook{}, col.name) {
+				if err := db.Migrator().AddColumn(&models.Webhook{}, col.field); err != nil {
+					return err
+				}
+			}
+		}
+		// Migration 12's lesson again: `AddColumn` does not apply the model default
+		// to the rows that already exist. Every channel that exists today is an HTTP
+		// webhook, and every JSON column must hold JSON, not NULL, for the readers
+		// that unmarshal it.
+		for _, stmt := range []string{
+			"UPDATE webhooks SET kind = 'webhook' WHERE kind IS NULL OR kind = ''",
+			"UPDATE webhooks SET events = '[]' WHERE events IS NULL OR events = ''",
+			"UPDATE webhooks SET headers = '{}' WHERE headers IS NULL OR headers = ''",
+			"UPDATE webhooks SET config = '{}' WHERE config IS NULL OR config = ''",
+			"UPDATE webhooks SET scope_clients = '[]' WHERE scope_clients IS NULL OR scope_clients = ''",
+			"UPDATE webhooks SET tags = '[]' WHERE tags IS NULL OR tags = ''",
+		} {
+			if err := db.Exec(stmt).Error; err != nil {
+				return err
+			}
+		}
+		// `min_severity` is deliberately left empty for existing rows: a channel
+		// written before floors existed receives every severity, exactly as it did.
+
+		// `url` is meaningless for an email channel. On Postgres the NOT NULL
+		// constraint is dropped. On SQLite dropping a column constraint means
+		// rebuilding the table, so the constraint stays and an email channel stores
+		// the empty URL it has — the API validates per kind, so the database is not
+		// the only gate, and a SQLite install behaves identically.
+		if db.Dialector.Name() == "postgres" {
+			return db.Exec("ALTER TABLE webhooks ALTER COLUMN url DROP NOT NULL").Error
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

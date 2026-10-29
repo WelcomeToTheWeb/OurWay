@@ -18,7 +18,7 @@ A task-oriented guide to using the OurWay RMM dashboard.
 - [File Transfer](#file-transfer)
 - [User Management](#user-management)
 - [SSO Configuration](#sso-configuration)
-- [Webhooks](#webhooks)
+- [Notification Channels (2.4-6)](#notification-channels-24-6)
 - [API Keys](#api-keys)
 - [Settings](#settings)
 
@@ -637,39 +637,80 @@ refuses identities that would take over an account, not SSO itself.
 
 ---
 
-## Webhooks
+## Notification Channels (2.4-6)
 
-Configure webhooks to send event notifications to external systems.
+A channel is how a fact about the fleet reaches a person. One ledger holds all four
+kinds, one routing form applies to all of them, and one delivery history answers
+"why didn't my phone buzz?" for every kind in the same shape.
 
-### Creating a Webhook
+| Kind | What arrives |
+| --- | --- |
+| **HTTP endpoint** | The event JSON, exactly as v2.3 sent it — same body, same headers, same HMAC signature. |
+| **Slack** | A message with the alert's own message, its severity, and the unit, metric, value and threshold. |
+| **Teams** | The same facts as a MessageCard, coloured by severity. |
+| **Mailbox** | A localized mail (English, German, French), rendered from the same templates the console's locale files are checked against. |
 
-1. Navigate to **Settings** → **Webhooks**
-2. Click **Add Webhook**
-3. Enter:
-   - **Name**: Descriptive name
-   - **URL**: Target webhook URL
-   - **Events**: Select which events to subscribe to
-   - **Headers**: Custom HTTP headers (optional)
-4. Click **Save**
+A **webhook from an older release needs no work**: existing rows keep their URL,
+events, custom headers, signing secret and enabled state, and deliver exactly as
+before.
 
-### Event Types
+### Adding a channel
 
-- `device_registered`: New device registered
-- `device_online`: Device comes online
-- `device_offline`: Device goes offline
-- `alert_created`: New alert created
-- `alert_resolved`: Alert resolved
-- `patch_deployed`: Patch deployed to device
-- `session_started`: Remote session started
-- `session_frame`: Remote session video frame captured
+Open **Webhooks** in the sidebar (managers and admins) and click **Add channel**.
+Pick the kind first: the form asks for a recipient list for a mailbox and an
+endpoint for the other three, so the form cannot ask you for a column a mailbox
+does not have.
 
-### Testing a Webhook
+Then the routing, which is the same for every kind:
 
-Click **Test** on a webhook to send a sample event and verify it works.
+- **Events** — the events this channel is asked about. Include *Test notification*
+  if you want to be able to test the channel.
+- **Severity floor** — `any event`, `warning and above`, `critical only`. Events
+  below the floor are never routed here, and **no record is written for them**:
+  a channel you did not ask about does not leave a line to explain.
+- **Tenants** — empty reaches every tenant (an admin's choice); naming tenants
+  narrows the channel to them, and a manager can only name tenants they administer.
+- **Tags** — empty reaches every unit; named tags narrow it to units carrying one.
 
-### Delivery History
+### Reading the ledger
 
-Click a webhook to view recent delivery history, including status, status codes, attempts, and response bodies.
+Each row states its kind, its destination (a mailbox names the addresses, an
+endpoint its URL), the tenants and floor it listens on, the events it subscribed to,
+and whether it is open. Per row:
+
+- **Disable / Enable** — opens or closes the line without touching its routing.
+- **Send a test** — queues a test through the channel's own routing, and it appears
+  in the delivery history like any other send. A channel that does not subscribe to
+  the test event is refused, and the page says that, rather than reporting a send.
+- **Delivery history** — event, when it was recorded, attempts, result, the peer's
+  answer (and its status code), and when the next retry is scheduled. A refused
+  delivery is retried at 1m, 2m, 4m, 8m; a destination that refused the request
+  itself (a 4xx, a mailbox that does not exist, a mail server that is not
+  configured) ends on the first attempt and says it was not retried.
+- **Delete** — admin only, confirmed in a sheet that names the events that will stop
+  arriving. The delivery history outlives the channel.
+
+### Refusals you may see
+
+| The console says | What to do |
+| --- | --- |
+| "url is required for a webhook, slack and teams channel" | The endpoint column is empty for a kind that posts to a URL. |
+| "an email channel has no url: name the recipients in config.to" | The addresses belong in **Recipients**, not in the endpoint. |
+| "this installation has no mail server: set `SMTP_HOST` and `SMTP_PORT`…" | Mail transport belongs to the installation; see [Configuration](configuration.md). |
+| "only an admin may define a channel that reaches every tenant" | Name the tenants, or ask an admin. |
+| "kind cannot be changed…" | A channel that delivers a different payload is a different channel: add the other kind beside it. |
+
+### Mail transport
+
+The server, its credentials, the sender address and STARTTLS are the installation's
+configuration (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
+`SMTP_FROM`, `SMTP_STARTTLS` — see [Configuration](configuration.md)). The channel
+decides **who** it writes to, which is what makes "client A's criticals to the
+on-call mailbox, everything else to the team chat" one row per destination.
+
+The console states the mail transport the installation has — host, port and sender,
+never credentials — under the ledger, because that is the fact that explains a
+mailbox channel that cannot deliver.
 
 ---
 

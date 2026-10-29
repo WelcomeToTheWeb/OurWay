@@ -45,6 +45,17 @@ type Config struct {
 	// 0 means one tenth of the budget (the historical default).
 	RateLimitPerMinute int
 	RateLimitBurst     int
+	// The mail transport for email notification channels (2.4-6). The installation
+	// owns server, credentials and the sender address; recipients come from the
+	// channel, so "client A's criticals to the on-call mailbox" is a channel
+	// setting. SMTP_HOST empty means this installation cannot send mail, and the
+	// API states that when an email channel is saved.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPStartTLS bool
 }
 
 // Load reads configuration from environment variables, applying defaults.
@@ -80,6 +91,12 @@ func Load() *Config {
 		WSOrigins:           getEnv("WS_ORIGINS", ""),
 		RateLimitPerMinute:  getEnvInt("RATE_LIMIT_PER_MINUTE", 100),
 		RateLimitBurst:      getEnvInt("RATE_LIMIT_BURST", 0),
+		SMTPHost:            getEnv("SMTP_HOST", ""),
+		SMTPPort:            getEnvInt("SMTP_PORT", 25),
+		SMTPUsername:        getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:        getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:            getEnv("SMTP_FROM", ""),
+		SMTPStartTLS:        getEnv("SMTP_STARTTLS", "false") == "true",
 	}
 }
 

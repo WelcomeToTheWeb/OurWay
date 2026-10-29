@@ -49,8 +49,15 @@ plan listed with the identity tasks, not the threshold task.
       a provider that can disagree. Keycloak-as-a-container is still owed for the
       **SAML** half (2.4-7): a Go assertion signer would be a mock of the layer under
       test, which is exactly what this section forbids.
-- [ ] Mock SMTP (accepting, rejecting, and TLS-failing), Slack, and Teams webhook
-      endpoints for channel tests.
+- [~] Mock SMTP (accepting, rejecting, and TLS-failing), Slack, and Teams webhook
+      endpoints for channel tests. **2.4-6 shipped `server/webhooks/testsmtp`** — a
+      real SMTP server fixture (EHLO, MAIL/RCPT/DATA, recipient and data rejection,
+      STARTTLS offered / not offered / required, AUTH PLAIN accepted / refused, the
+      accepted messages readable) — because a stub of OurWay's SMTP client would agree
+      with whatever the client does. Slack and Teams are exercised against real local
+      HTTP endpoints that record the posted card and can refuse the first attempts; a
+      real Slack/Teams endpoint is still owed if the card schema is to be validated
+      against the product, not against our reading of it.
 - [x] JWKS fixtures: key rotation (kid changes), a token signed by the wrong key,
       a token with `aud` = a different client, an expired token. — `testidp.Rotate`,
       `PublishOnlyCurrentKey`, `MintIDTokenWithKey`, `MintIDToken(claims, clientID, alg)`
@@ -433,41 +440,102 @@ evaluating it against the installation defaults.
 one place an operator can read.
 
 **Do**
-- [ ] Migration **15** (14 was consumed by 2.4-5's threshold scopes):
+- [x] Migration **15** (14 was consumed by 2.4-5's threshold scopes):
       `webhooks.kind`, `webhooks.config`, `webhooks.scope_clients`,
-      `webhooks.min_severity`, `webhooks.tags`. Note `webhooks.url` is `not null`
-      today and is meaningless for an email channel — that migration drops the
-      NOT-NULL on `url` and the API validates it **per kind** (required for
-      webhook/slack/teams, absent for email). Event matching stays exact in Go
-      (`store/webhooks.go:ListByEvent`, the M12 fix) — do not reintroduce a SQL
-      match on the serialized event array when routing expands.
-- [ ] Senders: SMTP (STARTTLS, auth, `MAIL FROM`/`To` from the channel config,
-      templates for `alert_created` / `alert_resolved` / `patch_deployed` in
-      `en`/`de`/`fr`), Slack, and Microsoft Teams (message-card payload).
-- [ ] Routing: channel × client scope × minimum severity × tags. "Client A's
-      criticals to the on-call mailbox, client B's to Slack". Per-channel event
-      types, same as today's webhook event selection.
-- [ ] `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_FROM`/
-      `SMTP_STARTTLS` documented in `docs/configuration.md` **and** `.env.example`
-      in the same change (the standard set by the 2.2 docs work: an env var that
-      exists in code and nowhere in docs is a bug).
-- [ ] Console: channel ledger with per-channel routing, delivery history, and
-      "send test" (the `SendTestEvent` pattern, per kind).
-- [ ] Every send outcome lands in the delivery ledger with the attempt count and
-      the peer's response.
+      `webhooks.min_severity`, `webhooks.tags`. `url`'s NOT-NULL is dropped on
+      PostgreSQL, and kept on SQLite (where the column stays an empty string for a
+      mail channel — SQLite cannot drop a column constraint). The API validates `url`
+      **per kind** (required for webhook/slack/teams, refused for email). Event
+      matching stays exact in Go (`store/webhooks.go:ListByEvent`, the M12 fix).
+- [x] Senders: SMTP (STARTTLS, AUTH, `MAIL FROM`/`RCPT TO` from the channel config,
+      templates for the alert/patch/device/session events in `en`/`de`/`fr`), Slack,
+      and Microsoft Teams (MessageCard payload).
+- [x] Routing: channel × client scope × minimum severity × tags, with per-channel
+      event types.
+- [x] `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_FROM`/
+      `SMTP_STARTTLS` in `docs/configuration.md`, `.env.example` and
+      `docker-compose.prod.yml` in the same change.
+- [x] Console: the Webhooks page is a channel ledger with per-row routing, delivery
+      history, test send, edit, and delete in the confirm sheet.
+- [x] Every send outcome lands in the delivery ledger with the attempt count, the
+      peer's status code and answer, and the scheduled retry.
 
-**Acceptance criteria**
-- `alert_created` on a scoped critical alert reaches mock SMTP, Slack, and Teams
-  within one engine pass, with the unit, client, metric, value, and threshold
-  present in the payload/text.
-- Severity below `min_severity`, and events from an unlisted client, produce **no**
-  delivery row (not a failed row: no row at all).
-- Retry: a rejecting mock endpoint produces the same backoff/retry record shape as a
-  webhook does today; a channel that succeeds on attempt 2 is marked delivered with
-  `attempt: 2`.
-- Test-send produces a delivery row an operator can point at.
-- Email templates exist in all three locales; a missing locale string fails
-  `scripts/i18n-parity.py`.
+**Acceptance criteria — and where each is proven**
+
+- One scoped critical `alert_created` reaches mock SMTP, Slack and Teams in one
+  dispatch pass, naming the unit, metric, value and threshold. ✅
+  `server/webhooks/channels_test.go:TestOneAlertReachesEveryKindInOnePass` — the
+  mail server is a **real SMTP server** (`server/webhooks/testsmtp`, EHLO/STARTTLS/
+  AUTH/MAIL/RCPT/DATA), the chat endpoints are real HTTP servers, and the assertions
+  are on the accepted message and the posted card text.
+- Severity below `min_severity`, a channel scoped to an unlisted tenant, and a channel
+  scoped to a tag the unit does not carry each produce **no delivery row**. ✅
+  `TestRoutingRefusalsWriteNoDeliveryRow` — and the same channel is then shown
+  delivering, so the refusals are proved to be the routing, not a broken sender.
+- Retry keeps the webhook's record shape, and a channel that succeeds on the second
+  attempt is delivered with `attempts: 2`. ✅ `TestRetryKeepsTheWebhookShapeForEveryKind`
+  (first attempt recorded with the peer's answer and a scheduled backoff; the retry
+  loop production runs, `RetryPending`, delivers it).
+- A test send writes a pointable row; a channel that cannot be tested is named. ✅
+  `TestTestSendWritesARowTheOperatorCanPointAt`, `TestTestSendNamesAChannelThatCannotBeTested`,
+  and at the API `TestTestSendNamesAChannelThatCannotBeTested` (`server/api`).
+- Email templates exist in all three locales, and the parity gate covers them. ✅
+  `server/i18n/locales/{en,de,fr}.json` is now a **second bundle** in
+  `scripts/i18n-parity.py` (30 key paths), and `server/i18n/i18n_test.go` checks what
+  key comparison cannot see: every event template exists in every locale, templates
+  reference only fields the renderer supplies, the three locales reference the **same**
+  fields, and the embedded bundles equal the files on disk. `webhooks/mail_render_test.go`
+  asserts the rendered mail states the unit/metric/value/threshold, is not English in
+  `de`/`fr`, fills absent fields with an em dash, and falls back for an unknown event.
+- Per-kind validation and refusals are named. ✅
+  `server/api/channels_test.go` — `TestChannelKindRefusesWhatItsKindCannotDeliver`
+  (missing URL per kind, email with a URL, email without recipients, email on an
+  installation with no mail server, bad floor, unknown kind),
+  `TestChannelKindIsFixedOnceBuilt` (`409`),
+  `TestChannelTenantScopeNamesTheTenantTheCallerCannotSee` (`404` out of scope, `403`
+  all-tenant, manager sees only their channels, technician/viewer have no door),
+  `TestChannelWritesAreAuditedWithTheirRoutingAndNeverTheSecret`,
+  `TestChannelToggleSendsOneFieldAndWipesNothing`,
+  `TestDeliveryLedgerCarriesTheSameRecordForEveryKind`,
+  `TestTheTwoNamesAddressOneLedger`,
+  `TestAWebhookFromV23KeepsDeliveringAfterTheUpgrade`.
+- STARTTLS required, server does not offer it → refused, no mail accepted. ✅
+  `TestStartTLSRequirementRefusesAPlainServer`. An email channel on an installation
+  with no mail server records the refusal by name and is **not** retried.
+  `TestEmailChannelWithoutMailServerStatesTheRefusal`.
+- The `webhook` kind's payload is v2.3's, signature and custom headers included. ✅
+  `TestWebhookKindShipsTheV23EventShape`.
+
+**What the tests caught**
+
+1. **A refused delivery was recorded once and never retried.** `ClaimPending` moves the
+   row to `in_flight`; `markFailed` set attempts, the peer's answer and `next_retry_at`
+   and left the row there, while `FindPending` selects `pending` rows. The documented
+   1m/2m/4m/8m backoff was dead code in every release before this one. A retryable
+   failure now returns the row to `pending`.
+2. Rebuilding the outbound payload at delivery time made a Slack/Teams retry send the
+   *webhook* shape, because the stored payload was a chat card being re-decoded as an
+   event. The sender now ships **the bytes the ledger holds**, which is also what makes
+   a retry ship what the first attempt shipped.
+3. Permanent refusals (a 4xx from an endpoint, a 5xx SMTP refusal, missing mail
+   transport, STARTTLS required-but-not-offered) were scheduled for retry, filling the
+   ledger with identical refusals. They now end on the first attempt and say so.
+4. The footer mail template embeds `{{.To}}`; inserted raw, it left the literal
+   placeholder in the body a person reads. The footer is rendered against the fields
+   before it is placed.
+5. `common.dismiss` was the visible label of three console buttons and existed in **no**
+   locale file — every language showed the key path. `enable`/`disable` likewise.
+6. The manager contract changed with the tenant scope (`POST /api/v2/webhooks` answers
+   `403` for an unscoped channel): `TestRouteRoleMatrix` was updated to state the new
+   rule, with the admin path and the `/v2/channels` alias asserted beside it.
+
+**Stated, not hidden:** the mail transport belongs to the installation and the
+recipients belong to the channel — that split is what makes "client A's criticals to
+the on-call mailbox" one row. `/api/v2/webhooks` and `/api/v2/channels` are one ledger
+through one handler set, so a v2.3 integration keeps its door. A channel's kind is
+immutable: it decides the payload and what the delivery history means. The console
+shows the mail transport's host, port and sender (never credentials) because that is
+the fact that explains a mail channel that cannot deliver.
 
 ---
 

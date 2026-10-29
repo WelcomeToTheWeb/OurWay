@@ -1,0 +1,54 @@
+{
+  "mail": {
+    "footer": "Envoyé par OurWay à {{.To}}.",
+    "notices": "Répondez à ce message pour joindre la personne responsable de la machine.",
+    "fields": {
+      "device": "Machine",
+      "severity": "Gravité",
+      "metric": "Mesure",
+      "value": "Valeur",
+      "threshold": "Seuil",
+      "client": "Locataire",
+      "user": "Utilisateur",
+      "name": "Nom",
+      "message": "Message",
+      "type": "Événement",
+      "version": "Version",
+      "at": "À"
+    },
+    "fallback": {
+      "subject": "OurWay : {{.Type}}",
+      "body": "{{.Message}}\n\nMachine : {{.Device}}\nÉvénement : {{.Type}}\n{{.Footer}}"
+    },
+    "events": {
+      "alert_created": {
+        "subject": "OurWay {{.Severity}} sur {{.Device}} : {{.Message}}",
+        "body": "{{.Message}}\n\nMachine : {{.Device}}\nGravité : {{.Severity}}\nMesure : {{.Metric}}\nValeur : {{.Value}} (seuil {{.Threshold}})\nLocataire : {{.Client}}\nÀ : {{.At}}\n\n{{.Footer}}"
+      },
+      "alert_resolved": {
+        "subject": "OurWay alerte résolue sur {{.Device}} : {{.Message}}",
+        "body": "L’alerte sur {{.Device}} est résolue.\n\n{{.Message}}\nMesure : {{.Metric}}\nLocataire : {{.Client}}\nÀ : {{.At}}\n\n{{.Footer}}"
+      },
+      "patch_deployed": {
+        "subject": "OurWay déploiement de correctif sur {{.Device}} : {{.Name}}",
+        "body": "Un déploiement de correctif a eu lieu sur {{.Device}}.\n\nMise à jour : {{.Name}}\n{{.Message}}\nLocataire : {{.Client}}\nÀ : {{.At}}\n\n{{.Footer}}"
+      },
+      "device_online": {
+        "subject": "OurWay : {{.Device}} est en ligne",
+        "body": "{{.Device}} signale de nouveau à OurWay.\n\nLocataire : {{.Client}}\nÀ : {{.At}}\n\n{{.Footer}}"
+      },
+      "device_offline": {
+        "subject": "OurWay : {{.Device}} est hors ligne",
+        "body": "{{.Device}} ne signale plus à OurWay.\n\nLocataire : {{.Client}}\nÀ : {{.At}}\n\n{{.Footer}}"
+      },
+      "device_registered": {
+        "subject": "OurWay : {{.Device}} est inscrite",
+        "body": "{{.Device}} a été inscrite dans OurWay.\n\nLocataire : {{.Client}}\nÀ : {{.At}}\n\n{{.Footer}}"
+      },
+      "session_started": {
+        "subject": "OurWay : session à distance démarrée sur {{.Device}}",
+        "body": "{{.User}} a démarré une session à distance sur {{.Device}}.\n\nLocataire : {{.Client}}\nÀ : {{.At}}\n\n{{.Footer}}"
+      }
+    }
+  }
+}

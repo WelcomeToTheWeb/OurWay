@@ -43,6 +43,17 @@ services:
       JWT_SECRET: ${JWT_SECRET:-ourway-secret-key-change-me}
       WS_PATH: "/ws"
       WEB_URL: ${WEB_URL:-http://localhost:3000}
+      # Mail transport (2.4-6). The server, its credentials and the sender belong
+      # to the installation; **who** a channel writes to is set per channel in the
+      # console. With no SMTP_HOST, email channels are refused at save time and
+      # the console says why. Credentials come from the host environment and are
+      # never given a committed default.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-ourway@localhost}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
       TZ: UTC
     ports:
       - "8080:8080"

@@ -28,14 +28,14 @@ def flatten(obj, prefix=""):
     return keys
 
 
-def main() -> int:
-    root = Path(sys.argv[1] if len(sys.argv) > 1 else "web/src/i18n/locales")
+def check(root: Path) -> tuple[bool, int]:
+    """Return (parity, key-count) for one locale bundle."""
     trees = {}
     for code in LOCALES:
         path = root / f"{code}.json"
         if not path.exists():
             print(f"i18n-parity: missing locale file {path}", file=sys.stderr)
-            return 1
+            return False, 0
         trees[code] = flatten(json.loads(path.read_text()))
 
     all_keys = set().union(*trees.values())
@@ -44,9 +44,33 @@ def main() -> int:
         missing = sorted(all_keys - trees[code])
         if missing:
             ok = False
-            print(f"i18n-parity: {code}.json is missing {len(missing)} key path(s):")
+            print(f"i18n-parity: {root}/{code}.json is missing {len(missing)} key path(s):")
             for key in missing:
                 print(f"  {code}: {key}")
+    if not ok:
+        return False, len(all_keys)
+    print(f"i18n-parity: {root} — en/de/fr agree on {len(all_keys)} key paths")
+    return True, len(all_keys)
+
+
+# Every locale bundle in the product, checked by the same gate. The console is
+# one; the server's outbound mail strings are the other — a notification that
+# reaches a person is as localizable as a page that shows them the same fact,
+# and a missing locale string there is invisible until a mailbox says it.
+BUNDLES = ("web/src/i18n/locales", "server/i18n/locales")
+
+
+def main() -> int:
+    roots = [Path(r) for r in BUNDLES]
+    if len(sys.argv) > 1:
+        roots.append(Path(sys.argv[1]))
+
+    ok = True
+    total = 0
+    for root in roots:
+        parity, count = check(root)
+        ok = ok and parity
+        total += count
 
     if not ok:
         print(
@@ -56,7 +80,7 @@ def main() -> int:
         )
         return 1
 
-    print(f"i18n-parity: en/de/fr agree on {len(all_keys)} key paths")
+    print(f"i18n-parity: {len(roots)} bundle(s), {total} key paths in lockstep")
     return 0
 
 
