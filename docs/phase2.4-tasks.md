@@ -772,13 +772,34 @@ Plus, non-negotiable for this release:
       proves the rules and not vendor interop. A Keycloak (and ideally AD FS) container
       pass over issuer-only save and the metadata + pinned-certificate path is owed
       before 2.4.0 is tagged.
-- [ ] Threshold precedence suite green, including the `v2.3.x` byte-identical
-      regression case for devices with no override.
-- [ ] A scoped critical alert reaches mock SMTP + Slack + Teams in one engine pass,
-      and out-of-scope/low-severity events create **no** delivery rows.
+- [x] Threshold precedence suite green, including the `v2.3.x` byte-identical
+      regression case for devices with no override. **Green since 2.4-5** —
+      `TestThresholdPrecedenceUsesTheMostSpecificRulePerMetric`,
+      `TestDeviceWithNoRuleProducesTheShippedAlertExactly`,
+      `TestAutoResolveUsesTheResolvedWarning`,
+      `TestRuleDedupWindowOverridesTheEngineDefault`,
+      `TestThresholdSimulationAgreesWithTheEngineOnTwentyValues`.
+- [x] A scoped critical alert reaches mock SMTP + Slack + Teams in one engine pass,
+      and out-of-scope/low-severity events create **no** delivery rows. **Green since
+      2.4-6** — `TestOneAlertReachesEveryKindInOnePass`,
+      `TestRoutingRefusalsWriteNoDeliveryRow` (`server/webhooks`), against a real SMTP
+      server (`server/webhooks/testsmtp`).
 - [ ] Recordings are client-scoped, playback is audited, and the default is off.
-- [ ] `docs/api.md` updated for every new route with the 2.2-7 route↔docs check
+      **Open with 2.4-8** — not built.
+- [x] `docs/api.md` updated for every new route with the 2.2-7 route↔docs check
       green; new env vars documented in `docs/configuration.md` and `.env.example`.
+      **Every route this release added is documented** — SSO discovery/test/edit
+      (2.4-1/2.4-4), pending-identity approve and merge (2.4-3), the threshold rules
+      and the resolve/simulate reads (2.4-5), the channel ledger and its `/v2/webhooks`
+      alias (2.4-6), and the SAML metadata + assertion consumer routes (2.4-7). New env
+      vars: the SMTP set (2.4-6) in `configuration.md`, `.env.example` and
+      `docker-compose.prod.yml`; 2.4-7 adds none, and `configuration.md` now states that
+      `WEB_URL` is the base of the SAML ACS URL. **Stated:** the "route↔docs check" has
+      no script behind it — `scripts/` checks i18n parity, native dialogs, coverage and
+      the release gate, and `TestEveryMutatingRouteIsAudited` is the executable route
+      check on the audit side, not the docs side. The route↔docs comparison is made by
+      reading `server/api/handlers.go` against `docs/api.md`, which is how the list
+      above was built.
 
 **Wire contract:** new routes, new event types, new WS payload fields for the
 recording indicator → **MINOR**. Agents are unaffected. Provider row fields are
