@@ -64,6 +64,13 @@ var auditedSkip = map[string]string{
 	// SSO handshake, so the ledger would be a log of page loads.
 	"POST /api/auth/refresh":      "token mechanics: a client refreshing its access token",
 	"POST /api/auth/sso/exchange": "token mechanics: the SSO handshake exchanging a code",
+
+	// 2.4-7: the assertion consumer service is an unauthenticated browser POST that
+	// creates a session, and the handler writes its own rows for every outcome —
+	// `auth.login` naming the account the identity mapped to and stating
+	// `assertion_signature_verified`, `auth.login_failed` naming the provider and the
+	// SAML refusal. The route table cannot supply an actor: the request has none.
+	"POST /api/auth/sso/saml/:provider/acs": "SSO login door: audited in the handler as auth.login / auth.login_failed with the provider and the refusal reason",
 }
 
 // TestEveryMutatingRouteIsAudited is 2.3-6's coverage rule as an executable:

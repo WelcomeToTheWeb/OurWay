@@ -2,11 +2,15 @@ package api
 
 import (
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -47,6 +51,12 @@ type SSOHandler struct {
 	// this map is what proves *which* login, and it is single-use.
 	statesMu sync.Mutex
 	states   map[string]*loginState
+
+	// replay remembers consumed SAML assertion IDs (2.4-7). An assertion is a
+	// bearer artifact that stays valid for its whole window, so "the same assertion
+	// twice" is a second login from a captured POST unless the SP remembers what it
+	// has already consumed.
+	replay *sso.ReplayStore
 }
 
 // loginState is what the authorize redirect committed to before the IdP has seen
@@ -55,7 +65,11 @@ type loginState struct {
 	provider string
 	verifier string
 	nonce    string
-	expires  time.Time
+	// samlRequestID is the AuthnRequest this login sent (2.4-7). The response's
+	// InResponseTo must echo it: an assertion that answers no request of ours —
+	// or answers a different one — is not this login.
+	samlRequestID string
+	expires       time.Time
 }
 
 // ssoStateTTL is how long an authorize redirect may sit open before its verifier
@@ -66,7 +80,7 @@ const ssoStateTTL = 5 * time.Minute
 // storeLoginState records the verifier and nonce for one authorize redirect, and
 // sweeps the entries whose window has passed. An unpruned map is a memory leak with
 // a login form attached (the M11 lesson), so the sweep rides on the write.
-func (h *SSOHandler) storeLoginState(state, provider, verifier, nonce string) {
+func (h *SSOHandler) storeLoginState(state, provider, verifier, nonce, samlRequestID string) {
 	h.statesMu.Lock()
 	defer h.statesMu.Unlock()
 	now := time.Now()
@@ -76,10 +90,11 @@ func (h *SSOHandler) storeLoginState(state, provider, verifier, nonce string) {
 		}
 	}
 	h.states[state] = &loginState{
-		provider: provider,
-		verifier: verifier,
-		nonce:    nonce,
-		expires:  now.Add(ssoStateTTL),
+		provider:      provider,
+		verifier:      verifier,
+		nonce:         nonce,
+		samlRequestID: samlRequestID,
+		expires:       now.Add(ssoStateTTL),
 	}
 }
 
@@ -120,6 +135,7 @@ func NewSSOHandler(store *store.Store, jwtAuth *auth.JWTAuth, redirectURI string
 		jwks:     sso.NewJWKSClient(sso.DefaultHTTPClient()),
 		pending:  make(map[string]*pendingSSOToken),
 		states:   make(map[string]*loginState),
+		replay:   sso.NewReplayStore(),
 	}
 }
 
@@ -137,6 +153,7 @@ func (h *SSOHandler) ListProviders(c *gin.Context) {
 	type providerInfo struct {
 		ID          string `json:"id"`
 		Type        string `json:"type"`
+		Protocol    string `json:"protocol"`
 		Name        string `json:"name"`
 		Label       string `json:"label"`
 		SortOrder   int    `json:"sort_order"`
@@ -144,14 +161,24 @@ func (h *SSOHandler) ListProviders(c *gin.Context) {
 	}
 
 	var enabled []providerInfo
-	for _, p := range providers {
-		if p.Enabled {
-			enabled = append(enabled, providerInfo{
-				ID: p.ID, Type: p.Type, Name: p.Name,
-				Label: strings.TrimSpace(p.Issuer), SortOrder: p.SortOrder,
-				RedirectURI: p.RedirectURI,
-			})
+	for i := range providers {
+		p := providers[i]
+		if !p.Enabled {
+			continue
 		}
+		// The login page shows the person a *place*, not a machine identifier: an
+		// OIDC issuer reads as "your company's login server", and a SAML entity ID
+		// reads as a urn nobody can check. So SAML providers show the name the
+		// operator chose, and the protocol says which door the button is.
+		label := strings.TrimSpace(p.Issuer)
+		if p.IsSAML() {
+			label = strings.TrimSpace(p.Name)
+		}
+		enabled = append(enabled, providerInfo{
+			ID: p.ID, Type: p.Type, Protocol: providerProtocol(&p), Name: p.Name,
+			Label: label, SortOrder: p.SortOrder,
+			RedirectURI: p.RedirectURI,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"providers": enabled})
@@ -167,10 +194,23 @@ func (h *SSOHandler) Authorize(c *gin.Context) {
 		return
 	}
 
-	// The flow below is OAuth2/OIDC only; a legacy saml-typed provider
-	// row cannot be driven through it (L8).
+	if !provider.Enabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provider not available", "reason": "provider_disabled"})
+		return
+	}
+
+	// 2.4-7: a SAML provider starts its login with a deflated, signed AuthnRequest
+	// to the IdP's SSO location, and the browser comes back to the assertion
+	// consumer service. The state cookie works the same way as in the OIDC flow, and
+	// the server-side state record carries the request ID the response must echo.
+	if provider.IsSAML() {
+		h.authorizeSAML(c, provider)
+		return
+	}
+
+	// The rest of this handler is the OAuth2/OIDC flow.
 	if t := strings.ToLower(provider.Type); t != "oauth2" && t != "oauth" && t != "oidc" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oidc and saml are implemented"})
 		return
 	}
 
@@ -207,7 +247,7 @@ func (h *SSOHandler) Authorize(c *gin.Context) {
 		}
 		challenge = sso.CodeChallenge(verifier)
 	}
-	h.storeLoginState(state, provider.Name, verifier, nonce)
+	h.storeLoginState(state, provider.Name, verifier, nonce, "")
 
 	// Store state in session cookie. Secure=true: this is a CSRF state
 	// cookie on a flow that must not be replayable over plaintext HTTP.
@@ -233,9 +273,16 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	// Same guard as Authorize: the callback is OAuth2/OIDC only (L8).
+	// A SAML provider's browser lands on the assertion consumer service, not here.
+	if provider.IsSAML() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "a SAML provider delivers its assertion to /api/auth/sso/saml/" + provider.Name + "/acs",
+			"reason": "saml_uses_acs",
+		})
+		return
+	}
 	if t := strings.ToLower(provider.Type); t != "oauth2" && t != "oauth" && t != "oidc" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oidc and saml are implemented"})
 		return
 	}
 
@@ -402,6 +449,13 @@ func providerPreset(name string) (issuer, scope string) {
 // Discovery failure is an error, and the caller saves nothing on error. A provider
 // row that was saved from a guess is a login that fails with a 500 at 2 a.m.
 func (h *SSOHandler) applyDiscovery(provider *models.SSOProvider, requestedAuthURL, requestedTokenURL, requestedUserInfoURL string) error {
+	if provider.IsSAML() {
+		// A SAML provider has no discovery document: its endpoints are the IdP's
+		// entity ID and SSO location, which `validateSAMLProvider` checked. Running
+		// the OIDC discovery path here would fetch an issuer a SAML row does not
+		// have and refuse a provider that is correctly configured.
+		return nil
+	}
 	// The precedence, in the one place it is decided.
 	set := func(target *string, discovered, requestedValue string) {
 		if strings.TrimSpace(requestedValue) != "" {
@@ -471,6 +525,54 @@ func (h *SSOHandler) TestProvider(c *gin.Context) {
 		checks = append(checks, check{Name: name, State: state, Detail: detail})
 		if state == "fail" {
 			ok = false
+		}
+	}
+
+	if provider.IsSAML() {
+		// A SAML provider has no discovery document and no token endpoint, so the
+		// probe asks the questions SAML can answer: does the pinned certificate
+		// parse and does it still have a validity window, does the ACS URL match
+		// what the assertion will be addressed to, and does the metadata this
+		// installation serves parse. A certificate that expired is the failure an
+		// operator would otherwise discover as a wave of refused logins.
+		add("protocol", "pass", "saml")
+		cert, certErr := parseProviderCertificate(provider.IdpCertificate)
+		if certErr != nil {
+			add("idp_certificate", "fail", certErr.Error())
+		} else {
+			fingerprint := sso.CertificateFingerprint(provider.IdpCertificate)
+			if cert.NotAfter.Before(time.Now()) {
+				add("idp_certificate", "fail", "expired at "+cert.NotAfter.UTC().Format(time.RFC3339)+" ("+fingerprint+")")
+			} else {
+				days := int(time.Until(cert.NotAfter).Hours() / 24)
+				state := "pass"
+				if days < 14 {
+					state = "warn"
+				}
+				add("idp_certificate", state, fmt.Sprintf("%s, expires %s (%d days)", fingerprint, cert.NotAfter.UTC().Format(time.RFC3339), days))
+			}
+		}
+		if problem := samlEndpointIsConfigurable(provider.IdpSSOURL); problem != "" {
+			add("idp_sso_url", "fail", problem)
+		} else {
+			add("idp_sso_url", "pass", provider.IdpSSOURL)
+		}
+		add("acs_url", "pass", h.acsURLFor(provider))
+		add("sp_entity_id", "pass", provider.SPEntityID)
+		if doc, docErr := sso.SPMetadata(h.samlConfig(provider)); docErr != nil {
+			add("metadata", "fail", docErr.Error())
+		} else {
+			add("metadata", "pass", fmt.Sprintf("GET /api/auth/sso/saml/%s/metadata (%d bytes)", provider.Name, len(doc)))
+		}
+		if provider.SPKeyPEM != "" {
+			add("signed_requests", "pass", "the SP signs its AuthnRequests")
+		} else {
+			add("signed_requests", "warn", "the SP sends unsigned AuthnRequests: an IdP that requires signed requests will refuse logins")
+		}
+		add("response_signature", map[bool]string{true: "pass", false: "warn"}[provider.RequireResponseSignature],
+			"the response signature is required by this provider")
+		if provider.RequireVerifiedEmail && strings.TrimSpace(provider.VerifiedEmailAttribute) == "" {
+			add("verified_email", "fail", "required, and no attribute is configured to state it")
 		}
 	}
 
@@ -559,6 +661,10 @@ type ssoRefusal struct {
 	Email   string
 	Target  string
 	Pending string
+	// Detail is what failed, in the SP's own words: for SAML it is the condition
+	// that refused the assertion (which audience, which expiry, which Recipient),
+	// which is the sentence an operator acts on at the IdP.
+	Detail string
 }
 
 func (h *SSOHandler) auditSSORefusal(c *gin.Context, provider *models.SSOProvider, status int, r ssoRefusal) {
@@ -577,6 +683,9 @@ func (h *SSOHandler) auditSSORefusal(c *gin.Context, provider *models.SSOProvide
 	}
 	if r.Pending != "" {
 		details["pending_identity"] = r.Pending
+	}
+	if r.Detail != "" {
+		details["detail"] = r.Detail
 	}
 	auditRefusedOnce(c, h.store, models.AuditAuthLoginFailed, status,
 		AuditTarget{Type: "sso-provider", ID: provider.Name}, details)
@@ -607,11 +716,16 @@ func (h *SSOHandler) auditSSOLogin(c *gin.Context, outcome *sso.LoginOutcome, pr
 	markAudited(c)
 	loginDetails := map[string]any{
 		"provider":          provider.Name,
+		"protocol":          providerProtocol(provider),
 		"subject":           outcome.Subject,
 		"email":             outcome.Email,
 		"email_verified":    outcome.EmailVerified,
 		"id_token_verified": outcome.VerifiedByIDToken,
-		"roles":             roles,
+		// 2.4-7: the SAML half of the same fact. A login that arrived on an
+		// assertion signed by the pinned certificate says so in the ledger, exactly
+		// as a login whose identity rested on a verified `id_token` says that.
+		"assertion_signature_verified": outcome.VerifiedBySignature,
+		"roles":                        roles,
 	}
 	if len(outcome.MappedRoles) > 0 {
 		loginDetails["role_mapping_applied"] = true
@@ -657,6 +771,216 @@ func (h *SSOHandler) redirectURIFor(provider *models.SSOProvider) string {
 		return provider.RedirectURI
 	}
 	return h.redirect + "/api/auth/sso/" + provider.Name + "/callback"
+}
+
+// acsURLFor is the assertion consumer service URL of a SAML provider: the
+// destination the AuthnRequest names, the `Recipient` the assertion's
+// SubjectConfirmationData must carry, and the location written into the SP metadata.
+// They are one value computed in one place, because a provider whose request,
+// metadata and validation disagree on the destination is a provider nobody can log
+// in to.
+func (h *SSOHandler) acsURLFor(provider *models.SSOProvider) string {
+	return h.redirect + "/api/auth/sso/saml/" + provider.Name + "/acs"
+}
+
+// authorizeSAML sends the browser to the IdP with a deflated AuthnRequest, having
+// recorded the request ID server-side (the same state record that holds the OIDC
+// flow's nonce and PKCE verifier). IdP-initiated logins arrive without any of this,
+// and the ACS accepts them on the audience/recipient/expiry rules alone.
+func (h *SSOHandler) authorizeSAML(c *gin.Context, provider *models.SSOProvider) {
+	requestID := sso.BuildAuthnRequestID()
+	requestXML := sso.SAMLAuthnRequest(h.samlConfig(provider), requestID, time.Now())
+
+	stateBytes := make([]byte, 16)
+	if _, err := rand.Read(stateBytes); err != nil {
+		log.Printf("sso: failed to generate state: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	state := hex.EncodeToString(stateBytes)
+	h.storeLoginState(state, provider.Name, "", "", requestID)
+	c.SetCookie("sso_state", state, 300, "/", "", true, true)
+
+	redirect, err := sso.SPInitiatedRedirect(requestXML, h.samlConfig(provider))
+	if err != nil {
+		// The request could not be built (an SP key that does not parse): name it,
+		// and do not send the browser to an IdP with a request it will refuse.
+		h.auditSSORefusal(c, provider, http.StatusBadRequest, ssoRefusal{Reason: sso.ReasonSAMLUnsigned, Detail: err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provider is not usable: " + err.Error(), "reason": sso.ReasonSAMLUnsigned})
+		return
+	}
+	c.Redirect(http.StatusFound, redirect)
+}
+
+// samlConfig projects a provider row onto the SAML path's config, with this
+// installation's ACS URL.
+func (h *SSOHandler) samlConfig(provider *models.SSOProvider) sso.SAMLConfig {
+	return sso.SAMLConfigOf(provider, h.acsURLFor(provider))
+}
+
+// SAMLACS is the assertion consumer service: `POST /api/auth/sso/saml/:provider/acs`.
+//
+// The order is the security property, and it is the order the SAML Web SSO profile
+// prescribes: validate the document **as an identity** (signature against the
+// pinned certificate, audience, recipient, destination, expiry, subject
+// confirmation, replay), and only then run the identity through the 2.4-3 contract.
+// Nothing here trusts an assertion because it arrived: an unsigned, misaddressed,
+// expired, foreign-audience, wrapped, or replayed assertion is refused, audited, and
+// provisions no account.
+func (h *SSOHandler) SAMLACS(c *gin.Context) {
+	providerName := c.Param("provider")
+	provider, err := h.store.SSOProviders.GetByName(providerName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
+	}
+	if !provider.IsSAML() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "provider " + providerName + " is not a SAML provider",
+			"reason": "provider_not_saml",
+		})
+		return
+	}
+	if !provider.Enabled {
+		h.auditSSORefusal(c, provider, http.StatusBadRequest, ssoRefusal{Reason: "provider_disabled"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provider not available", "reason": "provider_disabled"})
+		return
+	}
+
+	// The form is an unauthenticated browser POST: the body is capped before it is
+	// parsed, and only the `SAMLResponse` field is read.
+	if err := c.Request.ParseForm(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "the assertion form could not be read", "reason": sso.ReasonSAMLUnparseable})
+		return
+	}
+	encoded := c.Request.Form.Get("SAMLResponse")
+	if strings.TrimSpace(encoded) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no SAMLResponse in the form", "reason": sso.ReasonSAMLUnparseable})
+		return
+	}
+
+	doc, err := sso.ParseSAMLResponse(encoded)
+	if err != nil {
+		h.auditSAMLRefusal(c, provider, err)
+		return
+	}
+
+	// The server-side half of a login we started. An IdP-initiated post carries no
+	// state, and is accepted on the audience/recipient/expiry rules; an
+	// SP-initiated login must answer *this* request.
+	expectedRequestID := ""
+	if state, cookieErr := c.Cookie("sso_state"); cookieErr == nil && state != "" {
+		login, ok := h.takeLoginState(state)
+		if !ok || login.provider != provider.Name {
+			h.auditSSORefusal(c, provider, http.StatusBadRequest, ssoRefusal{Reason: sso.ReasonStateExpired})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state", "reason": sso.ReasonStateExpired})
+			return
+		}
+		c.SetCookie("sso_state", "", -1, "/", "", true, true)
+		expectedRequestID = login.samlRequestID
+	}
+
+	identity, refusal := sso.ValidateResponse(doc, h.samlConfig(provider), expectedRequestID, time.Now())
+	if refusal != nil {
+		h.auditSAMLRefusal(c, provider, refusal)
+		return
+	}
+
+	// Replay: an assertion is a bearer artifact. A captured POST is valid for its
+	// whole window, so a consumed assertion ID is remembered for that window and a
+	// second presentation is refused.
+	if !h.replay.Mark(identity.AssertionID, time.Now()) {
+		h.auditSSORefusal(c, provider, http.StatusUnauthorized, ssoRefusal{
+			Reason:  sso.ReasonSAMLReplayed,
+			Subject: identity.Info.Subject,
+			Email:   identity.Info.Email,
+			Detail:  "assertion " + identity.AssertionID + " was already consumed",
+		})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "SSO login refused", "reason": sso.ReasonSAMLReplayed})
+		return
+	}
+
+	outcome, err := h.oauth.IssueSAMLIdentity(c.Request.Context(), provider, identity.Info)
+	if err != nil {
+		h.auditSAMLRefusal(c, provider, err)
+		return
+	}
+
+	h.auditSSOLogin(c, outcome, provider)
+
+	loginCode, err := h.storePendingToken(outcome.AccessToken, outcome.RefreshToken)
+	if err != nil {
+		log.Printf("sso: failed to store pending token: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	// Same C6 rule as the OIDC callback: the tokens are parked under a one-time
+	// code and redeemed by POST /api/auth/sso/exchange. Nothing a session is made
+	// from travels in a URL, and an assertion's POST body is not logged.
+	c.Redirect(http.StatusFound, h.redirect+"/login?sso_code="+loginCode)
+}
+
+// auditSAMLRefusal records a refused SAML login, mapping the SAML refusal onto the
+// ledger shape 2.4-2 established: the named reason, whom the provider asserted, and
+// the status that says which half refused.
+func (h *SSOHandler) auditSAMLRefusal(c *gin.Context, provider *models.SSOProvider, err error) {
+	var iderr *sso.IdentityError
+	if errors.As(err, &iderr) {
+		status := refusalStatus(iderr.Reason)
+		h.auditSSORefusal(c, provider, status, ssoRefusal{
+			Reason:  iderr.Reason,
+			Subject: iderr.Subject,
+			Email:   iderr.Email,
+			Target:  iderr.TargetUserID,
+			Pending: iderr.PendingUserID,
+			Detail:  iderr.Err.Error(),
+		})
+		c.JSON(status, gin.H{"error": "SSO login refused", "reason": iderr.Reason})
+		return
+	}
+	var samlerr *sso.Refusal
+	if errors.As(err, &samlerr) {
+		h.auditSSORefusal(c, provider, http.StatusUnauthorized, ssoRefusal{
+			Reason: samlerr.Reason,
+			Detail: samlerr.Detail,
+		})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "SSO login refused", "reason": samlerr.Reason})
+		return
+	}
+	h.auditSSORefusal(c, provider, http.StatusUnauthorized, ssoRefusal{Reason: sso.ReasonSAMLUnparseable, Detail: err.Error()})
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "SSO login refused", "reason": sso.ReasonSAMLUnparseable})
+}
+
+// SAMLMetadata serves the SP metadata an operator uploads to the IdP:
+// `GET /api/auth/sso/saml/:provider/metadata`.
+//
+// Public, like the login page it belongs to: it names the entity ID, the ACS
+// location, the NameID format and the SP's **signing certificate** — all of which
+// the operator publishes to the IdP — and it carries no key material, ever.
+func (h *SSOHandler) SAMLMetadata(c *gin.Context) {
+	providerName := c.Param("provider")
+	// The operator-facing lookup: a disabled provider's metadata is exactly the
+	// document the operator needs in order to enable it correctly.
+	provider, err := h.store.SSOProviders.GetByNameConfigured(providerName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
+	}
+	if !provider.IsSAML() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "provider " + providerName + " is not a SAML provider",
+			"reason": "provider_not_saml",
+		})
+		return
+	}
+	doc, err := sso.SPMetadata(h.samlConfig(provider))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "provider metadata is not available: " + err.Error()})
+		return
+	}
+	filename := provider.Name + "-sp-metadata.xml"
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.Data(http.StatusOK, "application/samlmetadata+xml", []byte(doc))
 }
 
 // DiscoverIssuer is the discovery **preview**: what an issuer publishes, shown to
@@ -848,6 +1172,22 @@ type providerRequest struct {
 	LinkPolicy           string  `json:"link_policy"`
 	RoleMapping          *string `json:"role_mapping"`
 
+	// 2.4-7 · SAML 2.0. Pointers, because a SAML provider is edited field by field
+	// like every other provider row (2.4-4's rule): the console's enable toggle must
+	// not be able to erase the IdP's certificate.
+	IdpEntityID              *string `json:"idp_entity_id"`
+	IdpSSOURL                *string `json:"idp_sso_url"`
+	IdpLogoutURL             *string `json:"idp_logout_url"`
+	IdpCertificate           *string `json:"idp_certificate"`
+	RequireResponseSignature *bool   `json:"require_response_signature"`
+	NameIDFormat             *string `json:"nameid_format"`
+	GenerateSPKey            *bool   `json:"generate_sp_key"`
+	AttrEmail                *string `json:"attr_email"`
+	AttrUsername             *string `json:"attr_username"`
+	AttrName                 *string `json:"attr_name"`
+	AttrGroups               *string `json:"attr_groups"`
+	VerifiedEmailAttribute   *string `json:"verified_email_attribute"`
+
 	SortOrder *int  `json:"sort_order"`
 	Enabled   *bool `json:"enabled"`
 }
@@ -865,15 +1205,17 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 		return
 	}
 
-	// Only the OAuth2/OIDC flow is implemented; SAML is rejected rather than
-	// accepted and silently broken (L8).
-	switch strings.ToLower(req.Type) {
-	case "oauth2", "oauth", "oidc":
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
+	// The type gate. Since 2.4-7 SAML is implemented, so `saml` is accepted — and
+	// the only unsupported case left is an unknown type, which is refused here
+	// rather than accepted and silently broken (L8's rule, kept).
+	if problem := providerTypeChange(nil, req.Type, true); problem != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": problem})
 		return
 	}
-	if strings.TrimSpace(req.ClientID) == "" {
+	samlRequested := strings.EqualFold(strings.TrimSpace(req.Type), models.SSOTypeSAML)
+	if strings.TrimSpace(req.ClientID) == "" && !samlRequested {
+		// A SAML provider has no client id: its identity is the SP entity ID the
+		// assertion's audience must name, derived from the provider row.
 		c.JSON(http.StatusBadRequest, gin.H{"error": "client_id is required"})
 		return
 	}
@@ -895,8 +1237,14 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 		provider = &models.SSOProvider{ID: uuid.New().String(), Name: req.Name, Enabled: true}
 	}
 
-	if problem, ok := h.applyProviderEdits(provider, &req); !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": problem})
+	if problem, ok := h.applyProviderEdits(provider, &req, true); !ok {
+		// A protocol change is a conflict with the row as it stands, not a typo in
+		// the body: say so with the status the console can show beside the field.
+		status := http.StatusBadRequest
+		if strings.Contains(problem, "type_immutable") {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"error": problem, "reason": "type_immutable"})
 		return
 	}
 
@@ -953,14 +1301,9 @@ func (h *SSOHandler) UpdateProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Type != "" {
-		switch strings.ToLower(req.Type) {
-		case "oauth2", "oauth", "oidc":
-		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported SSO type: only oauth2/oidc is implemented (saml is not supported yet)"})
-			return
-		}
-	}
+	// (The type rule is enforced in applyProviderEdits below, where create and
+	// update share it — the 2.4-4 rule that no door skips a rule the other
+	// enforces. A protocol change answers 409, like the name.)
 	if req.Name != "" && req.Name != provider.Name {
 		c.JSON(http.StatusConflict, gin.H{
 			"error":  "provider name cannot be changed: it is the identity key stored on every account signed in through this provider",
@@ -969,8 +1312,12 @@ func (h *SSOHandler) UpdateProvider(c *gin.Context) {
 		return
 	}
 
-	if problem, ok := h.applyProviderEdits(provider, &req); !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": problem})
+	if problem, ok := h.applyProviderEdits(provider, &req, false); !ok {
+		status := http.StatusBadRequest
+		if strings.Contains(problem, "type_immutable") {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"error": problem, "reason": "type_immutable"})
 		return
 	}
 
@@ -1010,9 +1357,14 @@ func (h *SSOHandler) UpdateProvider(c *gin.Context) {
 // 2.4-3 contract's knobs included — and answers the operator-actionable reason when a
 // value is not admissible. Discovery is the caller's job: the row is only stored once
 // discovery has confirmed it.
-func (h *SSOHandler) applyProviderEdits(provider *models.SSOProvider, req *providerRequest) (string, bool) {
+func (h *SSOHandler) applyProviderEdits(provider *models.SSOProvider, req *providerRequest, creating bool) (string, bool) {
 	if req.LinkPolicy != "" && req.LinkPolicy != models.SSOLinkPolicyPending && req.LinkPolicy != models.SSOLinkPolicyLink {
 		return "link_policy must be pending or link", false
+	}
+	if req.Type != "" {
+		if problem := providerTypeChange(provider, req.Type, creating); problem != "" {
+			return problem, false
+		}
 	}
 	if req.RoleMapping != nil {
 		if msg, ok := validRoleMapping(*req.RoleMapping); !ok {
@@ -1090,13 +1442,195 @@ func (h *SSOHandler) applyProviderEdits(provider *models.SSOProvider, req *provi
 	if req.Enabled != nil {
 		provider.Enabled = *req.Enabled
 	}
+
+	// --- 2.4-7 · SAML. Field presence, as everywhere else in this row.
+	if req.IdpEntityID != nil {
+		provider.IdpEntityID = strings.TrimSpace(*req.IdpEntityID)
+	}
+	if req.IdpSSOURL != nil {
+		provider.IdpSSOURL = strings.TrimSpace(*req.IdpSSOURL)
+	}
+	if req.IdpLogoutURL != nil {
+		provider.IdpLogoutURL = strings.TrimSpace(*req.IdpLogoutURL)
+	}
+	if req.IdpCertificate != nil {
+		provider.IdpCertificate = strings.TrimSpace(*req.IdpCertificate)
+	}
+	if req.RequireResponseSignature != nil {
+		provider.RequireResponseSignature = *req.RequireResponseSignature
+	}
+	if req.NameIDFormat != nil {
+		provider.NameIDFormat = strings.ToLower(strings.TrimSpace(*req.NameIDFormat))
+	}
+	if req.AttrEmail != nil {
+		provider.AttrEmail = strings.TrimSpace(*req.AttrEmail)
+	}
+	if req.AttrUsername != nil {
+		provider.AttrUsername = strings.TrimSpace(*req.AttrUsername)
+	}
+	if req.AttrName != nil {
+		provider.AttrName = strings.TrimSpace(*req.AttrName)
+	}
+	if req.AttrGroups != nil {
+		provider.AttrGroups = strings.TrimSpace(*req.AttrGroups)
+	}
+	if req.VerifiedEmailAttribute != nil {
+		provider.VerifiedEmailAttribute = strings.TrimSpace(*req.VerifiedEmailAttribute)
+	}
+	if provider.NameIDFormat == "" {
+		provider.NameIDFormat = models.SAMLNameIDFormatEmail
+	}
+	if provider.IsSAML() {
+		// The SP entity ID names **this** installation to the IdP, and the assertion's
+		// audience must name it. It is derived from the provider's immutable name and
+		// id, not typed, so an operator cannot point two installations' assertions at
+		// each other by retyping a string.
+		provider.SPEntityID = sso.SPFor(provider)
+	}
+	if req.GenerateSPKey != nil && *req.GenerateSPKey && provider.IsSAML() {
+		certPEM, keyPEM, err := sso.GenerateSPKeyPair(provider.SPEntityID, time.Now())
+		if err != nil {
+			return "could not generate the SP signing key: " + err.Error(), false
+		}
+		provider.SPCertPEM = certPEM
+		provider.SPKeyPEM = keyPEM
+	}
+	if problem := h.validateSAMLProvider(provider, creating); problem != "" {
+		return problem, false
+	}
 	return "", true
+}
+
+// providerTypeChange refuses a provider row that changes protocol under the
+// operator's feet. `oauth2`/`oauth`/`oidc` are names of the one flow, so they may
+// be spelled differently; `saml` is a different door: its identities are filed by
+// asserted NameID, its endpoints are an IdP's entity ID and SSO location, and a row
+// switched from OIDC to SAML would answer logins with rules it never had.
+// The provider's name is already immutable for the same reason (2.4-4).
+func providerTypeChange(provider *models.SSOProvider, requested string, creating bool) string {
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	switch requested {
+	case "oauth2", "oauth", "oidc", models.SSOTypeSAML:
+	default:
+		return "type must be oidc, oauth2 or saml"
+	}
+	if creating {
+		return ""
+	}
+	current := strings.ToLower(strings.TrimSpace(provider.Type))
+	if current == models.SSOTypeSAML || requested == models.SSOTypeSAML {
+		if current != requested {
+			return "type cannot be changed: a SAML provider's accounts are filed by asserted NameID and an OIDC provider's by subject (reason: type_immutable)"
+		}
+	}
+	return ""
+}
+
+// validateSAMLProvider states what a SAML provider row must carry before it can
+// answer a login, in the words the console puts beside the field. This is the door
+// that keeps 2.4-7's "refused at save, loudly" rule: a provider row that cannot
+// validate an assertion is not saved, exactly as a provider whose issuer does not
+// answer is not saved.
+func (h *SSOHandler) validateSAMLProvider(provider *models.SSOProvider, creating bool) string {
+	if !provider.IsSAML() {
+		return ""
+	}
+	if strings.TrimSpace(provider.IdpEntityID) == "" {
+		return "idp_entity_id is required for a SAML provider: it is who must sign the assertion"
+	}
+	if problem := samlEndpointIsConfigurable(provider.IdpSSOURL); problem != "" {
+		return "idp_sso_url " + problem
+	}
+	if provider.IdpLogoutURL != "" {
+		if problem := samlEndpointIsConfigurable(provider.IdpLogoutURL); problem != "" {
+			return "idp_logout_url " + problem
+		}
+	}
+	if problem := sso.ValidateCertificatePEM(provider.IdpCertificate, time.Now()); problem != "" {
+		return "idp_certificate is unusable: " + problem
+	}
+	switch strings.ToLower(provider.NameIDFormat) {
+	case models.SAMLNameIDFormatEmail, "persistent", "transient", "unspecified":
+	default:
+		return "nameid_format must be emailaddress, persistent, transient or unspecified"
+	}
+	if provider.RequireVerifiedEmail && strings.TrimSpace(provider.VerifiedEmailAttribute) == "" {
+		return "a SAML provider that requires a verified email must name the attribute that states it (verified_email_attribute): SAML has no standard one, and OurWay does not guess"
+	}
+	if provider.SPEntityID == "" {
+		provider.SPEntityID = sso.SPFor(provider)
+	}
+	if creating {
+		return ""
+	}
+	if provider.SPKeyPEM != "" && provider.SPCertPEM == "" {
+		return "the provider has an SP signing key with no certificate: the IdP cannot verify a signed request"
+	}
+	return ""
+}
+
+// samlEndpointIsConfigurable is the SSRF rule 2.4-1 established for issuers, applied
+// to the endpoints a SAML provider names: https only, and not a loopback, link-local
+// or metadata address. The SSO URL is a place the browser is redirected to and the
+// assertion is posted back from; a provider that can point it at an internal
+// service is a door into that service.
+func samlEndpointIsConfigurable(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "is required for a SAML provider"
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return "must be an https URL"
+	}
+	// The host first, then the port: an operator who typed `localhost:8443` has the
+	// localhost problem, and that is the sentence they need.
+	if strings.EqualFold(parsed.Hostname(), "localhost") {
+		return "must not name localhost: the browser, not the server, is redirected there"
+	}
+	if strings.Contains(parsed.Host, ":") {
+		return "must not name a port: an SSO endpoint is a published HTTPS service (the port comes from the reverse proxy)"
+	}
+	if problem := hostIsPublic(parsed.Hostname()); problem != "" {
+		return problem
+	}
+	return ""
+}
+
+// hostIsPublic refuses the hosts a *server* must never be pointed at, the rule
+// 2.4-1 established for issuers and 2.4-7 applies to every endpoint a provider row
+// names: loopback, link-local, the unspecified address, the cloud metadata endpoint,
+// and any bare IP literal. An operator who needs a lab IdP on a private address
+// publishes it under a name, which is also what the browser needs to reach it.
+func hostIsPublic(host string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return "must name a host"
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return "must name a host, not an IP address: the IdP's URL is typed into a browser too"
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return "must not name localhost"
+	}
+	if strings.HasSuffix(host, ".local") {
+		return "must not name a .local address"
+	}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return "must not name a loopback, link-local or unspecified address"
+		}
+	}
+	if host == "metadata.google.internal" || strings.HasSuffix(host, ".internal") {
+		return "must not name an internal service address"
+	}
+	return ""
 }
 
 // providerAuditDetails records enough about a provider to reconstruct the change, and
 // never the client secret.
 func providerAuditDetails(provider *models.SSOProvider) map[string]any {
-	return map[string]any{
+	details := map[string]any{
 		"name":                   provider.Name,
 		"type":                   provider.Type,
 		"issuer":                 provider.Issuer,
@@ -1107,6 +1641,30 @@ func providerAuditDetails(provider *models.SSOProvider) map[string]any {
 		"role_mapping":           provider.RoleMapping,
 		"sort_order":             provider.SortOrder,
 	}
+	if provider.IsSAML() {
+		// The SAML facts an operator changed, and never the key material: the IdP
+		// certificate is recorded as its fingerprint, which is the value that says
+		// *which* key the installation now trusts.
+		details["idp_entity_id"] = provider.IdpEntityID
+		details["idp_sso_url"] = provider.IdpSSOURL
+		details["sp_entity_id"] = provider.SPEntityID
+		details["idp_certificate_sha256"] = sso.CertificateFingerprint(provider.IdpCertificate)
+		details["require_response_signature"] = provider.RequireResponseSignature
+		details["nameid_format"] = provider.NameIDFormat
+		details["sp_signing_key"] = provider.SPKeyPEM != ""
+		details["verified_email_attribute"] = provider.VerifiedEmailAttribute
+	}
+	return details
+}
+
+// providerProtocol names the door a provider row is, for the ledger: `oidc` and
+// `saml` are the two the product implements, and the login row should say which one
+// a person arrived through.
+func providerProtocol(provider *models.SSOProvider) string {
+	if provider.IsSAML() {
+		return models.SSOTypeSAML
+	}
+	return models.SSOTypeOIDC
 }
 
 // providerNameIsSlug accepts what a URL path segment can carry.
@@ -1165,7 +1723,78 @@ func (h *SSOHandler) ListProvidersAdmin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list providers"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"providers": providers})
+	// The certificate and the SP key are `json:"-"` on the row: the console sees the
+	// **fingerprint** and the expiry, which is what an operator compares with the
+	// IdP's published certificate and what says a provider is about to start
+	// refusing logins. The PEM the operator pasted is never sent back.
+	type samlInfo struct {
+		IDPEntityID              string `json:"idp_entity_id"`
+		IdpSSOURL                string `json:"idp_sso_url"`
+		IdpLogoutURL             string `json:"idp_logout_url"`
+		SPEntityID               string `json:"sp_entity_id"`
+		ACSURL                   string `json:"acs_url"`
+		CertificateSHA256        string `json:"idp_certificate_sha256"`
+		CertificateExpires       string `json:"idp_certificate_expires"`
+		SignsRequests            bool   `json:"signs_requests"`
+		RequireResponseSignature bool   `json:"require_response_signature"`
+		NameIDFormat             string `json:"nameid_format"`
+		AttrEmail                string `json:"attr_email"`
+		AttrUsername             string `json:"attr_username"`
+		AttrName                 string `json:"attr_name"`
+		AttrGroups               string `json:"attr_groups"`
+		VerifiedEmailAttribute   string `json:"verified_email_attribute"`
+	}
+	type adminProvider struct {
+		*models.SSOProvider
+		SAML *samlInfo `json:"saml,omitempty"`
+	}
+	out := make([]adminProvider, 0, len(providers))
+	for i := range providers {
+		row := adminProvider{SSOProvider: &providers[i]}
+		if providers[i].IsSAML() {
+			expires := ""
+			if cert, certErr := parseProviderCertificate(providers[i].IdpCertificate); certErr == nil {
+				expires = cert.NotAfter.UTC().Format(time.RFC3339)
+			}
+			row.SAML = &samlInfo{
+				IDPEntityID:              providers[i].IdpEntityID,
+				IdpSSOURL:                providers[i].IdpSSOURL,
+				IdpLogoutURL:             providers[i].IdpLogoutURL,
+				SPEntityID:               providers[i].SPEntityID,
+				ACSURL:                   h.acsURLFor(&providers[i]),
+				CertificateSHA256:        sso.CertificateFingerprint(providers[i].IdpCertificate),
+				CertificateExpires:       expires,
+				SignsRequests:            strings.TrimSpace(providers[i].SPKeyPEM) != "",
+				RequireResponseSignature: providers[i].RequireResponseSignature,
+				NameIDFormat:             providers[i].NameIDFormat,
+				AttrEmail:                providers[i].AttrEmail,
+				AttrUsername:             providers[i].AttrUsername,
+				AttrName:                 providers[i].AttrName,
+				AttrGroups:               providers[i].AttrGroups,
+				VerifiedEmailAttribute:   providers[i].VerifiedEmailAttribute,
+			}
+		}
+		out = append(out, row)
+	}
+	c.JSON(http.StatusOK, gin.H{"providers": out})
+}
+
+// parseProviderCertificate reads a provider's pinned IdP certificate for display
+// (expiry, fingerprint). It is the same parser the SAML path uses, so the console
+// and the login path agree about what a usable certificate is.
+func parseProviderCertificate(pemText string) (*x509.Certificate, error) {
+	trimmed := strings.TrimSpace(pemText)
+	if trimmed == "" {
+		return nil, errors.New("no certificate")
+	}
+	if !strings.HasPrefix(trimmed, "-----BEGIN") {
+		trimmed = "-----BEGIN CERTIFICATE-----\n" + strings.Join(strings.Fields(trimmed), "") + "\n-----END CERTIFICATE-----"
+	}
+	block, _ := pem.Decode([]byte(trimmed))
+	if block == nil {
+		return nil, errors.New("certificate is not valid PEM")
+	}
+	return x509.ParseCertificate(block.Bytes)
 }
 
 // DeleteProvider removes an SSO provider (admin).

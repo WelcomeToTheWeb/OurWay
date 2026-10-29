@@ -216,7 +216,10 @@ Files you added to the install directory are left alone.
 releases (2.2.0 make the claims true · 2.3.0 MSP tenancy + audit log · 2.4.0
 alert thresholds, notification channels, generic OIDC + SAML · 2.5.0
 self-host observability), what each must pass before it is tagged, and what is
-deliberately deferred. Task breakdowns with acceptance criteria:
+deliberately deferred. **2.4.0 is in flight:** 2.4-1…2.4-7 (OIDC by issuer +
+discovery, `id_token` verification, the identity-linking contract, the provider
+ledger, threshold rules, notification channels, SAML 2.0) are delivered; session
+recording (2.4-8) is the open task. Task breakdowns with acceptance criteria:
 [`docs/phase2.2-tasks.md`](docs/phase2.2-tasks.md),
 [`docs/phase2.3-tasks.md`](docs/phase2.3-tasks.md),
 [`docs/phase2.4-tasks.md`](docs/phase2.4-tasks.md) and
@@ -261,7 +264,8 @@ See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Implemented:
 - ✅ **Streaming mode**: detail page switches the agent to 2 s metric intervals
 - ✅ **Patching**: OS update management for Windows, macOS, and Linux (scan, deploy, policies)
 - ✅ **User Management**: RBAC with roles and permissions
-- ✅ **SSO Integration**: OpenID Connect and OAuth 2.0
+- ✅ **SSO Integration**: OpenID Connect, OAuth 2.0 and SAML 2.0 (one identity
+  contract, two protocols)
 - ✅ **macOS Support**: Complete agent with launchd service and native metrics
 - ✅ **File Transfer**: Push/pull files with drag-and-drop and download links
 - ✅ **Webhooks & channels**: Event subscriptions with HMAC signatures and a retry queue;
@@ -284,8 +288,16 @@ discover it in production. Each item is tracked in
   reports `unavailable`, and a unit without the grant reports `denied` — the unit
   view and the session panel state which one it is, so nobody discovers it live.
   macOS screen capture additionally needs the Screen Recording grant.
-- **SAML is not implemented.** SSO is OAuth 2.0 / OIDC; the API rejects a
-  `saml`-typed provider at create, authorize, and callback.
+- **SAML was not implemented.** SSO was OAuth 2.0 / OIDC, and the API refused a
+  `saml`-typed provider at create, authorize, and callback. **Closed in v2.4.0
+  (2.4-7):** a provider row is `oidc` **or** `saml`. A SAML door is configured by the
+  IdP's entity ID, sign-in location and **pinned signing certificate**; it publishes
+  SP metadata the operator uploads to the IdP, and validates a posted assertion
+  (signature, issuer, destination, audience, recipient, expiry, replay) **before** the
+  asserted identity reaches the same contract an OIDC identity reaches. Artifact
+  binding, IdP-initiated single logout and encrypted assertions stay deferred, and the
+  round trip is proven against our own IdP fixture, not against Keycloak or AD FS
+  (that container pass is open — `docs/phase2.4-tasks.md`).
 - **SSO is verified OIDC, configured by issuer.** An SSO provider is named by its
   **issuer**; OurWay fetches `<issuer>/.well-known/openid-configuration` at save time
   and uses the endpoints the provider publishes, so Keycloak, Authentik, Zitadel,

@@ -400,6 +400,47 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 16, name: "saml_single_sign_on", fn: func(db *gorm.DB) error {
+		// 2.4-7: SAML 2.0 as a second protocol on the same identity contract. The
+		// provider row gains the IdP's identity (entity ID, SSO location, signing
+		// certificate), the SP's own key pair for signing AuthnRequests, and the
+		// attribute names the claims travel in.
+		//
+		// Numbering: the plan reserved 16 for session recordings; 2.4-6 consumed 15
+		// for notification channels and this one for SAML, so recordings move to 17
+		// (see `docs/phase2.4-tasks.md`).
+		// Migration 12's pattern, kept: the provider row gains columns, it is never
+		// rebuilt. AutoMigrate on an existing SQLite table adds nothing here, so the
+		// columns are added one by one and the defaults are backfilled by hand.
+		for _, col := range []struct{ name, field string }{
+			{"idp_entity_id", "IdpEntityID"},
+			{"idp_sso_url", "IdpSSOURL"},
+			{"idp_logout_url", "IdpLogoutURL"},
+			{"idp_certificate", "IdpCertificate"},
+			{"sp_entity_id", "SPEntityID"},
+			{"sp_cert_pem", "SPCertPEM"},
+			{"sp_key_pem", "SPKeyPEM"},
+			{"require_response_signature", "RequireResponseSignature"},
+			{"nameid_format", "NameIDFormat"},
+			{"attr_email", "AttrEmail"},
+			{"attr_username", "AttrUsername"},
+			{"attr_name", "AttrName"},
+			{"attr_groups", "AttrGroups"},
+			{"verified_email_attribute", "VerifiedEmailAttribute"},
+		} {
+			if !db.Migrator().HasColumn(&models.SSOProvider{}, col.name) {
+				if err := db.Migrator().AddColumn(&models.SSOProvider{}, col.field); err != nil {
+					return err
+				}
+			}
+		}
+		// Migration 12's and 15's lesson: `AddColumn` does not apply the model default
+		// to the rows that already exist, and an empty `nameid_format` is a state no
+		// code path reads — it would ask every IdP for an unspecified NameID format.
+		// Only a SAML provider reads the field, and existing rows are OIDC providers,
+		// so the backfill writes the value SAML's default is, not a guess per row.
+		return db.Exec("UPDATE sso_providers SET nameid_format = 'emailaddress' WHERE nameid_format IS NULL OR nameid_format = ''").Error
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

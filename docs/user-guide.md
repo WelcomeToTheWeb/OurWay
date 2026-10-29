@@ -18,6 +18,7 @@ A task-oriented guide to using the OurWay RMM dashboard.
 - [File Transfer](#file-transfer)
 - [User Management](#user-management)
 - [SSO Configuration](#sso-configuration)
+- [SAML 2.0 Single Sign-On (2.4-7)](#saml-20-single-sign-on-24-7)
 - [Notification Channels (2.4-6)](#notification-channels-24-6)
 - [API Keys](#api-keys)
 - [Settings](#settings)
@@ -517,6 +518,11 @@ describes a different issuer, or offers no authorization-code flow, the provider
 **not saved** and the answer names why (`discovery_unreachable`,
 `discovery_document`, `issuer_mismatch`, `no_code_flow`).
 
+The form asks which **protocol** the provider is — **OpenID Connect** (above) or
+**SAML 2.0** ([below](#saml-20-single-sign-on-24-7)). The choice is fixed once the
+provider is saved: a SAML door files its accounts by the NameID it asserts, an OIDC
+door by the subject it signs.
+
 Typing endpoints by hand still works as an override (a proxy, a private alias) through
 the API: what you typed wins over what the IdP published, and discovery wins over a
 preset.
@@ -634,6 +640,126 @@ Local password logins keep working, including for accounts with a pending identi
 pointing at them. Existing sessions keep their scope. A manager never sees the pending
 list. And an SSO login through a provider with no policy set completes — the contract
 refuses identities that would take over an account, not SSO itself.
+
+A SAML provider is governed by the same contract, with the same four fields — the
+domain allow-list, the verified-email requirement (naming the attribute that states
+it), `link_policy`, and the opt-in role mapping, which reads the group **attribute**
+instead of the group claim. See [SAML 2.0 Single Sign-On](#saml-20-single-sign-on-24-7).
+
+---
+
+## SAML 2.0 Single Sign-On (2.4-7)
+
+SAML 2.0 is the second door, for the IdPs that speak it — AD FS, a Shibboleth fed
+campus, an enterprise SSO that publishes an entity ID rather than a discovery
+document. It ships **after** generic OIDC deliberately, and it shares everything
+that decides who may arrive: the [identity-linking contract](#the-identity-linking-contract-24-3)
+is applied to a SAML assertion by the same code that applies it to an `id_token`.
+One contract, two protocols. What SAML adds is how an identity is **proven**: an
+assertion arrives on a posted form, and its authority is an XML signature OurWay
+verifies against the certificate **you pinned** — not against a key set it fetched.
+
+### Adding a SAML provider
+
+1. **Settings** → **SSO** → **Add Provider**, and set the protocol to **SAML 2.0**.
+2. Name the provider (a slug — it is a path segment of the ACS URL, and it is the
+   identity key stored on every account that signs in through it, so it is not
+   editable later).
+3. Fill in the IdP's own identity, from its metadata document (**IdP entity ID**,
+   **IdP sign-in URL**, **IdP logout URL**, **IdP signing certificate (PEM)**):
+   - **IdP entity ID** — who must sign the assertion
+   - **IdP sign-in URL** — where the browser is sent (`https`, published host, no port)
+   - **IdP logout URL** — optional
+   - **IdP signing certificate** — the PEM the IdP publishes. OurWay keeps it write-only
+     and shows you its **SHA-256 fingerprint** and expiry, which is what you compare
+     with what the IdP published
+4. Choose the **NameID format** to ask for (`emailaddress` is the default and is what
+   makes the asserted NameID the person's email) and, if your IdP uses non-standard
+   attribute names, the **Email / Username / Display name / Groups attribute** fields,
+   and — required when you turn on **Require a verified email** — the
+   **Verified-email attribute**. SAML has no standard one and OurWay does not guess it.
+5. **Sign our requests (generate a key)** when your IdP requires signed requests.
+   OurWay makes the key pair; the private key never leaves the server and the public
+   half is in the metadata. On a saved provider this replaces the key the IdP imported.
+6. Set the identity contract, the order, and **Enabled**, as for any provider. A SAML
+   provider needs **no client id**.
+7. **Save**. A SAML provider that cannot validate an assertion is **not saved**, and
+   the answer names the field: a missing entity ID, an `http` sign-in URL, a
+   `localhost`/IP/port address, a certificate that does not parse or has already
+   expired, an unknown NameID format, a verified-email requirement with no attribute
+   named.
+
+### The two things you hand the IdP admin
+
+- **The metadata** — the **SP metadata** link on the provider's row
+  (`GET /api/auth/sso/saml/<name>/metadata`), an `EntityDescriptor` naming this
+  installation's **SP entity ID**, the ACS location, the NameID format,
+  `WantAssertionsSigned="true"`, and the SP's signing certificate when it has one. It
+  is public, like the login page, and it carries **no private key**.
+- **The ACS URL** — `https://your-ourway/api/auth/sso/saml/<name>/acs`, the address
+  shown on the row. The assertion's `Destination` must name it exactly.
+
+The SP entity ID (`urn:ourway:<name>:<id>`) is **derived**, not typed: the assertion's
+audience names this installation, and an operator who could type it could point two
+installations' assertions at each other.
+
+The ACS URL is built from **`WEB_URL`** (`WEB_URL` + `/api/auth/sso/saml/<name>/acs`),
+with no per-provider override — the `Destination` and `Recipient` checks compare against
+it exactly. Behind a reverse proxy, `WEB_URL` must be the URL the IdP and the browser
+see, or every assertion is refused with `destination_mismatch`.
+
+### What a SAML login verifies
+
+The assertion is validated **as an identity** before any account is looked at, and the
+identity is then run through the contract:
+
+| Checked | Refused as |
+|---|---|
+| Signature over the assertion, against your pinned certificate (RSA-SHA256, exclusive canonicalization) | `assertion_unsigned`, `assertion_signature_invalid` |
+| The response signature, when you require it | `response_signature_invalid` |
+| The IdP's own answer (`StatusCode`) | `status_refused` |
+| Issuer = your `idp_entity_id` | `issuer_mismatch` |
+| `Destination` = this installation's ACS URL | `destination_mismatch` |
+| `InResponseTo` = the request **this** login sent | `in_response_to_mismatch` |
+| `AudienceRestriction` names this SP entity ID | `audience_mismatch` |
+| `NotOnOrAfter` / `IssueInstant` (with 90 s of clock-skew tolerance) | `response_expired`, `response_not_yet_valid` |
+| `SubjectConfirmationData.Recipient`, bearer confirmation, session window | `recipient_mismatch`, `subject_confirmation_method`, `session_start_in_future` |
+| A second presentation of the same assertion | `assertion_replayed` |
+| An assertion that asserts no email | `no_identity_claim` |
+
+Then the contract decides, and it is the same list of refusals as OIDC —
+`domain_not_allowed`, `email_unverified`, `identity_pending`, `account_pending` —
+with the same split: **401** the assertion was not proven, **403** it was proven and
+the contract refused it. Every refusal is a ledger row naming the reason; every
+accepted login is audited as `auth.login` with `assertion_signature_verified: true`
+and the protocol stated.
+
+A completed login ends exactly like an OIDC login: a one-time `sso_code`, redeemed for
+the token pair. Nothing a session is made from travels in a URL, and the posted
+assertion is not logged.
+
+### IdP-initiated login
+
+A login that starts at the IdP (a portal tile, not a OurWay button) arrives at the ACS
+with no state and is accepted on the audience, recipient, destination and expiry rules
+alone. A login that **we** started must answer our request: an IdP-initiated document
+that arrives with no `InResponseTo` while we are waiting for an answer to a request we
+sent is refused.
+
+### Test-connection for a SAML door
+
+`POST /api/sso/providers/:id/test` asks the questions SAML can answer: the pinned
+certificate's fingerprint and its expiry (with the days left — `fail` once it has
+expired, the failure that arrives as a wave of `assertion_signature_invalid`), the
+sign-in URL rule, the ACS URL and SP entity ID the IdP must be told about, whether the
+metadata this installation serves parses, whether the SP signs its requests, and
+whether a verified-email requirement has an attribute to read.
+
+### What SAML in 2.4-7 does not include
+
+Artifact binding (the IdP posts an `IDPList`/artifact reference instead of the
+assertion), IdP-initiated single logout, and encrypted assertions. The POST binding,
+the signing rules and the contract above are the shipped surface.
 
 ---
 

@@ -31,6 +31,11 @@ starts at **12**: **12 (oidc provider discovery + identity policy)**,
 are in `migrate.go` — 13 was consumed by 2.4-3's pending-identity columns, which the
 plan listed with the identity tasks, not the threshold task.
 
+**15 (`notification_channels`) and 16 (`saml_single_sign_on`) are in `migrate.go`**,
+consumed by 2.4-6 and 2.4-7. **Session recordings — the plan's 16 — is therefore 17**,
+which is what 2.4-8 must use. The pattern is 2.3's: the plan numbers migrations by the
+task list, and features arrive in the order they are built.
+
 ---
 
 ## 2.4-0 · Fixtures this release needs before it needs code
@@ -46,9 +51,22 @@ plan listed with the identity tasks, not the threshold task.
       runs the code exchange (single-use codes, redirect-URI enforcement,
       `invalid_grant`), rotates its key, and sabotages itself on command. A stub of
       the verifier agrees with whatever the verifier does; the tests that matter need
-      a provider that can disagree. Keycloak-as-a-container is still owed for the
-      **SAML** half (2.4-7): a Go assertion signer would be a mock of the layer under
-      test, which is exactly what this section forbids.
+      a provider that can disagree. 2.4-7 shipped `server/sso/testsaml` for the
+      **SAML** half. **Stated plainly: that is a deviation from this section's rule,
+      not its fulfilment, and it is recorded as one.** `testsaml` is a *peer IdP* — it
+      holds a real RSA signing key, mints assertions, signs them with real XML-DSig
+      (enveloped RSA-SHA256 over the exclusive-c14n assertion), assembles the Response
+      an IdP posts to an ACS, and sabotages itself on command (tampered, expired,
+      wrong audience, wrong recipient, replayed, unsigned, signed by an unpinned key).
+      That proves every refusal 2.4-7 names, because a **signer** produces the document
+      first and the fixture breaks it afterwards — a stub of the verifier would agree
+      with whatever the verifier does. What it cannot prove is **interop with a named
+      vendor IdP**: the fixture signs with `goxmldsig`, the library OurWay verifies
+      with, so canonicalization and digest agreement are proven against an independent
+      implementation of the *same algorithm*, not against Keycloak, AD FS or
+      Shibboleth. A Keycloak/AD FS container pass over the metadata + ACS +
+      pinned-certificate path is owed before 2.4.0 is tagged (2.4-7's acceptance
+      criteria say so).
 - [~] Mock SMTP (accepting, rejecting, and TLS-failing), Slack, and Teams webhook
       endpoints for channel tests. **2.4-6 shipped `server/webhooks/testsmtp`** — a
       real SMTP server fixture (EHLO, MAIL/RCPT/DATA, recipient and data rejection,
@@ -239,8 +257,11 @@ Generic OIDC widens exactly this surface, so it ships with the contract, not aft
       self-editable profile claim.
 - [x] The JIT path for OIDC and SAML is **one** path, sharing this contract —
       `resolveAccount` in `server/sso/oauth.go` is the only place an SSO identity
-      becomes an account, and it is contract-gated. 2.4-7 asserts the SAML half of
-      this criterion.
+      becomes an account, and it is contract-gated. **Asserted for SAML by 2.4-7**
+      (`IssueSAMLIdentity` calls `contractGate` then `resolveAccount`;
+      `TestSAMLLoginCannotClaimAnExistingLocalAccount`,
+      `TestSAMLRoleMappingOwnsTheRolesItNames`,
+      `TestSAMLLoginFeedsTheContractTheProviderConfigures`).
 - [x] Users page: the pending band (admin only) states provider, subject, asserted
       email, the verified-by-IdP fact, and the target account with its roles on one
       row; Approve and Merge confirm in the sheet (`confirm.approveIdentity.*`,
@@ -539,38 +560,149 @@ the fact that explains a mail channel that cannot deliver.
 
 ---
 
-## 2.4-7 · SAML 2.0 (after OIDC, on purpose)
+## 2.4-7 · SAML 2.0 (after OIDC, on purpose) · ✅ delivered 2026-10-30
+
+**Delivered (2.4-7)** — `server/sso/saml.go` (the SP: parse, validate, deflate/sign
+requests, metadata, identity extraction), `server/sso/testsaml/` (the peer-IdP
+fixture), `server/api/sso.go` (ACS, metadata, the SAML half of authorize, the save-time
+gate, the probe, the audit), `server/sso/oauth.go:IssueSAMLIdentity`,
+`server/models/sso_provider.go`, `server/store/sso_providers.go` + `migrate.go`
+(migration **16**, `saml_single_sign_on`), console `web/src/pages/SSO.tsx` and
+`Login.tsx`, `web/src/api/sso.ts`. Dependencies added:
+`github.com/russellhaering/goxmldsig` (canonicalization, RSA-SHA256 sign/verify) on the
+`github.com/beevik/etree` the module already carried. Tests:
+`server/sso/saml_test.go` (the SP against a real signed assertion) and
+`server/api/saml_test.go` (routes, ledger, save gate, audit). Measured:
+`go test ./sso/... ./api/... ./store/...` green; `npm run test:run --prefix web` green
+for `SSO.test.tsx` / `Login.test.tsx`; `scripts/i18n-parity.py` green at 782 web key
+paths.
 
 **Do**
-- [ ] Replace the three rejection points (`server/api/sso.go` at create, authorize,
+- [x] Replace the three rejection points (`server/api/sso.go` at create, authorize,
       and callback; `server/api/sso_test.go:25-26` asserts them) with an
       implementation — **and update those tests in the same change**, since they
       track the shipped contract (`CONTRIBUTING.md`).
-- [ ] SP metadata endpoint per provider (`/api/auth/sso/saml/:id/metadata`),
-      assertion consumer at `/api/auth/sso/saml/:id/acs`, SP signing key material
-      configured per provider (cert + key, `json:"-"`).
-- [ ] Validate: signature on the assertion (and optionally the response),
+      `TestSSOProviderTypeGuard` is now the type gate as shipped: `saml` (any case) is
+      **accepted** when the row carries its IdP facts, while `openid-connect`,
+      `single-sign-on-v3` and an empty type are still **400**. L8's surviving rule is
+      "never store a selectable-but-broken provider", and 2.4-7 enforces it at save
+      (`validateSAMLProvider`), not by refusing the protocol.
+- [x] SP metadata endpoint per provider
+      (`GET /api/auth/sso/saml/:name/metadata`, public, `application/samlmetadata+xml`),
+      assertion consumer at `POST /api/auth/sso/saml/:name/acs`, SP signing key
+      material per provider (cert + key, both `json:"-"`; `generate_sp_key` makes the
+      pair, and a key with no certificate is refused). The metadata names the entity ID,
+      `AuthnRequestsSigned`, `WantAssertionsSigned="true"`, the `NameIDFormat`, the ACS
+      location and binding, and the SP **signing certificate** — and no key material,
+      asserted by `TestSAMLSPMetadataNamesTheEntityAndCarriesNoKey`.
+      `TestSAMLProviderIsBuiltFromTheIdPFacts` greps the admin provider list for
+      `BEGIN CERTIFICATE` / `PRIVATE KEY` and fails on a leak. The SP entity ID is
+      **derived** (`urn:ourway:<name>:<id>`) from the provider's immutable name and id,
+      never typed — the assertion's audience names this installation.
+- [x] Validate: signature on the assertion (and optionally the response),
       `Audience`/`AudienceRestriction`, `Recipient`, `Destination`, `NotOnOrAfter`
       /`SessionNotOnOrAfter`, `SubjectConfirmationData` `Recipient` +
       `NotOnOrAfter`, and **replay protection** on assertion `ID` (a seen-ID store
-      with a TTL).
-- [ ] Identity comes through the **2.4-3 contract**, unchanged: domain allow-list,
+      with a TTL). All of it, with 90 s of clock-skew tolerance, plus
+      `InResponseTo` against the request this login sent. `IssueSAMLIdentity` is reached
+      only after validation — signature verification is not in the identity path.
+- [x] Identity comes through the **2.4-3 contract**, unchanged: domain allow-list,
       verified-email equivalent, pending-identity default, opt-in role mapping from
-      the group attribute.
-- [ ] Console: the provider row exposes SP metadata for download and the IdP
-      entity ID / SSO location / certificate fields.
+      the group attribute. `IssueSAMLIdentity` calls `contractGate` then
+      `resolveAccount` — the same functions the OIDC callback calls; nothing about the
+      identity decision is duplicated in `saml.go`.
+- [x] Console: the provider row exposes SP metadata for download and the IdP
+      entity ID / SSO location / certificate fields (`SSO.tsx`: protocol choice at
+      create and fixed on edit with the reason, the SAML field set, the **SP metadata**
+      link, the row stamped `SAML 2.0` with the pinned certificate's fingerprint,
+      expiry, and the signed/unsigned-request stamp; `Login.tsx` renders the public
+      list's `label`, which for a SAML provider is the name the operator chose — an
+      entity ID is not a thing a person can read on a login button). `en`/`de`/`fr` in
+      lockstep (the SAML copy is asserted in `SSO.test.tsx`: "carries the SAML copy in
+      all three locales, in the locale's own words").
+- [x] **The save gate** (not in the Do list, and the reason the row is trustworthy): a
+      SAML provider that cannot validate an assertion is **not saved** — missing
+      `idp_entity_id`; missing, `http`, `localhost`, port-named or IP-literal
+      `idp_sso_url` (2.4-1's issuer SSRF rule, applied to every endpoint a provider row
+      names); a certificate that does not parse or whose window has closed; an unknown
+      `nameid_format`; `require_verified_email` with no `verified_email_attribute`; a
+      signing key with no certificate.
+      `TestSAMLProviderRefusesAFormThatCannotDeliver` asserts each refusal names its
+      field **and** that no row was written.
+- [x] **The protocol is immutable** (`409 type_immutable`), proven in both directions in
+      the same test (SAML→OIDC and OIDC→SAML): a SAML provider files its accounts by
+      asserted **NameID**, an OIDC provider by **subject**.
 
-**Acceptance criteria**
-- Full round trip against the Keycloak fixture: metadata download → IdP-configured
-  → SP-initiated login → assertion accepted → session issued through the existing
-  `sso_code` exchange (no token in a URL, per the C6 fix).
-- Negative fixtures each refused with a distinct audited outcome: tampered
-  assertion, wrong audience, expired `NotOnOrAfter`, wrong recipient, a replayed
-  assertion, and an unsigned assertion.
+**Acceptance criteria — and where each is proven**
+- Full round trip against the fixture: metadata → IdP-configured → SP-initiated login →
+  assertion accepted → session issued through the existing `sso_code` exchange (no
+  token in a URL, per the C6 fix). ✅
+  `TestSAMLLoginRoundTripIsARealAssertionTheSPAccepts` (`server/sso`) and
+  `TestSAMLLoginIssuesASessionThroughTheExchange` (`server/api`): authorize → signed
+  redirect → ACS `302` → `sso_code` → `POST /api/auth/sso/exchange` → a session naming
+  the asserted subject, and the `auth.login` row states `protocol: saml` and
+  `assertion_signature_verified: true`.
+  **Owed:** the same walk against **Keycloak/AD FS**, not the Go fixture (see 2.4-0).
+- Negative fixtures each refused with a distinct audited outcome: tampered assertion,
+  wrong audience, expired `NotOnOrAfter`, wrong recipient, a replayed assertion, an
+  unsigned assertion. ✅ `TestSAMLRefusalsAreNamedInTheLedger` (all five: each a 401
+  with its own `reason` and an `auth.login_failed` row, provisioning nothing) plus
+  `TestSAMLAssertionsAreRefusedForTheNamedReason` (the SP-level set —
+  `status_refused`, `issuer_mismatch`, `destination_mismatch`,
+  `in_response_to_mismatch`, `no_assertion`, `subject_confirmation_method`,
+  `response_expired`, `response_not_yet_valid`, `audience_mismatch`,
+  `recipient_mismatch`, `session_start_in_future`),
+  `TestSAMLAssertionSignedByAnUnpinnedKeyIsRefused`,
+  `TestSAMLReplayedAssertionIsRefused` (a captured valid POST is refused as
+  `assertion_replayed`) and `TestSAMLResponseSignatureIsRequiredWhenTheProviderAsks`.
 - The identity-linking tests from 2.4-3 pass unchanged for SAML — one contract, two
-  protocols.
-- `server/api/sso_test.go` passes with the rejection tests replaced by acceptance
-  tests for SAML and kept as rejections for any *other* unsupported type.
+  protocols. ✅ `TestSAMLLoginCannotClaimAnExistingLocalAccount` (403
+  `identity_pending`, the admin's roles and password untouched, the pending row naming
+  the target), `TestSAMLRoleMappingOwnsTheRolesItNames`,
+  `TestSAMLLoginFeedsTheContractTheProviderConfigures` (`domain_not_allowed`,
+  `email_unverified`, and a provider with no policy completing),
+  `TestSAMLLoginIsScopedToTheProviderItNames`. The 2.4-3 suite itself is unmodified.
+- `server/api/sso_test.go` passes with the rejection tests replaced by acceptance tests
+  for SAML and kept as rejections for any *other* unsupported type. ✅
+  `TestSSOProviderTypeGuard`, updated in the same change.
+- **Added by 2.4-7** (the shape of the door, asserted): an IdP-initiated login is
+  accepted on the audience/recipient/destination/expiry rules alone, and a document
+  with no `InResponseTo` arriving while our request is outstanding is refused
+  (`TestSAMLIdPInitiatedLoginIsAcceptedOnTheAssertionRules`); the OIDC callback answers
+  a SAML provider with `saml_uses_acs` and the ACS URL;
+  `TestSAMLDisabledProviderDoesNotAnswer` (neither route answers);
+  `TestSAMLTestProbeAnswersTheQuestionsSAMLCanAnswer` (an expired certificate named as
+  `fail`); `TestSAMLWritesAreAuditedWithTheFingerprintAndNeverTheKey`;
+  `TestAProviderFromBeforeSAMLKeepsLoggingPeopleIn` (migration 16's regression case).
+
+**What the tests caught**
+
+1. `CreateProvider` required `client_id` **unconditionally**. A SAML provider has no
+   client id — its identity is the SP entity ID the audience names — so the gate had to
+   become protocol-aware, and the row is asserted to carry none.
+2. `applyDiscovery` ran for every provider at save. On a SAML row it fetches an issuer
+   the row does not have and refuses a **correctly configured** provider with
+   `discovery_unreachable`; the SAML path skips discovery, because its endpoints are the
+   IdP's entity ID and SSO location, which `validateSAMLProvider` checked.
+3. Migration 12's lesson repeated: `AutoMigrate` adds nothing to an existing SQLite
+   table, and `AddColumn` does **not** apply the model default to rows that already
+   exist. An empty `nameid_format` is a state no code path reads — it asks every IdP for
+   an unspecified format — so migration 16 backfills the value SAML's default is.
+4. `require_verified_email` had no SAML equivalent: SAML has no standard "this email is
+   verified" attribute. The email-format NameID is the protocol's best reading, and the
+   shipped rule is stricter than a guess — a provider that **requires** a verified email
+   must name the attribute it reads, refused at save and reported by the probe.
+
+**Stated, not hidden:** the assertion is a bearer artifact valid for its whole window,
+so a consumed assertion `ID` is remembered for the window in which it would still
+validate (12 min, derived from the accepted lifetime + skew): a captured POST is
+refused, not re-accepted. The posted form is size-capped (1 MiB) before anything is
+parsed and its body is never logged. `assertion_unsigned` and
+`assertion_signature_invalid` are separate reasons because they are separate fixes on
+the IdP side. Key material is write-only in both directions: the console sees the
+certificate's fingerprint and expiry, the ledger records the fingerprint, and the only
+copy of the SP private key is the server's row. **Deferred** (in "Deferred inside
+2.4" below): artifact binding, IdP-initiated SLO, encrypted assertions.
 
 ---
 
@@ -582,7 +714,9 @@ the fact that explains a mail channel that cannot deliver.
 (directory, per-transfer file, cleanup sweep) — recordings follow it.
 
 **Do**
-- [ ] Migration 15: `session_recordings` — `session_id`, `device_id`, `user_id`,
+- [ ] Migration **17** (the plan's 16: 15 went to 2.4-6's channels and 16 to 2.4-7's
+      SAML columns — see the numbering note above): `session_recordings` —
+      `session_id`, `device_id`, `user_id`,
       `client_id`, `started_at`, `ended_at`, `frame_count`, `bytes`, `path`,
       `retention_until`, `reason`.
 - [ ] Recording written as an append-only JPEG sequence file under
@@ -630,8 +764,14 @@ Plus, non-negotiable for this release:
 - [x] The 2.4-3 headline test — asserting an existing admin's email via a permissive
       IdP lands in **pending**, grants nothing, and is audited — green in CI
       (`TestSSOCannotClaimAnExistingAdminAccount`).
-- [ ] OIDC accepted against Keycloak by issuer alone; SAML round trip green; the
-      negative fixtures in 2.4-2 and 2.4-7 each refused.
+- [~] OIDC accepted against Keycloak by issuer alone; SAML round trip green; the
+      negative fixtures in 2.4-2 and 2.4-7 each refused. **The SAML round trip, and every
+      negative fixture 2.4-2 and 2.4-7 name, are green** (2.4-7's acceptance list
+      above). The open half is the word **Keycloak**: both protocols are proven against
+      OurWay's own Go fixtures (`server/sso/testidp`, `server/sso/testsaml`), which
+      proves the rules and not vendor interop. A Keycloak (and ideally AD FS) container
+      pass over issuer-only save and the metadata + pinned-certificate path is owed
+      before 2.4.0 is tagged.
 - [ ] Threshold precedence suite green, including the `v2.3.x` byte-identical
       regression case for devices with no override.
 - [ ] A scoped critical alert reaches mock SMTP + Slack + Teams in one engine pass,
