@@ -52,6 +52,7 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 	authHandler := NewAuthHandler(store, jwtAuth)
 	deviceHandler := NewDeviceHandler(store, hub, engine, store.MetricHistory, enrollSecret)
 	alertHandler := NewAlertHandler(store)
+	thresholdHandler := NewThresholdHandler(store, engine)
 	roleHandler := NewRoleHandler(store)
 	userHandler := NewUserHandler(store)
 	sessions.NewGateway(ctx, store)
@@ -206,6 +207,16 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		protected.POST("/alerts/:id/resolve", RequireAnyRole("admin", "manager", "technician"), alertHandler.ResolveAlert)
 		protected.POST("/alerts/:id/acknowledge", RequireAnyRole("admin", "manager", "technician"), alertHandler.AcknowledgeAlert)
 		protected.POST("/alerts/:id/assign", RequireAnyRole("admin", "manager", "technician"), alertHandler.AssignAlert)
+
+		// Threshold rules (2.4-5): the levels a metric is measured against, per
+		// scope. Admin and manager; a manager acts inside their tenants, and a
+		// tag or global rule — which reaches every tenant's units — is admin-only.
+		protected.GET("/alerts/thresholds", RequireAnyRole("admin", "manager"), thresholdHandler.ListThresholds)
+		protected.GET("/alerts/thresholds/resolve", RequireAnyRole("admin", "manager"), thresholdHandler.ResolveThresholds)
+		protected.GET("/alerts/thresholds/simulate", RequireAnyRole("admin", "manager"), thresholdHandler.SimulateThreshold)
+		protected.POST("/alerts/thresholds", RequireAnyRole("admin", "manager"), thresholdHandler.CreateThreshold)
+		protected.PUT("/alerts/thresholds/:id", RequireAnyRole("admin", "manager"), thresholdHandler.UpdateThreshold)
+		protected.DELETE("/alerts/thresholds/:id", RequireAnyRole("admin", "manager"), thresholdHandler.DeleteThreshold)
 
 		// Role routes
 		roleGroup := protected.Group("/roles")

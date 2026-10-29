@@ -124,7 +124,9 @@
     "message": "Message",
     "createdAt": "Created At",
     "resolvedAt": "Resolved At",
-    "resolved": "Resolved"
+    "resolved": "Resolved",
+    "warning": "Warning",
+    "critical": "Critical"
   },
   "settings": {
     "title": "Settings",
@@ -551,6 +553,11 @@
       "title": "Merge {{subject}} into {{name}}?",
       "body": "The account {{name}} will sign in through this provider from now on, keeping its own roles and client assignments. The provider's password no longer applies to it. This is recorded in the ledger.",
       "action": "Merge identity"
+    },
+    "deleteThreshold": {
+      "title": "Delete this threshold rule?",
+      "body": "Units covered only by this rule return to the built-in floor: {{scope}} {{target}}, {{metric}}.",
+      "action": "Delete rule"
     }
   },
   "clients": {
@@ -662,5 +669,53 @@
   },
   "sessions": {
     "colTenant": "Tenant"
+  },
+  "thresholds": {
+    "title": "Alert thresholds",
+    "subtitle": "The levels a unit is measured against. Most specific wins, per metric — a unit, a tag, a tenant, then the floor.",
+    "addRule": "Add rule",
+    "editRule": "Edit rule",
+    "formBody": "Warning fires below critical. Most specific scope wins, metric by metric.",
+    "floor": "Built-in floor",
+    "floorBody": "A unit no rule covers is measured against these — the same numbers every installation alerted with before rules existed.",
+    "scope": "Scope",
+    "scopeLocked": "Scope and metric are fixed once saved. Delete the rule and add a new one to move it.",
+    "tag": "Tag",
+    "device": "Device",
+    "client": "Tenant",
+    "globalBody": "This rule answers every unit no narrower rule covers.",
+    "metricLabel": "Metric",
+    "warning": "Warning",
+    "critical": "Critical",
+    "levels": "Warning / critical",
+    "dedup": "Repeat window",
+    "dedupBody": "Seconds a unit waits before the same alert fires again. 0 uses the engine default.",
+    "dedupDefault": "engine default",
+    "enabled": "Active",
+    "state": "State",
+    "none": "No rules yet. Every unit is measured against the built-in floor.",
+    "needNumbers": "Warning and critical must be numbers.",
+    "previewTitle": "What applies to a unit",
+    "previewBody": "The rule that answers each metric, then every rule that was in the running, in the order they win.",
+    "previewDeviceLabel": "Choose a unit to preview",
+    "pickDevice": "Choose a unit…",
+    "simulateTitle": "Ask a value",
+    "simulateBody": "Nothing is recorded. The answer is the message the alert would carry.",
+    "simulateValue": "Value %",
+    "simulateGo": "Simulate",
+    "simulateQuiet": "No alert",
+    "simulateFrom": "Answered by {{scope}} {{target}}.",
+    "scopeKind": {
+      "device": "Device",
+      "tag": "Tag",
+      "client": "Tenant",
+      "global": "Global"
+    },
+    "metric": {
+      "cpu": "CPU",
+      "ram": "Memory",
+      "disk": "Disk"
+    },
+    "globalName": "every unit"
   }
 }

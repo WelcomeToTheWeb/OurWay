@@ -124,6 +124,11 @@ func registerAuditRoutes() {
 	auditRoute(http.MethodDelete, "/api/v2/webhooks/:id", models.AuditWebhookDelete)
 	auditRoute(http.MethodPost, "/api/v2/webhooks/:id/test", models.AuditWebhookTest)
 	auditRoute(http.MethodPost, "/api/v2/webhooks/:id/deliveries/:delivery_id/retry", models.AuditWebhookTest)
+	// 2.4-5: a threshold rule decides when a unit raises its hand, so defining,
+	// retargeting or removing one is an act with a record.
+	auditRoute(http.MethodPost, "/api/alerts/thresholds", models.AuditThresholdCreate)
+	auditRoute(http.MethodPut, "/api/alerts/thresholds/:id", models.AuditThresholdUpdate)
+	auditRoute(http.MethodDelete, "/api/alerts/thresholds/:id", models.AuditThresholdDelete)
 	auditRoute(http.MethodPost, "/api/sso/providers", models.AuditSSOCreate)
 	auditRoute(http.MethodDelete, "/api/sso/providers/:id", models.AuditSSODelete)
 	// 2.4-1: probing an IdP is a mutating-verb route (POST) that contacts another

@@ -301,39 +301,93 @@ Generic OIDC widens exactly this surface, so it ships with the contract, not aft
 
 ---
 
-## 2.4-5 · Thresholds with precedence, and the rules UI
+## 2.4-5 · Thresholds with precedence, and the rules UI · ✅ delivered 2026-10-29
 
-**Context:** `server/alerts/engine.go` keeps one `map[string]Thresholds`
-(`cpu` 80/90, `ram` 85/95, `disk` 85/95) and `SetThresholds` replaces a metric
+**Context:** `server/alerts/engine.go` kept one `map[string]Thresholds`
+(`cpu` 80/90, `ram` 85/95, `disk` 85/95) and `SetThresholds` replaced a metric
 wholesale. `docs/phase1-tasks.md:50-56` declared per-device thresholds and an alert
-rule UI; neither exists.
+rule UI; neither existed.
+
+**Delivered (2.4-5)** — `server/models/alert_threshold.go`,
+`server/store/thresholds.go`, `server/alerts/engine.go`, `server/api/thresholds.go`,
+migration 14 (`alert_threshold_scopes`), console `web/src/pages/Thresholds.tsx`.
 
 **Do**
-- [ ] Migration 13: `alert_thresholds` rows — `(scope_type: device|tag|client|global,
-      scope_value, metric, warning, critical, dedup_window, enabled)`.
-- [ ] Engine resolution **device → tag → client → global**, most specific wins per
-      metric; a device with no applicable row behaves exactly as today.
-- [ ] Auto-resolution stays consistent with the resolved thresholds (the engine
-      already auto-resolves on the warning threshold — it must use the *resolved*
-      one, not the global one).
-- [ ] `GET/POST/PUT/DELETE /api/alerts/thresholds`, admin/manager only, scoped by
-      client for managers (2.3.1 rules).
-- [ ] Console: threshold rules ledger with scope, metric, warning/critical,
-      precedence preview for a chosen device ("this unit resolves to …"), and a
-      simulation input (paste a metric value, see which rule fires).
-- [ ] All resolved-threshold data crosses the client scope boundary as 2.3.0 defines
-      it — a manager cannot define a threshold for a client they cannot see.
+- [x] Migration **14** (not 13: 13 was consumed by 2.4-3's pending identities):
+      `alert_thresholds` rows — `(scope_type: device|tag|client|global, scope_value,
+      metric, warning, critical, dedup_window_seconds, enabled)`. **No rules are
+      seeded**: the built-in engine numbers stay the fallback, so an installation
+      upgrades and keeps alerting exactly as it did.
+- [x] Engine resolution **device → tag → client → global**, most specific wins per
+      metric, each metric decided independently. A device with no applicable row is
+      measured against exactly the numbers `v2.3.x` gave (`TestDeviceWithNoRuleProducesThe
+      ShippedAlertExactly`). The tie between two rules of the **same** scope is
+      deterministic — more sensitive pair, then scope value — and it is one function,
+      `store.RuleWins`, which the console's preview sorts with too: a chain the
+      operator reads and the resolver contradicts is worse than no chain.
+- [x] Auto-resolution compares against the **resolved** warning, not the global one
+      (`TestAutoResolveUsesTheResolvedWarning`): a unit whose rule says 50 stays
+      open at 52 — where the global 80 would have auto-resolved it — and resolves at 48.
+- [x] `GET/POST/PUT/DELETE /api/alerts/thresholds`, admin/manager only, managers
+      scoped to their tenants — a device/client rule for a tenant the caller cannot
+      see answers the body an absent tenant gets, `tag`/`global` rules are admin-only
+      (`TestManagerCannotDefineAThresholdForAClientTheyCannotSee`). Audited
+      `alert.threshold_create` / `_update` / `_delete` naming scope, metric and the
+      numbers (`TestThresholdWritesAreAuditedWithTheirNumbers`).
+- [x] `GET /api/alerts/thresholds/resolve?device=` (per-metric chain, winner first,
+      built-in floor last) and `GET /api/alerts/thresholds/simulate` (severity, the
+      scope that answered, and the engine's own message, recording nothing). Both
+      walk `ScopedDevice`, so an out-of-scope unit answers the body an absent unit
+      gets, byte for byte.
+- [x] Console: **Alert rules** page (`/thresholds`, admin/manager) — ledger with the
+      name of what each rule points at, the floor stated in numbers, the per-unit
+      precedence preview, the value simulation, enable toggles, deletes carried in the
+      confirm sheet (`confirm.deleteThreshold.*`), `en`/`de`/`fr` in lockstep.
 
 **Acceptance criteria**
-- Precedence test: global 80/90, client 70/85, tag 60/75, device 50/65 — a metric
-  sequence produces the alert, severity, `Alert.Threshold` value and message of the
-  **most specific** rule, per metric independently (cpu from tag, ram from device).
-- Auto-resolution uses the resolved warning threshold — a device whose resolved
-  warning is 50 auto-resolves at 48 where the global 80 would leave it open.
-- A device with no override produces byte-identical alerts to `v2.3.x` (a
-  regression test on the existing engine suite).
-- Dedup window honored per scope.
-- The simulation input agrees with the engine on 20 fixture sequences.
+- Precedence: global 80/90, client 70/85, tag 60/75, device 50/65 — a metric
+  sequence produces the **most specific** rule's alert, severity, `Alert.Threshold`
+  and message, per metric independently. ✅
+  `TestThresholdPrecedenceUsesTheMostSpecificRulePerMetric`,
+  `TestThresholdRuleIsWhatTheEngineMeasuresTheAgentAgainst` (the 62% metric is
+  **posted by an agent** through `POST /api/agent/metrics` with its device key: the
+  alert is the one a real unit produces, and it names `threshold: 50`).
+- Auto-resolution on the resolved warning. ✅
+  `TestAutoResolveUsesTheResolvedWarning` — 52 leaves the alert open where the global
+  80 would have auto-resolved it; 48 resolves it.
+- A device with no override produces byte-identical alerts to `v2.3.x`. ✅
+  `TestDeviceWithNoRuleProducesTheShippedAlertExactly` pins threshold, severity and
+  the message string for cpu/ram/disk at the shipped floor.
+- Dedup window honored per scope. ✅
+  `TestRuleDedupWindowOverridesTheEngineDefault` (engine default 5 min; a rule's
+  120 s window refills inside it, and the rule's own window still dedups).
+- The simulation agrees with the engine on 20 fixture sequences. ✅
+  `TestThresholdSimulationAgreesWithTheEngineOnTwentyValues` — 20 values from 0 to
+  91, each simulated **and** posted at a unit of its own; severity, threshold and
+  the message string are compared.
+
+**What the tests caught**
+
+1. `Enabled bool` carried a GORM `default:true`, so a rule saved **disabled** was
+   stored **enabled** — GORM substitutes the column default for a zero-valued field
+   on insert. `TestDisabledRuleIsStoredDisabled` pins the row, and `Create` now
+   writes every column (`Select("*")`).
+2. The preview sorted by its own copy of the precedence rule and missed the
+   same-scope tie-break the resolver applies. The preview now sorts with
+   `store.RuleWins`, and the fixture's chain is asserted in order.
+3. `TestViewerSessionRelay`'s binary-frame hops kept a hard 5 s deadline while the
+   message polls had the file's documented scheduler-aware budget: under
+   `go -C server test -race ./...` with this suite in the parallel load, a hop was
+   late and the relay was correct. Every hop in that test shares one budget now.
+4. The rate limiter is real: a test that batches dozens of reads is the caller the
+   limiter exists to shape, so the batch test seeds through the store and waits out
+   refills (`doWithinBudget`) instead of asserting against a limiter switched off.
+
+**Stated, not hidden:** the store caches the rule snapshot for 15 s and the engine
+caches a unit's scope keys for 60 s — a tag change is visible within a minute, and a
+metric post costs no database read. A unit whose scope cannot be read is measured
+against the global floor, not skipped: losing the evaluation is worse than
+evaluating it against the installation defaults.
 
 ---
 
@@ -346,9 +400,10 @@ rule UI; neither exists.
 one place an operator can read.
 
 **Do**
-- [ ] Migration 14: `webhooks.kind`, `webhooks.config`, `webhooks.scope_clients`,
+- [ ] Migration **15** (14 was consumed by 2.4-5's threshold scopes):
+      `webhooks.kind`, `webhooks.config`, `webhooks.scope_clients`,
       `webhooks.min_severity`, `webhooks.tags`. Note `webhooks.url` is `not null`
-      today and is meaningless for an email channel — migration 12 drops the
+      today and is meaningless for an email channel — that migration drops the
       NOT-NULL on `url` and the API validates it **per kind** (required for
       webhook/slack/teams, absent for email). Event matching stays exact in Go
       (`store/webhooks.go:ListByEvent`, the M12 fix) — do not reintroduce a SQL

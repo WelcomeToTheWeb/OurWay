@@ -12,6 +12,7 @@ A task-oriented guide to using the OurWay RMM dashboard.
 - [Audit Log](#audit-log)
 - [Device Management](#device-management)
 - [Alerts](#alerts)
+- [Alert Thresholds (2.4-5)](#alert-thresholds-24-5)
 - [Remote Sessions](#remote-sessions)
 - [Patch Management](#patch-management)
 - [File Transfer](#file-transfer)
@@ -269,7 +270,71 @@ Navigate to **Alerts** to view all alerts across your fleet.
 
 ### Alert Deduplication
 
-Alerts are automatically deduplicated within a 5-minute window. If the same alert condition persists, you won't get spam notifications.
+Alerts are automatically deduplicated within a 5-minute window. If the same alert
+condition persists, you won't get spam notifications. A rule can carry its own
+window — see [Alert thresholds](#alert-thresholds-24-5) — so a lab unit that
+reports every minute and a remote unit that reports every ten minutes are not one
+alerting problem.
+
+---
+
+## Alert Thresholds (2.4-5)
+
+Navigate to **Alert rules** (admin, manager) to set the levels a unit is measured
+against. Before 2.4-5 the whole installation shared one set of numbers; a rule lets
+a lab, a tenant, or a single noisy unit be measured on its own terms.
+
+### Scopes, and which rule wins
+
+| Scope | Applies to |
+|-------|-----------|
+| **Device** | the one unit you named |
+| **Tag** | every unit carrying that tag |
+| **Tenant** | every unit in that client |
+| **Global** | every unit no narrower rule covers |
+
+**Most specific wins, per metric.** A unit's own CPU rule answers its CPU even when
+a tag rule covers the same unit's disk. There is no blending and no averaging, and
+each metric is decided on its own — cpu 70/85 on the tenant, ram 50/65 on the unit.
+
+A unit no rule covers is measured against the **built-in floor**: cpu 80/90,
+ram 85/95, disk 85/95. Those are the numbers every installation alerted with before
+rules existed, and a page with no rules behaves exactly as it did in v2.3.x.
+
+### What the page shows
+
+- **The rule ledger** — scope, what it points at by name, metric, warning/critical,
+  the repeat window, and a toggle that turns a rule off without deleting it.
+- **What applies to a unit** — pick a unit and each metric names the rule that
+  answers it, then lists every rule that was in the running in the order they win,
+  ending at the built-in floor. "Why did this unit alert at 62%?" is one read.
+- **Ask a value** — type a percentage and get the message the alert would carry,
+  and the scope that answered. Nothing is recorded. The wording is the engine's own,
+  so the preview cannot promise a sentence the alert will not say.
+
+### Rules, in the words the API enforces
+
+- Warning must be **below** critical. A rule that warns above its critical can never
+  alert, so it is refused.
+- Percentages are 0–100, and the metric is cpu, memory or disk.
+- One rule per (scope, metric). Adding a second answers which rule to edit.
+- A saved rule's scope and metric are fixed. Moving a rule to another unit is a
+  delete and an add, not an edit — so the rule you are looking at stays the rule it
+  names.
+- A rule whose repeat window is 0 uses the engine's 5 minutes.
+- A disabled rule is skipped: the unit falls to the next rule, then the floor.
+- Managers define rules for their own tenants' units and tags are admin-only,
+  because a tag rule reaches every tenant's units.
+- Creating, editing and deleting a rule is recorded in the audit ledger with the
+  scope, the metric and the numbers.
+
+### What a rule changes about an alert
+
+An alert names the threshold that fired it — `CPU usage elevated: 62.0%
+(threshold: 50%)` — and it auto-resolves when the metric drops back under **that**
+rule's warning. A unit whose rule says 50 is considered recovered at 48; measuring
+it against the installation's 80 would leave an alert open that your own rule says
+is over.
 
 ---
 

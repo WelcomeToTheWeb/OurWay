@@ -97,6 +97,10 @@ func main() {
 
 	// Initialize alert engine
 	alertEngine := alerts.NewEngine(st.Alerts)
+	// 2.4-5: the engine measures a metric against the most specific rule that
+	// applies to that unit and metric (device → tag → client → global), with the
+	// built-in numbers as the floor. The scope keys come from the device row.
+	alerts.WireDeviceScopes(alertEngine, st)
 
 	// Wire the alert engine into the hub so the WS metrics path evaluates
 	// thresholds (the agent's primary reporting path).

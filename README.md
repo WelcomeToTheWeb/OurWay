@@ -38,7 +38,8 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - REST API for CRUD operations
 - WebSocket hub for real-time communication
 - Device registry and inventory
-- Alert engine (threshold-based) with auto-resolution
+- Alert engine with scoped threshold rules (device → tag → client → global) and
+  auto-resolution on the rule that fired
 - Event stream for UI updates
 - Authentication (JWT + refresh tokens, RBAC roles)
 - Remote sessions (agent frame relay over HTTP, input over the device WebSocket)
@@ -57,6 +58,7 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - Device detail page with real-time charts
 - Remote session viewer (browser) plus the native Windows viewer
 - Alert center with acknowledge/assign/resolve
+- Alert rules page: threshold rule ledger, per-unit precedence preview, value simulation
 - Patch manager (updates, deployments, policies)
 - File transfer with drag-and-drop and download links
 - User management (create, roles, delete)
@@ -308,8 +310,10 @@ discover it in production. Each item is tracked in
   sees every device in the installation. Device tags scope patch policies, not
   visibility. **Not true since v2.3.0:** clients (tenants), device→client assignment
   and route-enforced scoping shipped there — see `docs/phase2.3-tasks.md`.
-- **Alert thresholds are global.** One threshold set per metric for the whole
-  installation; no per-device, per-group, or per-tag overrides.
+- **Alert thresholds were global.** One threshold set per metric for the whole
+  installation. **Closed in v2.4.0 (2.4-5):** threshold rules per scope — device →
+  tag → client → global, most specific wins per metric, built-in floor for a unit no
+  rule covers, with a precedence preview and a value simulation in the console.
 
 ## Key Design Decisions
 

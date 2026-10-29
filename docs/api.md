@@ -945,6 +945,139 @@ Authorization: Bearer <access-token>
 
 ---
 
+## Threshold Rule Endpoints (v2.4-5)
+
+Alert levels are rules, not a build-time constant. A rule names a **scope**
+(`device` → `tag` → `client` → `global`), one **metric** (`cpu`, `ram`, `disk`), a
+`warning` and a `critical`, and is measured **per metric, most specific wins**:
+a unit's own rule answers its CPU even when a tag rule covers the same unit's
+disk. A unit no rule covers is measured against the built-in floor — cpu 80/90,
+ram 85/95, disk 85/95 — which is exactly what every installation alerted with
+before rules existed.
+
+All six routes require role `admin` or `manager`. Managers act inside their own
+tenants: a device/client rule for a tenant they cannot see answers the body an
+absent tenant gets (`404`), and `tag`/`global` rules — which reach every tenant's
+units — are `403` with the role that may define them named. Reads carry
+`X-OurWay-Client-Scope` like every other scoped read.
+
+### GET /api/alerts/thresholds
+
+Every rule, most specific first (device, tag, client, global), plus the floor.
+
+```json
+{
+  "rules": [
+    {
+      "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "scope_type": "device",
+      "scope_value": "550e8400-e29b-41d4-a716-446655440000",
+      "scope_name": "web-server-01",
+      "metric": "cpu",
+      "warning": 50,
+      "critical": 65,
+      "dedup_window_seconds": 0,
+      "enabled": true,
+      "editable": true,
+      "created_at": "2026-10-29T10:00:00Z",
+      "updated_at": "2026-10-29T10:00:00Z"
+    }
+  ],
+  "defaults": [
+    { "metric": "cpu", "warning": 80, "critical": 90 },
+    { "metric": "ram", "warning": 85, "critical": 95 },
+    { "metric": "disk", "warning": 85, "critical": 95 }
+  ]
+}
+```
+
+`scope_name` names what the rule points at (the unit, the tenant, the tag; a
+global rule names every unit), because a ledger of ids is unreadable. `editable`
+is false for a rule the caller may not change — a manager reading a global rule
+sees it, and cannot touch it.
+
+### GET /api/alerts/thresholds/resolve?device=<id>
+
+The precedence preview for one unit: per metric, the rule that answers, and the
+whole chain in the order it wins — the rule that applies first, every other
+matching rule by specificity, and the built-in floor last. This is the read that
+answers "why did this unit alert at 62%?".
+
+```json
+{
+  "device": { "id": "550e8400-…", "name": "web-server-01", "tags": ["prod"], "client_id": "550e8400-…" },
+  "metrics": [
+    {
+      "metric": "cpu",
+      "applies": { "scope_type": "device", "scope_value": "550e8400-…", "warning": 50, "critical": 65, "source": "rule", "rank": 4 },
+      "candidates": [
+        { "scope_type": "device", "warning": 50, "critical": 65, "rank": 4, "source": "rule" },
+        { "scope_type": "tag", "scope_value": "prod", "warning": 60, "critical": 75, "rank": 3, "source": "rule" },
+        { "scope_type": "client", "warning": 70, "critical": 85, "rank": 2, "source": "rule" },
+        { "scope_type": "global", "warning": 80, "critical": 90, "rank": 1, "source": "built-in default" }
+      ]
+    }
+  ]
+}
+```
+
+### GET /api/alerts/thresholds/simulate?device=<id>&metric=cpu&value=72
+
+What a value would do to a unit, **without recording anything**: the severity, the
+threshold line the alert would carry, and the scope that answered. The message is
+the engine's own wording, byte for byte — the console cannot show a sentence the
+alert will not say.
+
+```json
+{
+  "device_id": "550e8400-…",
+  "metric": "cpu",
+  "value": 72,
+  "warning": 60,
+  "critical": 75,
+  "scope_type": "tag",
+  "scope_value": "prod",
+  "scope_name": "prod",
+  "source": "rule",
+  "would_fire": true,
+  "severity": "warning",
+  "threshold": 60,
+  "message": "CPU usage elevated: 72.0% (threshold: 60%)"
+}
+```
+
+### POST /api/alerts/thresholds · PUT /api/alerts/thresholds/:id · DELETE /api/alerts/thresholds/:id
+
+Create, edit and remove rules. A create names `scope_type`, `scope_value` (empty
+for `global`), `metric`, `warning`, `critical`, and optionally
+`dedup_window_seconds` (0…86400; 0 uses the engine default of 5 minutes) and
+`enabled`. An edit sends the fields it touches; **the scope and metric of a saved
+rule are immutable** — retargeting the rule an operator is looking at is not an
+edit, so a scope change answers `409` ("scope cannot be changed…") and the fix is
+to delete the rule and add a new one.
+
+Every write answers a named refusal, and every write that succeeds is audited
+(`alert.threshold_create` / `alert.threshold_update` / `alert.threshold_delete`,
+with the scope, the metric, and the numbers in the row):
+
+| Situation | Answer |
+|-----------|--------|
+| `warning` not below `critical` | `400` — a rule that warns above its critical can never alert |
+| percentages outside 0…100, or zero | `400` |
+| metric other than `cpu`/`ram`/`disk` | `400` |
+| `tag` rule naming no tag | `400` |
+| device/client rule for an absent unit, or one outside the caller's tenants | `404` |
+| `tag`/`global` rule from a manager | `403` naming the role that may define it |
+| a second rule on the same scope **and** metric | `409` naming the rule to edit |
+| scope change on an existing rule | `409` |
+
+A rule the engine measures with is the rule the operator saved: the alert's
+`threshold` field and the wording of its `message` come from the resolved rule, and
+an alert auto-resolves when the metric drops back under **that** rule's warning —
+not the installation's.
+
+---
+
 ## Remote Session Endpoints
 
 All session endpoints require JWT authentication, except

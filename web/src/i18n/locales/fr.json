@@ -124,7 +124,9 @@
     "message": "Message",
     "createdAt": "Créé le",
     "resolvedAt": "Résolu le",
-    "resolved": "Résolu"
+    "resolved": "Résolu",
+    "warning": "Alerte",
+    "critical": "Critique"
   },
   "settings": {
     "title": "Paramètres",
@@ -551,6 +553,11 @@
       "title": "Intégrer {{subject}} au compte {{name}} ?",
       "body": "Le compte {{name}} se connectera désormais par ce fournisseur et garde ses propres rôles et ses affectations de clients. Le mot de passe du fournisseur ne s'applique plus à lui. L'acte est consigné dans le registre.",
       "action": "Intégrer l'identité"
+    },
+    "deleteThreshold": {
+      "title": "Supprimer cette règle de seuil ?",
+      "body": "Les machines que seule cette règle couvre reviennent au plancher intégré : {{scope}} {{target}}, {{metric}}.",
+      "action": "Supprimer la règle"
     }
   },
   "clients": {
@@ -662,5 +669,53 @@
   },
   "sessions": {
     "colTenant": "Client"
+  },
+  "thresholds": {
+    "title": "Seuils d’alerte",
+    "subtitle": "Les valeurs auxquelles une machine est mesurée. La plus précise gagne, mesure par mesure — machine, étiquette, locataire, puis le plancher.",
+    "addRule": "Ajouter une règle",
+    "editRule": "Modifier la règle",
+    "formBody": "Le seuil d’alerte est inférieur au seuil critique. La portée la plus précise gagne, mesure par mesure.",
+    "floor": "Plancher intégré",
+    "floorBody": "Une machine sans règle est mesurée sur ces valeurs — les mêmes chiffres qui déclenchaient les alertes avant l’existence des règles.",
+    "scope": "Portée",
+    "scopeLocked": "La portée et la mesure sont figées après l’enregistrement. Supprimez la règle pour la déplacer.",
+    "tag": "Étiquette",
+    "device": "Machine",
+    "client": "Locataire",
+    "globalBody": "Cette règle répond pour toute machine qu’aucune règle plus précise ne couvre.",
+    "metricLabel": "Mesure",
+    "warning": "Alerte",
+    "critical": "Critique",
+    "levels": "Alerte / critique",
+    "dedup": "Fenêtre de répétition",
+    "dedupBody": "Secondes d’attente avant qu’une même alerte se déclenche à nouveau. 0 utilise la valeur par défaut du moteur.",
+    "dedupDefault": "valeur par défaut",
+    "enabled": "Active",
+    "state": "État",
+    "none": "Aucune règle pour l’instant. Chaque machine est mesurée sur le plancher intégré.",
+    "needNumbers": "Alerte et critique doivent être des nombres.",
+    "previewTitle": "Ce qui s’applique à une machine",
+    "previewBody": "La règle qui répond pour chaque mesure, puis toutes les règles en lice, dans l’ordre où elles gagnent.",
+    "previewDeviceLabel": "Choisir une machine à prévisualiser",
+    "pickDevice": "Choisir une machine…",
+    "simulateTitle": "Tester une valeur",
+    "simulateBody": "Rien n’est enregistré. La réponse est le message que l’alerte porterait.",
+    "simulateValue": "Valeur %",
+    "simulateGo": "Simuler",
+    "simulateQuiet": "Aucune alerte",
+    "simulateFrom": "Répondu par {{scope}} {{target}}.",
+    "scopeKind": {
+      "device": "Machine",
+      "tag": "Étiquette",
+      "client": "Locataire",
+      "global": "Globale"
+    },
+    "metric": {
+      "cpu": "CPU",
+      "ram": "Mémoire",
+      "disk": "Disque"
+    },
+    "globalName": "toutes les machines"
   }
 }
