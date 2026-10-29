@@ -534,3 +534,382 @@ func TestSSOLoginRoundTripThroughADiscoveredProvider(t *testing.T) {
 		t.Error("an SSO login code was redeemed twice")
 	}
 }
+
+// loginThrough walks the full authorization-code round trip through a saved
+// provider: authorize → the IdP's own redirect back with a code → the callback →
+// `sso_code` → the exchange. The fixture IdP enforces the redirect URI, so the
+// claims are pointed at this provider's callback.
+func (f *ssoFixture) loginThrough(t *testing.T, providerName string, idp *testidp.IdP, claims testidp.Claims) string {
+	t.Helper()
+	claims.RedirectURI = f.baseURL + "/api/auth/sso/" + providerName + "/callback"
+	idp.SeedLogin(claims)
+
+	resp, err := f.noRedirect().Get(f.baseURL + "/api/auth/sso/" + providerName + "/authorize")
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("authorize = %d, want 302\n%s", resp.StatusCode, payload)
+	}
+	toIdP, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse authorize location: %v", err)
+	}
+	if toIdP.Query().Get("state") == "" {
+		t.Fatal("the authorize redirect carries no state")
+	}
+
+	resp2, err := f.noRedirect().Get(toIdP.String())
+	if err != nil {
+		t.Fatalf("idp authorize: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusFound {
+		payload, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("idp authorize = %d, want 302\n%s", resp2.StatusCode, payload)
+	}
+	back, err := url.Parse(resp2.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse callback location: %v", err)
+	}
+	if e := back.Query().Get("error"); e != "" {
+		t.Fatalf("the IdP refused the login with %q (redirect_uri %s)", e, claims.RedirectURI)
+	}
+	if back.Query().Get("code") == "" {
+		t.Fatalf("the IdP redirected to %s with no code", back.String())
+	}
+
+	resp3, err := f.noRedirect().Get(back.String())
+	if err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusFound {
+		payload, _ := io.ReadAll(resp3.Body)
+		t.Fatalf("callback = %d, want 302\n%s", resp3.StatusCode, payload)
+	}
+	landing, err := url.Parse(resp3.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse landing: %v", err)
+	}
+	loginCode := landing.Query().Get("sso_code")
+	if loginCode == "" {
+		t.Fatalf("the callback landed on %s with no sso_code", landing.String())
+	}
+
+	code, body, _ := f.do(t, http.MethodPost, "/api/auth/sso/exchange", "", map[string]string{"code": loginCode})
+	if code != http.StatusOK {
+		t.Fatalf("exchange = %d\n%s", code, body)
+	}
+	var tokens struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(body, &tokens); err != nil || tokens.AccessToken == "" {
+		t.Fatalf("exchange answered no access token: %v\n%s", err, body)
+	}
+	return tokens.AccessToken
+}
+
+// saveOIDCProvider is the operator's form: a name, a client id/secret, an issuer.
+// Nothing else — 2.4-1's premise is that the IdP publishes the rest.
+func (f *ssoFixture) saveOIDCProvider(t *testing.T, admin, name, issuer string) {
+	t.Helper()
+	code, body := f.saveProvider(t, admin, map[string]any{
+		"type": "oidc", "name": name,
+		"client_id": "ourway", "client_secret": "sso-fixture-secret",
+		"issuer": issuer,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("save %s = %d\n%s", name, code, body)
+	}
+}
+
+// 2.4-1's preview: "show the operator exactly what was discovered before they
+// save it". The console calls this with an issuer it has not saved, and shows the
+// answer; the row is written only by the save.
+func TestSSODiscoveryPreviewShowsWhatTheIssuerPublishes(t *testing.T) {
+	f := newSSOFixture(t)
+	admin := f.adminToken(t, "sso-admin")
+	idp := testidp.New()
+	defer idp.Close()
+
+	code, body, _ := f.do(t, http.MethodPost, "/api/sso/providers/discover", admin, map[string]any{
+		"issuer":        idp.Issuer(),
+		"provider_name": "preview-corp",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("preview = %d\n%s", code, body)
+	}
+	var answer struct {
+		OK        bool   `json:"ok"`
+		Issuer    string `json:"issuer"`
+		Discovery string `json:"discovery"`
+		Redirect  string `json:"redirect_uri"`
+		Endpoints struct {
+			Authorization string `json:"authorization"`
+			Token         string `json:"token"`
+			UserInfo      string `json:"userinfo"`
+			Jwks          string `json:"jwks"`
+		} `json:"endpoints"`
+		SigningAlgs []string `json:"signing_algs"`
+		Document    struct {
+			Issuer string `json:"issuer"`
+			Jwks   string `json:"jwks_uri"`
+		} `json:"document"`
+		Checks []struct {
+			Name  string `json:"name"`
+			State string `json:"state"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		t.Fatalf("decode: %v\n%s", err, body)
+	}
+	if !answer.OK || answer.Discovery != "ok" {
+		t.Fatalf("preview answered ok=%v discovery=%q\n%s", answer.OK, answer.Discovery, body)
+	}
+	if answer.Endpoints.Authorization == "" || answer.Endpoints.Token == "" ||
+		answer.Endpoints.Jwks == "" || answer.Endpoints.UserInfo == "" {
+		t.Errorf("the preview published no endpoints: %+v", answer.Endpoints)
+	}
+	for _, endpoint := range []string{
+		answer.Endpoints.Authorization, answer.Endpoints.Token,
+		answer.Endpoints.UserInfo, answer.Endpoints.Jwks,
+	} {
+		if !strings.HasPrefix(endpoint, idp.Issuer()) {
+			t.Errorf("discovered endpoint %s is not this issuer's", endpoint)
+		}
+	}
+	if answer.Document.Issuer != idp.Issuer() || answer.Document.Jwks == "" {
+		t.Errorf("the preview omitted the document the IdP published: %+v", answer.Document)
+	}
+	// The redirect URI is the one this installation will send, named for the
+	// provider being configured: the value the operator pastes into the IdP.
+	if !strings.HasSuffix(answer.Redirect, "/api/auth/sso/preview-corp/callback") {
+		t.Errorf("redirect URI = %q, want the preview provider's callback", answer.Redirect)
+	}
+	if len(answer.SigningAlgs) == 0 {
+		t.Error("the preview reports no id_token signing algorithms")
+	}
+	states := map[string]string{}
+	for _, ch := range answer.Checks {
+		states[ch.Name] = ch.State
+	}
+	for _, name := range []string{"discovery", "jwks", "pkce", "email_scope", "id_token_alg"} {
+		if states[name] != "pass" {
+			t.Errorf("check %s = %q, want pass (%s)", name, states[name], body)
+		}
+	}
+	// The fixture's redirect base is a loopback address, and the honest answer
+	// about that is a warning: an IdP will not redirect to 127.0.0.1.
+	if states["redirect_uri"] != "warn" {
+		t.Errorf("check redirect_uri = %q, want warn on a loopback base (%s)", states["redirect_uri"], body)
+	}
+
+	// A preview is not a write. The whole point of showing the discovery result
+	// first is that nothing is saved from a guess.
+	if providers, err := f.st.SSOProviders.ListAll(); err != nil || len(providers) != 0 {
+		t.Errorf("a discovery preview wrote %d provider rows, want 0 (%v)", len(providers), err)
+	}
+
+	// It is an admin act: probing the installation's identity provider is not a
+	// tenant operation.
+	manager := f.roleToken(t, "preview-manager", "manager")
+	code, body, _ = f.do(t, http.MethodPost, "/api/sso/providers/discover", manager, map[string]any{
+		"issuer": idp.Issuer(),
+	})
+	if code != http.StatusForbidden {
+		t.Errorf("manager preview = %d, want 403\n%s", code, body)
+	}
+
+	// The act is in the ledger.
+	rows, err := f.st.Audit.List(store.AuditFilter{Action: models.AuditSSODiscover})
+	if err != nil {
+		t.Fatalf("audit read: %v", err)
+	}
+	found := false
+	for _, r := range rows {
+		if r.Action == models.AuditSSODiscover {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a discovery preview wrote no audit row")
+	}
+}
+
+// The preview answers the same named states the save and the probe answer, so the
+// console has one vocabulary for "what did the IdP say", and it never writes a row.
+func TestSSODiscoveryPreviewNamesEveryBrokenShape(t *testing.T) {
+	f := newSSOFixture(t)
+	admin := f.adminToken(t, "sso-admin")
+
+	type broken struct {
+		name     string
+		sabotage string
+		kind     string
+	}
+	for _, tc := range []broken{
+		{"issuer names another provider", "issuer", "issuer_mismatch"},
+		{"no jwks_uri published", "no_jwks", "discovery_document"},
+		{"no authorization-code flow", "no_code", "no_code_flow"},
+		{"the document is not JSON", "garbage", "discovery_document"},
+		{"the endpoint does not answer", "off", "discovery_unreachable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			idp := testidp.New()
+			defer idp.Close()
+			idp.BreakDocument(tc.sabotage)
+
+			code, body, _ := f.do(t, http.MethodPost, "/api/sso/providers/discover", admin, map[string]any{
+				"issuer": idp.Issuer(), "provider_name": "broken-preview",
+			})
+			if code != http.StatusOK {
+				t.Fatalf("preview = %d, want 200 with a named state\n%s", code, body)
+			}
+			var answer struct {
+				OK        bool   `json:"ok"`
+				Discovery string `json:"discovery"`
+				Error     string `json:"error"`
+			}
+			if err := json.Unmarshal(body, &answer); err != nil {
+				t.Fatalf("decode: %v\n%s", err, body)
+			}
+			if answer.OK {
+				t.Errorf("a broken issuer answered ok (%s)", body)
+			}
+			if answer.Discovery != tc.kind {
+				t.Errorf("discovery state = %q, want %q (%q)", answer.Discovery, tc.kind, answer.Error)
+			}
+			if _, err := f.st.SSOProviders.GetByName("broken-preview"); err == nil {
+				t.Error("a failed preview wrote a provider row")
+			}
+		})
+	}
+
+	// An issuer that is not a URL never reaches the network.
+	for _, issuer := range []string{"not a url", "ftp://idp.corp", "https://", "https://u:p@idp.corp"} {
+		code, body, _ := f.do(t, http.MethodPost, "/api/sso/providers/discover", admin, map[string]any{"issuer": issuer})
+		if code != http.StatusBadRequest {
+			t.Errorf("preview of %q = %d, want 400\n%s", issuer, code, body)
+		}
+	}
+	code, body, _ := f.do(t, http.MethodPost, "/api/sso/providers/discover", admin, map[string]any{})
+	if code != http.StatusBadRequest {
+		t.Errorf("preview with no issuer = %d, want 400\n%s", code, body)
+	}
+}
+
+// 2.4-1's "multiple concurrent providers": two IdPs enabled at once, both
+// completing a login, each provisioning its own account.
+func TestSSOTwoEnabledProvidersBothCompleteLogins(t *testing.T) {
+	f := newSSOFixture(t)
+	admin := f.adminToken(t, "sso-admin")
+	idpA := testidp.New()
+	defer idpA.Close()
+	idpB := testidp.New()
+	defer idpB.Close()
+
+	f.saveOIDCProvider(t, admin, "keycloak-a", idpA.Issuer())
+	f.saveOIDCProvider(t, admin, "authentik-b", idpB.Issuer())
+
+	code, body, _ := f.do(t, http.MethodGet, "/api/auth/sso/providers", "", nil)
+	if code != http.StatusOK {
+		t.Fatalf("public list = %d\n%s", code, body)
+	}
+	var listed struct {
+		Providers []struct {
+			Name string `json:"name"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		t.Fatalf("decode: %v\n%s", err, body)
+	}
+	if len(listed.Providers) != 2 {
+		t.Fatalf("the login page lists %d providers, want 2\n%s", len(listed.Providers), body)
+	}
+
+	for _, tc := range []struct {
+		provider string
+		idp      *testidp.IdP
+		subject  string
+		email    string
+	}{
+		{"keycloak-a", idpA, "sub-a", "a@corp.example"},
+		{"authentik-b", idpB, "sub-b", "b@corp.example"},
+	} {
+		access := f.loginThrough(t, tc.provider, tc.idp, testidp.Claims{
+			Subject: tc.subject, Email: tc.email, EmailVerified: true, Name: tc.provider + " user",
+		})
+		status, _, _ := f.do(t, http.MethodGet, "/api/devices", access, nil)
+		if status != http.StatusOK {
+			t.Errorf("%s: the session cannot read the fleet (%d)", tc.provider, status)
+		}
+		user, err := f.st.Users.FindByProvider(tc.provider, tc.subject)
+		if err != nil {
+			t.Errorf("%s: no JIT account for %s (%v)", tc.provider, tc.subject, err)
+			continue
+		}
+		if user.Email != tc.email {
+			t.Errorf("%s: JIT email = %q, want %q", tc.provider, user.Email, tc.email)
+		}
+	}
+
+	// The two accounts are distinct: provider+subject is the identity, and an
+	// equal email from a second provider must not collapse onto the first.
+	if a, err := f.st.Users.FindByProvider("keycloak-a", "sub-a"); err == nil {
+		if b, err := f.st.Users.FindByProvider("authentik-b", "sub-b"); err == nil && a.ID == b.ID {
+			t.Error("two providers provisioned one account")
+		}
+	}
+}
+
+// An IdP that signs id_tokens with an algorithm OurWay's verifier does not accept
+// (RS256 only, per 2.4-2) is a provider that will hand us tokens we refuse. The
+// preview is where the operator hears it: discovery succeeded, and the provider is
+// still unusable.
+func TestSSODiscoveryPreviewReportsAnUnverifiableSigningAlgorithm(t *testing.T) {
+	f := newSSOFixture(t)
+	admin := f.adminToken(t, "sso-admin")
+	idp := testidp.New()
+	defer idp.Close()
+	idp.BreakDocument("es256_only")
+
+	code, body, _ := f.do(t, http.MethodPost, "/api/sso/providers/discover", admin, map[string]any{
+		"issuer": idp.Issuer(), "provider_name": "ec-corp",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("preview = %d\n%s", code, body)
+	}
+	var answer struct {
+		OK        bool   `json:"ok"`
+		Discovery string `json:"discovery"`
+		Checks    []struct {
+			Name   string `json:"name"`
+			State  string `json:"state"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		t.Fatalf("decode: %v\n%s", err, body)
+	}
+	if answer.Discovery != "ok" {
+		t.Errorf("discovery state = %q, want ok: the document is conformant", answer.Discovery)
+	}
+	if answer.OK {
+		t.Errorf("a provider whose tokens cannot be verified answered ok (%s)", body)
+	}
+	var algState, algDetail string
+	for _, ch := range answer.Checks {
+		if ch.Name == "id_token_alg" {
+			algState, algDetail = ch.State, ch.Detail
+		}
+	}
+	if algState != "fail" {
+		t.Fatalf("id_token_alg check = %q, want fail (%s)", algState, body)
+	}
+	if !strings.Contains(algDetail, "ES256") || !strings.Contains(algDetail, "RS256") {
+		t.Errorf("id_token_alg detail = %q, want it to name both the provider's algorithm and ours", algDetail)
+	}
+}

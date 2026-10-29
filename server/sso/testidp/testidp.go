@@ -129,7 +129,8 @@ func (p *IdP) PublishOnlyCurrentKey() {
 
 // BreakDocument sabotages the discovery document for a named test case:
 // "no_jwks" (drops jwks_uri), "issuer" (names a different issuer), "no_code"
-// (offers no authorization-code flow), "garbage" (not JSON), "off" (no answer).
+// (offers no authorization-code flow), "garbage" (not JSON), "off" (no answer),
+// "es256_only" (publishes an id_token algorithm the verifier does not accept).
 func (p *IdP) BreakDocument(kind string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -169,6 +170,11 @@ func (p *IdP) handleDiscovery(w http.ResponseWriter, _ *http.Request) {
 		doc["issuer"] = "https://some-other-idp.example"
 	case "no_code":
 		doc["response_types_supported"] = []string{"id_token"}
+	case "es256_only":
+		// A provider that publishes an algorithm our verifier does not accept
+		// (2.4-2 is RS256-only): conformant, and unusable, and the preview is
+		// where the operator learns which one it is.
+		doc["id_token_signing_alg_values_supported"] = []string{"ES256"}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

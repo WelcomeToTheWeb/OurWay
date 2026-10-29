@@ -429,37 +429,66 @@ Configure single sign-on providers for your users.
 
 1. Navigate to **Settings** → **SSO**
 2. Click **Add Provider**
-3. Choose a type: Google, Microsoft, or Apple
-4. Enter client ID, client secret, and other details
-5. Enable the provider
-6. Click **Save**
+3. Name the provider (a slug: letters, digits, `-`, `_`, `.` — it is part of the
+   callback URL), and give it a **client ID** and **client secret** from your IdP
+4. Enter the **issuer** — the one field you have to know:
+   - Keycloak: `https://idp.example/realms/<realm>`
+   - Authentik: `https://idp.example/application/openid-client/<slug>`
+   - Zitadel: `https://<instance>.zitadel.cloud`
+   - Google: `https://accounts.google.com` (the `google` preset fills this in)
+   - Microsoft (work and personal): `https://login.microsoftonline.com/common/v2.0`
+5. Ask OurWay what the IdP publishes **before** saving: `POST
+   /api/sso/providers/discover` (admin) answers the endpoints, the signing
+   algorithms, the scopes, the PKCE methods, the document verbatim, and the
+   **redirect URI you must register with the IdP**. The console surface for this is
+   2.4-4; today the form offers the three presets, and any other IdP is added
+   through the API.
+6. Enable the provider, set its order, and **Save**
+
+OurWay fetches `<issuer>/.well-known/openid-configuration` at save time and uses the
+endpoints the IdP publishes. Any conformant OIDC provider works. If the issuer does
+not answer, is not an OIDC provider, describes a different issuer, or offers no
+authorization-code flow, the provider is **not saved** and the answer names why
+(`discovery_unreachable`, `discovery_document`, `issuer_mismatch`, `no_code_flow`).
+
+Typing endpoints by hand still works as an override (a proxy, a private alias): what
+you typed wins over what the IdP published, and discovery wins over a preset.
+
+### Test-connection
+
+`POST /api/sso/providers/:id/test` (admin) reports, as named states, the things an
+IdP admin can act on: discovery, the redirect URI this installation will send, the
+JWKS endpoint, whether the IdP lists the `email` scope, whether it supports PKCE, and
+the algorithm it signs `id_token`s with (OurWay verifies RS256). The probe is
+recorded in the audit ledger as `sso.discover` / `sso.test`.
 
 ### Provider Details
 
+You do not fill in endpoints. These are what discovery fetches for the three presets,
+so you can check that your IdP is publishing the same shape:
+
 #### Google
 
-- **Auth URL**: `https://accounts.google.com/o/oauth2/v2/auth`
-- **Token URL**: `https://oauth2.googleapis.com/token`
-- **User Info URL**: `https://openidconnect.googleapis.com/v1/userinfo`
+- **Issuer**: `https://accounts.google.com`
 - **Scopes**: `openid profile email`
 
 #### Microsoft
 
-- **Auth URL**: `https://login.microsoftonline.com/common/oauth2/v2.0/authorize`
-- **Token URL**: `https://login.microsoftonline.com/common/oauth2/v2.0/token`
-- **User Info URL**: `https://graph.microsoft.com/oidc/userinfo`
+- **Issuer**: `https://login.microsoftonline.com/common/v2.0`
 - **Scopes**: `openid profile email offline_access`
 
 #### Apple
 
-- **Auth URL**: `https://appleid.apple.com/auth/authorize`
-- **Token URL**: `https://appleid.apple.com/auth/token`
-- **User Info URL**: `https://appleid.apple.com/auth/userinfo`
-- **Scopes**: `name email`
+- **Issuer**: `https://appleid.apple.com`
+- **Scopes**: `openid`
 
 ### Just-in-Time Provisioning
 
-When a user logs in via SSO for the first time, an account is automatically created with the user's email as the username. The account has no role initially — an admin must assign one (e.g., viewer) on the **Users** page before the user can access role-restricted pages.
+When a user logs in via SSO for the first time, an account is automatically created
+with the user's email as the username, **at the `viewer` floor** — the role is
+recorded on the account, and an admin assigns a higher one on the **Users** page.
+The client secret never leaves the server: provider rows serialize without it, and
+the login page's provider list carries only the name, label and order.
 
 ---
 

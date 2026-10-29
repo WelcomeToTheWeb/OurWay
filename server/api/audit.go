@@ -127,6 +127,9 @@ func registerAuditRoutes() {
 	// machine on the operator's behalf, so it is audited like the others — the
 	// result is ok/fail, never a secret.
 	auditRoute(http.MethodPost, "/api/sso/providers/:id/test", models.AuditSSOTest)
+	// 2.4-1: the discovery preview fetches an operator-supplied issuer before any
+	// provider row exists — the same outbound call as the probe, so the same verb.
+	auditRoute(http.MethodPost, "/api/sso/providers/discover", models.AuditSSODiscover)
 }
 
 // lookupAuditAction resolves a concrete route to its registered action,

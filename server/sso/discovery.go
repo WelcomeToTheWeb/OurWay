@@ -61,7 +61,12 @@ type DiscoveryDocument struct {
 	ResponseTypes         []string `json:"response_types_supported"`
 	ScopesSupported       []string `json:"scopes_supported"`
 	PKCEMethods           []string `json:"code_challenge_methods_supported"`
-	Raw                   string   `json:"-"`
+	// IDTokenSigningAlgs is what the IdP says it signs id_tokens with. Our
+	// verifier accepts RS256 only (2.4-2), so an IdP publishing only ES256 is a
+	// provider that will log people in and then refuse every token — and the
+	// operator has to be told that at setup, from the preview, not at 2 a.m.
+	IDTokenSigningAlgs []string `json:"id_token_signing_alg_values_supported"`
+	Raw                string   `json:"-"`
 }
 
 // DiscoveryError carries a failure kind beside the message, so the API answers
@@ -172,6 +177,14 @@ func Discover(client *http.Client, issuer, discoveryURL string) (*DiscoveryDocum
 // console can warn an operator before their users notice.
 func (d *DiscoveryDocument) ScopeSupports(scope string) bool {
 	return containsFold(d.ScopesSupported, scope)
+}
+
+// SupportsSigningAlg reports whether the IdP publishes an id_token signing
+// algorithm. An IdP that publishes no `id_token_signing_alg_values_supported` is
+// treated as RS256-only, which is what the OIDC discovery spec requires of a
+// conformant provider.
+func (d *DiscoveryDocument) SupportsSigningAlg(alg string) bool {
+	return containsFold(d.IDTokenSigningAlgs, alg)
 }
 
 // PKCESupported reports whether the IdP accepts a code-challenge method. PKCE

@@ -155,7 +155,10 @@ const (
 
 	AuditSSOCreate = "sso.create"
 	AuditSSOTest   = "sso.test"
-	AuditSSODelete = "sso.delete"
+	// 2.4-1: asking an IdP what it publishes is a server-side fetch of an
+	// operator-supplied URL, so it is recorded like the probe of a saved provider.
+	AuditSSODiscover = "sso.discover"
+	AuditSSODelete   = "sso.delete"
 
 	AuditAlertResolve     = "alert.resolve"
 	AuditAlertAcknowledge = "alert.acknowledge"

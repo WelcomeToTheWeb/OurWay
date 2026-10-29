@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -362,6 +364,13 @@ func (h *SSOHandler) TestProvider(c *gin.Context) {
 			add("discovery", "fail", kind+": "+err.Error())
 		} else {
 			add("discovery", "pass", doc.Issuer)
+			if !doc.SupportsSigningAlg("RS256") {
+				// The verifier is RS256-only (2.4-2): a provider that signs with
+				// something else hands us tokens we refuse, and the operator should
+				// hear that here rather than from a failed login.
+				add("id_token_alg", "fail", "the provider signs id_tokens with "+
+					strings.Join(doc.IDTokenSigningAlgs, ", ")+"; OurWay verifies RS256")
+			}
 			if !doc.PKCESupported() {
 				add("pkce", "warn", "the provider publishes no code-challenge method")
 			}
@@ -388,7 +397,6 @@ func (h *SSOHandler) TestProvider(c *gin.Context) {
 	} else {
 		add("jwks", "pass", provider.JwksURI)
 	}
-
 	defer auditForAnswer(c, h.store, models.AuditSSOTest, AuditTarget{Type: "sso-provider", ID: provider.ID}, map[string]any{
 		"name": provider.Name,
 		"ok":   ok,
@@ -405,6 +413,162 @@ func (h *SSOHandler) redirectURIFor(provider *models.SSOProvider) string {
 		return provider.RedirectURI
 	}
 	return h.redirect + "/api/auth/sso/" + provider.Name + "/callback"
+}
+
+// DiscoverIssuer is the discovery **preview**: what an issuer publishes, shown to
+// the operator before a provider row exists (2.4-1 — "show the operator exactly
+// what was discovered before they save it").
+//
+// POST /api/sso/providers/discover, admin only.
+//
+// It writes nothing and can write nothing: there is no row to half-save, and the
+// answer is the same named states the test-connection probe uses, so the console
+// renders one vocabulary for "what did the IdP say" everywhere. It is audited
+// (`sso.discover`) because it is the server fetching a URL an operator typed.
+func (h *SSOHandler) DiscoverIssuer(c *gin.Context) {
+	var req struct {
+		Issuer       string `json:"issuer"`
+		DiscoveryURL string `json:"discovery_url"`
+		ProviderName string `json:"provider_name"`
+		RedirectURI  string `json:"redirect_uri"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	issuer := strings.TrimSpace(req.Issuer)
+	if problem := issuerIsConfigurable(issuer); problem != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": problem})
+		return
+	}
+
+	// The preview names the redirect URI the operator has to register with the
+	// IdP. Without the provider name it can only state the installation default,
+	// and saying so is better than showing a URI that is not the one the login
+	// will send.
+	nameForPreview := strings.TrimSpace(req.ProviderName)
+	if !providerNameIsSlug(nameForPreview) {
+		nameForPreview = "<provider-name>"
+	}
+	redirectURI := h.redirectURIFor(&models.SSOProvider{
+		Name: nameForPreview, RedirectURI: strings.TrimSpace(req.RedirectURI),
+	})
+
+	type check struct {
+		Name   string `json:"name"`
+		State  string `json:"state"`
+		Detail string `json:"detail,omitempty"`
+	}
+	checks := []check{}
+	ok := true
+	add := func(name, state, detail string) {
+		checks = append(checks, check{Name: name, State: state, Detail: detail})
+		if state == "fail" {
+			ok = false
+		}
+	}
+
+	kind := sso.DiscoveryOK
+	doc, err := sso.Discover(h.http, issuer, strings.TrimSpace(req.DiscoveryURL))
+	if err != nil {
+		kind = sso.DiscoveryUnreachable
+		var de *sso.DiscoveryError
+		if errors.As(err, &de) {
+			kind = de.Kind
+		}
+		add("discovery", "fail", kind+": "+err.Error())
+		defer auditForAnswer(c, h.store, models.AuditSSODiscover,
+			AuditTarget{Type: "sso-provider", ID: nameForPreview},
+			map[string]any{"issuer": issuer, "ok": false, "discovery": kind})
+		c.JSON(http.StatusOK, gin.H{
+			"ok": false, "issuer": issuer, "discovery": kind,
+			"error": err.Error(), "checks": checks, "redirect_uri": redirectURI,
+		})
+		return
+	}
+
+	add("discovery", "pass", doc.Issuer)
+	kind = sso.DiscoveryOK
+
+	if doc.PKCESupported() {
+		add("pkce", "pass", strings.Join(doc.PKCEMethods, ", "))
+	} else {
+		add("pkce", "warn", "the provider publishes no code-challenge method")
+	}
+	if doc.ScopeSupports("email") {
+		add("email_scope", "pass", "email")
+	} else {
+		add("email_scope", "warn", "the provider does not list the email scope")
+	}
+	if doc.SupportsSigningAlg("RS256") {
+		add("id_token_alg", "pass", strings.Join(doc.IDTokenSigningAlgs, ", "))
+	} else {
+		// Our verifier is RS256-only (2.4-2). An IdP publishing only ES256 is a
+		// provider whose logins will be refused, and the preview is where that is
+		// heard for the first time.
+		add("id_token_alg", "fail", "the provider signs id_tokens with "+
+			strings.Join(doc.IDTokenSigningAlgs, ", ")+"; OurWay verifies RS256")
+	}
+	if strings.TrimSpace(doc.UserInfoEndpoint) == "" {
+		add("userinfo", "warn", "no userinfo_endpoint: identity comes from the id_token alone")
+	} else {
+		add("userinfo", "pass", doc.UserInfoEndpoint)
+	}
+	if err := h.jwks.Probe(doc.JwksURI); err != nil {
+		add("jwks", "fail", err.Error())
+	} else {
+		add("jwks", "pass", doc.JwksURI)
+	}
+	if strings.Contains(redirectURI, "://localhost") || strings.Contains(redirectURI, "://127.0.0.1") {
+		add("redirect_uri", "warn", "redirect URI is a loopback address: "+redirectURI)
+	} else {
+		add("redirect_uri", "pass", redirectURI)
+	}
+
+	defer auditForAnswer(c, h.store, models.AuditSSODiscover,
+		AuditTarget{Type: "sso-provider", ID: nameForPreview},
+		map[string]any{"issuer": doc.Issuer, "ok": ok, "discovery": kind})
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":             ok,
+		"issuer":         doc.Issuer,
+		"discovery":      kind,
+		"discovery_url":  strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration",
+		"redirect_uri":   redirectURI,
+		"endpoints":      gin.H{"authorization": doc.AuthorizationEndpoint, "token": doc.TokenEndpoint, "userinfo": doc.UserInfoEndpoint, "jwks": doc.JwksURI},
+		"signing_algs":   doc.IDTokenSigningAlgs,
+		"response_types": doc.ResponseTypes,
+		"scopes":         doc.ScopesSupported,
+		"pkce_methods":   doc.PKCEMethods,
+		"checks":         checks,
+		"document":       json.RawMessage(doc.Raw),
+	})
+}
+
+// issuerIsConfigurable is the door check on the issuer an operator types. An
+// empty answer means "I am not asking a provider, I typed the endpoints" and is
+// the caller's business; anything else must be a URL this server can fetch, and
+// not a URL that turns an admin form into a request to a machine on the local
+// network over a scheme no OIDC document is served over.
+func issuerIsConfigurable(issuer string) string {
+	if issuer == "" {
+		return "issuer is required: the provider's issuer URL is what its endpoints are discovered from"
+	}
+	u, err := url.Parse(issuer)
+	if err != nil {
+		return "issuer is not a URL: " + err.Error()
+	}
+	if !u.IsAbs() || u.Host == "" {
+		return "issuer must be an absolute URL including the scheme, e.g. https://idp.corp/realms/ourway"
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "issuer must be an http or https URL"
+	}
+	if u.User != nil {
+		return "issuer must not carry credentials in the URL"
+	}
+	return ""
 }
 
 // CreateProvider creates or updates an SSO provider (admin).
@@ -490,7 +654,12 @@ func (h *SSOHandler) CreateProvider(c *gin.Context) {
 	}
 	issuer, presetScope := providerPreset(req.Name)
 	if strings.TrimSpace(req.Issuer) != "" {
-		provider.Issuer = strings.TrimSpace(req.Issuer)
+		issuer = strings.TrimSpace(req.Issuer)
+		if problem := issuerIsConfigurable(issuer); problem != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": problem})
+			return
+		}
+		provider.Issuer = issuer
 	} else if strings.TrimSpace(provider.Issuer) == "" {
 		provider.Issuer = issuer
 	}
