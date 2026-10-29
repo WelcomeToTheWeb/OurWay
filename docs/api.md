@@ -152,7 +152,72 @@ Authenticate a user and receive JWT tokens.
 **Error Responses:**
 
 - `401 Unauthorized` — Invalid credentials
+- `403 Forbidden` — The credentials are correct and the account cannot sign in: a
+  **pending SSO identity** (2.4-3) has no password and no roles, so it is refused by
+  name (`{"error":"this identity is awaiting an administrator's decision","status":"pending"}`)
+  rather than authenticating as an account with no roles
 - `500 Internal Server Error` — Server error
+
+---
+
+## Pending SSO Identities (2.4-3)
+
+When an identity provider asserts an email that belongs to an **existing** account,
+OurWay does not link the two by itself. The assertion is stored as a *pending
+identity* — no roles, no login — and an admin decides. Admin only: a tenant's manager
+has no business seeing another tenant's account being claimed.
+
+### List Pending Identities (admin)
+```
+GET /api/users/pending
+```
+
+**Response:**
+```json
+{
+  "identities": [
+    {
+      "id": "uuid",
+      "provider": "permissive-corp",
+      "subject": "idp-subject-1",
+      "email": "ops-admin@corp.example",
+      "name": "Ops Admin",
+      "email_verified": true,
+      "created_at": "2026-11-20T10:00:00Z",
+      "link_target_id": "uuid-of-the-existing-account",
+      "link_target_username": "ops-admin",
+      "link_target_roles": ["admin"]
+    }
+  ]
+}
+```
+
+The list states the facts the decision needs: the asserted email, whether the provider
+verified it, and the account (with its roles) the assertion points at.
+
+### Approve A Pending Identity (admin)
+```
+POST /api/users/:id/approve
+```
+
+Activates the identity as **its own account at the `viewer` floor**. The account its
+email belongs to is not touched. Audited as `user.approve`, naming the provider, the
+subject, the asserted email, the role granted, and the account that was proposed as a
+target. A second approval of the same identity answers `409`.
+
+### Merge A Pending Identity Into Its Target (admin)
+```
+POST /api/users/:id/merge
+```
+
+Attaches the identity to the account its email belongs to (that account now signs in
+through the provider, keeping its own roles and client assignments), and removes the
+pending record. The account's roles are never changed by a merge. Audited as
+`user.merge` with the target account as the row's target. Answers `409` when there is
+no target — approve it as its own account instead.
+
+Both acts are **logged decisions**: the ledger records the admin's user id, username
+and roles as the actor, and the identity as the target.
 
 ---
 
@@ -1931,8 +1996,10 @@ leeway), and the `nonce` = the one this login sent. A provider with **no issuer*
 no key set to verify against; its identity rests on the userinfo call, and the login's
 audit row states that (`id_token_verified: false`).
 
-Refusals answer **401** with a named reason and write an `auth.login_failed` ledger
-row naming the reason and the asserted identity:
+Refusals answer with a named reason and write an `auth.login_failed` ledger row
+naming the reason and the asserted identity. The status tells you which half refused:
+**401** — the identity was not proven, so the contract never looked at an account
+(2.4-2); **403** — the identity was proven and the linking contract (2.4-3) refused it:
 
 | `reason` | What was refused |
 |---|---|
@@ -1943,6 +2010,16 @@ row naming the reason and the asserted identity:
 | `subject_mismatch` | userinfo and the signed token name different people |
 | `userinfo_failed` / `no_identity_claim` | No usable identity was asserted |
 | `state_mismatch` / `state_expired` | The CSRF state is not this login's (single-use) |
+| `domain_not_allowed` (403) | The asserted email is outside the provider's `allowed_domains` |
+| `email_unverified` (403) | The provider requires a verified email and `email_verified` was not true |
+| `identity_pending` (403) | The email belongs to an existing account: a pending identity was created, no session issued (2.4-3) |
+| `account_pending` (403) | This identity is already pending an admin's decision |
+
+The contract (2.4-3) in one line: **an SSO identity claims the account it already
+belongs to, never the account its email names.** An identity never inherits a role from
+an email match — JIT provisioning lands at the `viewer` floor, roles come only from
+`role_mapping` when the operator configured it for that provider, and a mapping owns
+only the roles it names.
 
 The access and refresh tokens **never appear in a URL** (C6). The console redeems
 the one-time code below for them; a code is single-use and expires in 60 seconds.

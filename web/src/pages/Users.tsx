@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { getUsers, getRoles, updateUserRoles, createUser, deleteUser } from '../api/users';
+import { getUsers, getRoles, updateUserRoles, createUser, deleteUser, getPendingIdentities, approveIdentity, mergeIdentity, type PendingIdentity } from '../api/users';
 import type { Role, UserWithRoles } from '../auth/types';
 import { useTranslation } from 'react-i18next';
 import { Stamp } from '../components/Stamp';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
 import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
+import { useAuth } from '../auth/context';
 
 export function Users() {
   const { t } = useTranslation();
@@ -19,6 +20,9 @@ export function Users() {
   const [newRoles, setNewRoles] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
   const [pending, setPending] = useState<PendingConfirm | null>(null);
+  const [identities, setIdentities] = useState<PendingIdentity[]>([]);
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('admin');
   const guide = useGuideWords(users.length);
 
   const load = async () => {
@@ -26,6 +30,16 @@ export function Users() {
       const [usersData, rolesData] = await Promise.all([getUsers(), getRoles()]);
       setUsers(usersData);
       setRoles(rolesData);
+      // 2.4-3: the identities an SSO provider asserted that point at an account that
+      // already exists. Admin-only endpoint, and the read is admin-only too — a
+      // tenant's manager has no business seeing someone else's account being claimed.
+      if (isAdmin) {
+        try {
+          setIdentities(await getPendingIdentities());
+        } catch {
+          setIdentities([]);
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -94,12 +108,43 @@ export function Users() {
     }
   };
 
+  const handleApprove = async (identity: PendingIdentity) => {
+    try {
+      await approveIdentity(identity.id);
+      setPending(null);
+      await load();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+      setPending(null);
+    }
+  };
+
+  const handleMerge = async (identity: PendingIdentity) => {
+    try {
+      await mergeIdentity(identity.id);
+      setPending(null);
+      await load();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : t('common.error'));
+      setPending(null);
+    }
+  };
+
   if (loading) {
     return <div className="cap cap-sm p-6 text-text-muted">{t('common.loading')}</div>;
   }
 
   return (
     <div className="space-y-6">
+      {/* A refusal is stated at page level. `formError` used to render only inside
+          the modals, so a failed delete — or a rejected approve — left the page
+          looking like it had done nothing, which is the silent failure the
+          conventions refuse. */}
+      {formError && (
+        <div role="alert" className="panel px-3 py-2">
+          <span className="cap cap-sm text-[var(--stamp)]">{formError}</span>
+        </div>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[26px]">{t('users.title')}</h1>
@@ -114,6 +159,101 @@ export function Users() {
           {t('users.addUser')}
         </button>
       </div>
+
+      {/* 2.4-3 · the identities an identity provider asserted that OurWay will not
+          link by itself. Admin-only, stated plainly, with the account each assertion
+          points at named beside it — an admin deciding "is this person my ops-admin"
+          needs both sides of the claim on one line. */}
+      {isAdmin && (
+        <section className="panel overflow-hidden" aria-label={t('users.pendingTitle')}>
+          <div className="border-b border-rule px-4 py-3">
+            <h2 className="panel-head">{t('users.pendingTitle')}</h2>
+            <p className="cap cap-sm mt-1 text-text-muted">{t('users.pendingBody')}</p>
+          </div>
+          {identities.length === 0 ? (
+            <div className="cap cap-sm px-4 py-3 text-text-muted">{t('users.pendingNone')}</div>
+          ) : (
+            <div className="max-h-[18rem] overflow-y-auto overflow-x-auto">
+              <table className="ledger min-w-[660px]">
+                <thead>
+                  <tr>
+                    <th>{t('users.pendingAsserted')}</th>
+                    <th>{t('users.pendingProvider')}</th>
+                    <th>{t('users.pendingSubject')}</th>
+                    <th>{t('users.pendingTarget')}</th>
+                    <th className="w-52 text-right">{t('common.actions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {identities.map((identity) => (
+                    <tr key={identity.id} data-guide>
+                      <td>
+                        <span className="cap cap-sm text-text-primary">{identity.email}</span>
+                        <span
+                          className={`cap cap-sm block ${identity.email_verified ? 'text-[var(--online)]' : 'text-[var(--due)]'}`}
+                        >
+                          {identity.email_verified
+                            ? t('users.pendingVerified')
+                            : t('users.pendingUnverified')}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="cap cap-sm">{identity.provider}</span>
+                      </td>
+                      <td>
+                        <span className="ow-num block truncate text-[12px]" title={identity.subject}>
+                          {identity.subject}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="cap cap-sm text-text-primary">
+                          {identity.link_target_username}
+                        </span>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {(identity.link_target_roles ?? []).map((role) => (
+                            <Stamp key={role} tone="service">
+                              {role}
+                            </Stamp>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="text-right">
+                        <div className="flex justify-end gap-1.5">
+                          <button
+                            onClick={() =>
+                              setPending(
+                                pendingConfirm(t, 'approveIdentity', () => void handleApprove(identity), {
+                                  email: identity.email,
+                                })
+                              )
+                            }
+                            className="btn-quiet btn"
+                          >
+                            {t('users.approve')}
+                          </button>
+                          <button
+                            onClick={() =>
+                              setPending(
+                                pendingConfirm(t, 'mergeIdentity', () => void handleMerge(identity), {
+                                  subject: identity.subject,
+                                  name: identity.link_target_username ?? '',
+                                })
+                              )
+                            }
+                            className="btn-quiet btn text-[var(--service)]"
+                          >
+                            {t('users.merge')}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Users Table - responsive: scroll on mobile, full table on desktop */}
       <section className="panel overflow-hidden" aria-label={t('users.title')}>

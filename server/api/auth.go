@@ -162,6 +162,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	if user.IsPending() {
+		// A pending SSO identity (2.4-3) has no password, no roles, and no access. Its
+		// password check would fail anyway; naming the reason is what tells the admin
+		// who signs in that the row in front of them is a decision to make, not a
+		// broken password.
+		auditLoginAttempt(c, h.store, models.AuditAuthLoginFailed, user.ID, user.Username, []string{}, http.StatusForbidden)
+		c.JSON(http.StatusForbidden, gin.H{"error": "this identity is awaiting an administrator's decision"})
+		return
+	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		auditLoginAttempt(c, h.store, models.AuditAuthLoginFailed, user.ID, user.Username, []string{}, http.StatusUnauthorized)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})

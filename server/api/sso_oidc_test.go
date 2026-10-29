@@ -35,6 +35,9 @@ type ssoFixture struct {
 	// client carries cookies: the SSO flow sets `sso_state` on the authorize
 	// redirect and the callback refuses a state it cannot match to the cookie.
 	client *http.Client
+	// localPasswords is the fixture's book of the passwords it set on local
+	// accounts, so a test can prove a contract change did not lock anyone out.
+	localPasswords map[string]string
 }
 
 func newSSOFixture(t *testing.T) *ssoFixture {
@@ -82,7 +85,7 @@ func newSSOFixture(t *testing.T) *ssoFixture {
 		}
 	})
 
-	return &ssoFixture{baseURL: baseURL, st: st, client: &http.Client{Jar: jar}}
+	return &ssoFixture{baseURL: baseURL, st: st, client: &http.Client{Jar: jar}, localPasswords: map[string]string{}}
 }
 
 // adminToken creates an administrator and returns its access token.

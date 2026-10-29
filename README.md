@@ -291,11 +291,16 @@ discover it in production. Each item is tracked in
   the signed token must name the same subject. **The console's provider UI is still the
   hardcoded big three** (2.4-4) — any other IdP is added through the API today.
   Planned in 2.4.0 — see `docs/roadmap-2.x.md`.
-- **The identity-linking contract is not enforced yet.** `allowed_domains`,
-  `require_verified_email`, `link_policy` and `role_mapping` are stored per provider
-  and validated at the API door; enforcement (domain allow-list, pending identities for
-  new provider/email pairs, opt-in role mapping) is 2.4-3, the release's gate test. An
-  SSO login today can still match an existing account by asserted email.
+- **The identity-linking contract is enforced.** An SSO identity claims the account
+  it already belongs to — a new provider/subject pair is a new identity, and the one
+  that logs in is the one the `id_token` names. A provider asserting the email of an
+  **existing** account creates a **pending identity**: no roles, no login, an audit
+  row, and a decision on the admin's Users page (approve as its own account, merge
+  into the account it points at, or refuse). `allowed_domains` refuses emails outside
+  the list, `require_verified_email` honours `email_verified`, JIT provisioning lands
+  at the `viewer` floor, and role mapping is opt-in per provider and owns only the
+  roles it names. `link_policy=link` keeps the old behaviour where the operator chose
+  it, audited.
 - **macOS patch rollback is unsupported.** `agent/patch` deploys on macOS but
   refuses rollback; packages are restored manually (brew pin/reinstall).
 - **Linux patching covers apt and yum/dnf only** — no pacman or zypper.

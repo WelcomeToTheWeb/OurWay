@@ -65,7 +65,14 @@ type IdentityError struct {
 	Reason  string
 	Subject string
 	Email   string
-	Err     error
+	// TargetUserID is the account an assertion pointed at — set for
+	// `identity_pending`, where the whole point of the row is that someone's email
+	// was used to try to arrive as them.
+	TargetUserID string
+	// PendingUserID is the identity record the contract created, when a refusal
+	// created one. The admin who has to approve it needs its id.
+	PendingUserID string
+	Err           error
 }
 
 func (e *IdentityError) Error() string { return e.Reason + ": " + e.Err.Error() }
@@ -86,6 +93,15 @@ type LoginOutcome struct {
 	// published keys. False means the provider has no `jwks_uri` (no issuer: an
 	// operator typed the endpoints), and identity rests on the userinfo call.
 	VerifiedByIDToken bool
+	// LinkedExisting is the `link_policy=link` case: the identity was stamped onto an
+	// account that already existed, which is the pre-2.4 behaviour and only ever
+	// happens because the operator chose it for this provider. It is an audited act,
+	// and the API layer is where the audit lives.
+	LinkedExisting bool
+	// MappedRoles is the role set the provider's role mapping put on this account for
+	// this login, when a mapping is configured. Empty means no mapping: the recorded
+	// roles stand, and the `viewer` floor is unchanged.
+	MappedRoles []string
 }
 
 // NewCodeVerifier builds a PKCE code verifier: 32 random bytes, base64url, inside
@@ -347,8 +363,18 @@ func (h *OAuthHandler) HandleCallback(ctx context.Context, provider *models.SSOP
 			Err: fmt.Errorf("the provider asserted neither a subject nor an email")}
 	}
 
-	user, err := h.findOrCreateUser(ctx, provider, info)
+	// 2.4-3's contract, applied to the asserted identity before any account is
+	// touched: the domain allow-list, the verified-email requirement.
+	if gateErr := contractGate(provider, info); gateErr != nil {
+		gateErr.Subject, gateErr.Email = info.Subject, info.Email
+		return nil, gateErr
+	}
+
+	user, account, err := h.resolveAccount(ctx, provider, info)
 	if err != nil {
+		if iderr, ok := err.(*IdentityError); ok {
+			iderr.Subject, iderr.Email = info.Subject, info.Email
+		}
 		return nil, err
 	}
 
@@ -372,7 +398,31 @@ func (h *OAuthHandler) HandleCallback(ctx context.Context, provider *models.SSOP
 		Email:             info.Email,
 		EmailVerified:     info.EmailVerified,
 		VerifiedByIDToken: claims != nil,
+		LinkedExisting:    account.LinkedExisting,
+		MappedRoles:       account.MappedRoles,
 	}, nil
+}
+
+// contractGate is 2.4-3's door: an IdP may only assert identities the operator
+// listed, and an unverified email is not an identity when the operator requires one.
+// An empty allow-list is no restriction — the providers that shipped before 2.4 keep
+// working — and a list is a wall.
+func contractGate(provider *models.SSOProvider, info *UserInfo) *IdentityError {
+	if strings.TrimSpace(provider.AllowedDomains) != "" {
+		if strings.TrimSpace(info.Email) == "" {
+			return &IdentityError{Reason: ReasonNoEmailClaim,
+				Err: fmt.Errorf("provider %s lists allowed domains and the provider asserted no email", provider.Name)}
+		}
+		if !domainAllowed(provider.AllowedDomains, info.Email) {
+			return &IdentityError{Reason: ReasonDomainNotAllowed,
+				Err: fmt.Errorf("%s is outside %s's allowed domains (%s)", info.Email, provider.Name, provider.AllowedDomains)}
+		}
+	}
+	if provider.RequireVerifiedEmail && !info.EmailVerified {
+		return &IdentityError{Reason: ReasonEmailUnverified, Subject: info.Subject, Email: info.Email,
+			Err: fmt.Errorf("provider %s requires a verified email and %s was asserted unverified", provider.Name, info.Email)}
+	}
+	return nil
 }
 
 // rolesOf is the role set a session is issued with. A user with no role rows is
@@ -487,48 +537,119 @@ func userInfoFromClaims(provider *models.SSOProvider, claims map[string]any) *Us
 	return info
 }
 
-// HandleCallback's predecessor lived in the API layer's shape: a token pair and
-// nothing about the identity behind it. `findOrCreateUser` implements JIT
-// provisioning.
-func (h *OAuthHandler) findOrCreateUser(ctx context.Context, provider *models.SSOProvider, info *UserInfo) (*models.User, error) {
-	// Try to find by provider ID first
+// AccountOutcome is what the contract decided about the account space, so the API
+// layer can record it: an account linked by explicit policy, an identity parked as
+// pending, the roles the mapping owned.
+type AccountOutcome struct {
+	LinkedExisting     bool
+	CreatedJIT         bool
+	Pending            *models.User
+	ProposedLinkUserID string
+	MappedRoles        []string
+}
+
+// resolveAccount turns an asserted identity into an account, under the 2.4-3
+// contract. Three cases, and the middle one is the whole point:
+//
+//  1. the identity is already linked to an account → that account, and the role
+//     mapping re-applied (a mapping that owns role assignment owns it on every
+//     login, not just the first);
+//  2. the asserted email belongs to an existing account → **not** that account, by
+//     default. `link_policy=pending` parks the assertion as a pending identity with
+//     no roles and refuses the login; `link_policy=link` is the operator's explicit
+//     choice to keep the pre-2.4 behaviour, and it is audited;
+//  3. nobody has this identity → JIT provisioning at the `viewer` floor.
+//
+// A permissive IdP that lets anyone assert `ops-admin@corp.example` therefore
+// produces a ledger row and a pending identity. It does not produce the admin's
+// session, and it does not touch the admin's roles.
+func (h *OAuthHandler) resolveAccount(ctx context.Context, provider *models.SSOProvider, info *UserInfo) (*models.User, *AccountOutcome, error) {
+	outcome := &AccountOutcome{}
+
+	// 1. An identity this provider already provisioned.
 	if info.Subject != "" {
 		user, err := h.store.Users.FindByProvider(provider.Name, info.Subject)
 		if err == nil && user != nil {
-			return user, nil
+			if user.IsPending() {
+				return nil, outcome, &IdentityError{Reason: ReasonAccountPending,
+					TargetUserID: user.PendingLinkUserID, PendingUserID: user.ID,
+					Err: fmt.Errorf("this identity is awaiting an administrator's decision")}
+			}
+			mapped, err := h.applyRoleMapping(provider, user, info)
+			if err != nil {
+				return nil, outcome, err
+			}
+			outcome.MappedRoles = mapped
+			return user, outcome, nil
 		}
 	}
 
-	// Try to find by email
+	// 2. The asserted email belongs to an account that already exists.
+	var existing *models.User
 	if info.Email != "" {
-		user, err := h.store.Users.FindByEmail(info.Email)
-		if err == nil && user != nil {
-			// Update with provider info
-			user.Provider = provider.Name
-			user.ProviderID = info.Subject
-			h.store.Users.Update(user)
-			return user, nil
+		if user, err := h.store.Users.FindByEmail(info.Email); err == nil && user != nil {
+			existing = user
+		}
+	}
+	if existing != nil {
+		if provider.LinkPolicy == models.SSOLinkPolicyLink {
+			// The pre-2.4 behaviour, available because the operator named it for this
+			// provider. The account's roles are not touched here: linking says who the
+			// identity is, and the role mapping (if configured) decides roles.
+			existing.Provider = provider.Name
+			existing.ProviderID = info.Subject
+			existing.SSOAttributes = ssoAttributeSummary(provider.Name, info)
+			if err := h.store.Users.Update(existing); err != nil {
+				return nil, outcome, fmt.Errorf("failed to link the account: %w", err)
+			}
+			mapped, err := h.applyRoleMapping(provider, existing, info)
+			if err != nil {
+				return nil, outcome, err
+			}
+			outcome.LinkedExisting = true
+			outcome.MappedRoles = mapped
+			return existing, outcome, nil
+		}
+
+		// The contract's default: park the assertion, touch nothing that exists.
+		if provider.LinkPolicy == models.SSOLinkPolicyPending {
+			pending := &models.User{
+				ID:                uuid.NewString(),
+				Username:          h.uniqueUsername(provider, info),
+				Email:             info.Email,
+				PasswordHash:      "",
+				Provider:          provider.Name,
+				ProviderID:        info.Subject,
+				SSOAttributes:     ssoAttributeSummary(provider.Name, info),
+				Status:            models.UserStatusPending,
+				PendingProvider:   provider.Name,
+				PendingLinkUserID: existing.ID,
+			}
+			if err := h.store.Users.Create(pending); err != nil {
+				return nil, outcome, fmt.Errorf("failed to record the pending identity: %w", err)
+			}
+			outcome.Pending = pending
+			outcome.ProposedLinkUserID = existing.ID
+			return nil, outcome, &IdentityError{Reason: ReasonIdentityPending,
+				TargetUserID: existing.ID, PendingUserID: pending.ID,
+				Err: fmt.Errorf("%s belongs to an existing account; the identity is pending an administrator's decision", info.Email)}
 		}
 	}
 
-	// Create new user (JIT provisioning)
+	// 3. A new identity: JIT provisioning at the floor.
 	email := info.Email
 	if email == "" {
 		email = info.Subject + "@" + provider.Name + ".sso"
 	}
 
-	username := email
-	if idx := strings.Index(email, "@"); idx > 0 {
-		username = email[:idx]
-	}
-
 	user := &models.User{
-		ID:           uuid.New().String(),
-		Username:     username,
+		ID:           uuid.NewString(),
+		Username:     h.uniqueUsername(provider, info),
 		Email:        email,
 		PasswordHash: "",
 		Provider:     provider.Name,
 		ProviderID:   info.Subject,
+		Status:       models.UserStatusActive,
 	}
 
 	// The raw `id_token` is not stored (2.4-2). It is an access credential to
@@ -541,15 +662,109 @@ func (h *OAuthHandler) findOrCreateUser(ctx context.Context, provider *models.SS
 	// The JIT floor is a role, recorded on the account: `HandleCallback` has always
 	// issued a `viewer` token for a new SSO user, and an account with no role rows
 	// is an account whose access is decided at login time by whoever calls it
-	// next. Recording the floor is what 2.4-3's pending state means.
+	// next.
 	if err := h.store.Users.Create(user); err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
+		return nil, outcome, fmt.Errorf("failed to create user: %w", err)
 	}
 	if err := h.grantFloorRole(user.ID); err != nil {
-		return nil, fmt.Errorf("failed to record the JIT floor role: %w", err)
+		return nil, outcome, fmt.Errorf("failed to record the JIT floor role: %w", err)
+	}
+	outcome.CreatedJIT = true
+
+	mapped, err := h.applyRoleMapping(provider, user, info)
+	if err != nil {
+		return nil, outcome, err
+	}
+	outcome.MappedRoles = mapped
+
+	return user, outcome, nil
+}
+
+// uniqueUsername derives a username from the asserted identity, and never overwrites
+// one. `users.username` is a unique index, and an SSO assertion whose name is taken
+// (a local account with the same local part, an identity from another provider) is
+// exactly the case the contract is about — so the pending row gets a distinct name
+// and the admin sees the same person under a name that does not collide.
+func (h *OAuthHandler) uniqueUsername(provider *models.SSOProvider, info *UserInfo) string {
+	email := strings.TrimSpace(info.Email)
+	base := email
+	if idx := strings.Index(email, "@"); idx > 0 {
+		base = email[:idx]
+	}
+	if base == "" {
+		base = info.Subject
+	}
+	if base == "" {
+		base = "sso-user"
+	}
+	candidate := base
+	for n := 2; n < 100; n++ {
+		if existing, err := h.store.Users.GetByUsername(candidate); err != nil || existing == nil {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s-%d", base, n)
+	}
+	return fmt.Sprintf("%s-%s", base, uuid.NewString()[:8])
+}
+
+// applyRoleMapping is 2.4-3's fourth rule: role mapping is opt-in, and when it is
+// configured it **owns** role assignment for the accounts that arrive through this
+// provider. No mapping is not "everyone is admin" — it is no mapping, and the
+// recorded roles and the `viewer` floor stand unchanged.
+//
+// Owning it means removing what the claim no longer asserts: an operator who maps
+// `rmm-admins` to admin expects the technician who leaves that group to stop being
+// admin. Roles outside the mapping's own set are never touched, so a mapping cannot
+// quietly strip a role the operator never put in it.
+func (h *OAuthHandler) applyRoleMapping(provider *models.SSOProvider, user *models.User, info *UserInfo) ([]string, error) {
+	mapping := parseRoleMapping(provider.RoleMapping)
+	if len(mapping) == 0 {
+		return nil, nil
 	}
 
-	return user, nil
+	want := map[string]bool{"viewer": true}
+	for _, group := range info.Groups {
+		if role, ok := mapping[strings.TrimSpace(group)]; ok {
+			want[role] = true
+		}
+	}
+
+	current := map[string]string{}
+	if roles, err := h.store.UserRoles.GetUserRoles(user.ID); err == nil {
+		for _, role := range roles {
+			current[role.Name] = role.ID
+		}
+	}
+
+	owned := mappingOwnsRoles(mapping)
+	for name, id := range current {
+		if want[name] || !owned[name] {
+			continue
+		}
+		if err := h.store.UserRoles.RemoveRole(user.ID, id); err != nil {
+			return nil, fmt.Errorf("failed to remove the role the mapping no longer asserts: %w", err)
+		}
+		delete(current, name)
+	}
+
+	granted := make([]string, 0, len(want))
+	for name := range want {
+		if _, ok := current[name]; ok {
+			granted = append(granted, name)
+			continue
+		}
+		role, err := h.store.Roles.GetRoleByName(name)
+		if err != nil {
+			// A mapping naming a role that does not exist grants nothing. It must not
+			// invent one, and it must not fail the login open.
+			continue
+		}
+		if err := h.store.UserRoles.AssignRole(user.ID, role.ID); err != nil {
+			return nil, fmt.Errorf("failed to assign the mapped role: %w", err)
+		}
+		granted = append(granted, name)
+	}
+	return granted, nil
 }
 
 // ssoAttributeSummary is the claim record the product keeps: who the provider

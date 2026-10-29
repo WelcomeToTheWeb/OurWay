@@ -138,9 +138,14 @@ const (
 	AuditUserRoleChange    = "user.role_change"
 	AuditUserCreate        = "user.create"
 	AuditUserDelete        = "user.delete"
-	AuditRoleCreate        = "role.create"
-	AuditRoleUpdate        = "role.update"
-	AuditRoleDelete        = "role.delete"
+	// 2.4-3: the two decisions an admin makes about a pending SSO identity — approve
+	// it as its own account at the floor, or merge it into the account its asserted
+	// email points at.
+	AuditUserApprove = "user.approve"
+	AuditUserMerge   = "user.merge"
+	AuditRoleCreate  = "role.create"
+	AuditRoleUpdate  = "role.update"
+	AuditRoleDelete  = "role.delete"
 
 	AuditAPIKeyCreate = "api_key.create"
 	AuditAPIKeyRotate = "api_key.rotate"
@@ -159,6 +164,10 @@ const (
 	// operator-supplied URL, so it is recorded like the probe of a saved provider.
 	AuditSSODiscover = "sso.discover"
 	AuditSSODelete   = "sso.delete"
+	// 2.4-3: stamping an SSO identity onto an existing account is the pre-2.4
+	// behaviour, reachable only when the operator chose `link_policy=link` for that
+	// provider. It gives an existing account's access to a new door, so it is a row.
+	AuditSSOLink = "sso.link"
 
 	AuditAlertResolve     = "alert.resolve"
 	AuditAlertAcknowledge = "alert.acknowledge"

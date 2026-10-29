@@ -58,6 +58,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `id_token` (an access credential to another system, in the table a backup copies) is
   gone.
 
+- **The identity-linking contract** (2.4-3) — the release's gate test. **An SSO
+  identity claims the account it already belongs to, never the account its email
+  names.** `findOrCreateUser`'s "find by email" fallback is gone: a provider asserting
+  the email of an **existing** account produces a **pending identity** (no roles, no
+  login, an audit row) and an admin's decision, not a session as that account.
+  - `allowed_domains` refuses assertions outside the list (`domain_not_allowed`);
+    `require_verified_email` honours the `email_verified` claim (`email_unverified`).
+  - JIT provisioning lands at the **`viewer` floor** and no role is inherited from an
+    email match. Role mapping is **opt-in per provider** (`role_mapping`, e.g.
+    `{"rmm-admins":"admin"}`): configured, it owns only the roles it names, granting
+    them while the group claim asserts them and taking them back when it stops.
+  - `link_policy`: `pending` (default) parks the assertion for an admin; `link` is the
+    operator's explicit choice to link as 2.3 and earlier did, audited as `sso.link`.
+  - Admin surface: `GET /api/users/pending`, `POST /api/users/:id/approve` (activates
+    the identity as its own account at the floor) and `POST /api/users/:id/merge`
+    (attaches it to the account its email belongs to, roles untouched). Audited as
+    `user.approve` / `user.merge`. Migration 13 (`sso_pending_identities`) adds
+    `users.status` (`active` / `pending`), `users.pending_provider` and
+    `users.pending_link_user_id`; existing accounts are `active`.
+  - Refusals split by which half refused: **401** = the identity was not proven,
+    **403** = the identity was proven and the contract refused it
+    (`identity_pending`, `account_pending`, `domain_not_allowed`, `email_unverified`).
+    A pending account cannot sign in with a password, and is refused by name.
+  - Console: the **Users** page (admin) shows each pending assertion beside the
+    account it points at — asserted email, verified-by-IdP fact, provider, subject,
+    target account and its roles — with Approve and Merge confirming in the sheet. A
+    page-level alert now carries refusals; `formError` used to render only inside the
+    modals, so a rejected act looked like nothing had happened.
+
 ### Fixed
 - `auditOKOnce` / `auditRefusedOnce` marked the request as recorded **before** writing,
   so `recordAudit`'s duplicate-row guard swallowed the row: those helpers wrote nothing.

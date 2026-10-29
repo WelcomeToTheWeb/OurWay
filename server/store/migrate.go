@@ -308,6 +308,39 @@ var migrations = []migration{
 		}
 		return nil
 	}},
+	{version: 13, name: "sso_pending_identities", fn: func(db *gorm.DB) error {
+		// 2.4-3: the linking contract's state. A new provider/email pair whose email
+		// belongs to an existing account becomes a **pending identity** — a row with no
+		// roles that cannot log in, naming the account the assertion points at, until an
+		// admin approves, merges, or refuses it.
+		//
+		// The columns live on `users` rather than in a side table because the record is
+		// an account-shaped fact an operator acts on in the Users page, and a row there
+		// cannot be forgotten the way a queue can.
+		//
+		// Numbering: the plan's 2.4 line said 13 was thresholds. Migrations are
+		// append-only and contiguous, and the identity work landed first, so thresholds
+		// are 14, channels 15, recordings 16 — `docs/phase2.4-tasks.md` says so.
+		for _, col := range []struct{ name, field string }{
+			{"status", "Status"},
+			{"pending_provider", "PendingProvider"},
+			{"pending_link_user_id", "PendingLinkUserID"},
+		} {
+			if !db.Migrator().HasColumn(&models.User{}, col.name) {
+				if err := db.Migrator().AddColumn(&models.User{}, col.field); err != nil {
+					return err
+				}
+			}
+		}
+		// Same lesson as migration 12: `AddColumn` does not apply the model's default to
+		// the rows that already exist, and an empty status is a state no code path
+		// reads. Every account that existed before the contract ships is active — the
+		// contract changes what a *new* SSO assertion may do, not what already works.
+		if err := db.Exec("UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''").Error; err != nil {
+			return err
+		}
+		return nil
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

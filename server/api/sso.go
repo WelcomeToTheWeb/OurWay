@@ -242,7 +242,7 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 	// Verify state, then consume the cookie so it cannot be replayed (M13).
 	expectedState, err := c.Cookie("sso_state")
 	if err != nil || expectedState != c.Query("state") {
-		h.auditSSORefusal(c, provider, sso.ReasonStateMismatch, http.StatusBadRequest, "", "")
+		h.auditSSORefusal(c, provider, http.StatusBadRequest, ssoRefusal{Reason: sso.ReasonStateMismatch})
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state", "reason": sso.ReasonStateMismatch})
 		return
 	}
@@ -253,7 +253,7 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 	// presents no record is a replay of a state value, not a login in progress.
 	login, ok := h.takeLoginState(expectedState)
 	if !ok || login.provider != provider.Name {
-		h.auditSSORefusal(c, provider, sso.ReasonStateExpired, http.StatusBadRequest, "", "")
+		h.auditSSORefusal(c, provider, http.StatusBadRequest, ssoRefusal{Reason: sso.ReasonStateExpired})
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state", "reason": sso.ReasonStateExpired})
 		return
 	}
@@ -267,21 +267,24 @@ func (h *SSOHandler) Callback(c *gin.Context) {
 	redirectURI := h.redirectURIFor(provider)
 	outcome, err := h.oauth.HandleCallback(c.Request.Context(), provider, code, redirectURI, login.nonce, login.verifier)
 	if err != nil {
-		reason := sso.ReasonCodeExchange
-		subject := ""
-		email := ""
+		refusal := ssoRefusal{Reason: sso.ReasonCodeExchange}
 		var iderr *sso.IdentityError
 		if errors.As(err, &iderr) {
-			reason = iderr.Reason
-			subject = iderr.Subject
-			email = iderr.Email
+			refusal.Reason = iderr.Reason
+			refusal.Subject = iderr.Subject
+			refusal.Email = iderr.Email
+			refusal.Target = iderr.TargetUserID
+			refusal.Pending = iderr.PendingUserID
 		}
 		log.Printf("sso: callback refused for provider %s: %v", providerName, err)
 		// A refused identity is a named answer and a ledger row, never a 500: the
 		// person standing at the browser wants to know the login was refused, and
-		// the operator wants to know which rule refused it.
-		h.auditSSORefusal(c, provider, reason, http.StatusUnauthorized, subject, email)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "SSO login refused", "reason": reason})
+		// the operator wants to know which rule refused it. The status separates the
+		// two kinds: 401 "the identity was not proven", 403 "the identity was proven
+		// and the contract says it may not arrive here".
+		status := refusalStatus(refusal.Reason)
+		h.auditSSORefusal(c, provider, status, refusal)
+		c.JSON(status, gin.H{"error": "SSO login refused", "reason": refusal.Reason})
 		return
 	}
 
@@ -528,21 +531,52 @@ func (h *SSOHandler) TestProvider(c *gin.Context) {
 // provider's own configured one when the operator set it (a server behind a proxy
 // answers on a name that is not its internal one), and the installation default
 // otherwise.
+// refusalStatus is the HTTP answer to a named refusal. 401 is "the identity was not
+// proven" (a token that does not check out, a code that cannot be exchanged, a state
+// that is not this login's); 403 is "the identity was proven, and the provider's
+// contract says it may not arrive here" (a domain outside the allow-list, an
+// unverified email, a pending identity).
+func refusalStatus(reason string) int {
+	switch reason {
+	case sso.ReasonDomainNotAllowed, sso.ReasonEmailUnverified,
+		sso.ReasonNoEmailClaim, sso.ReasonIdentityPending, sso.ReasonAccountPending:
+		return http.StatusForbidden
+	}
+	return http.StatusUnauthorized
+}
+
 // auditSSORefusal records a refused SSO login. The actor of a refused login is, by
 // construction, not established — the row's value is the door it was refused at, the
-// outcome, and the details: **which rule** refused it, and whom the provider
-// asserted. "SSO login failed" in a server log is not a record; the ledger row is
-// what an operator reads when a user says "the door is closed".
-func (h *SSOHandler) auditSSORefusal(c *gin.Context, provider *models.SSOProvider, reason string, status int, subject, email string) {
+// outcome, and the details: **which rule** refused it, whom the provider asserted,
+// and (for 2.4-3's pending case) the account the assertion pointed at and the identity
+// record the contract created. "SSO login failed" in a server log is not a record; the
+// ledger row is what an operator reads when a user says "the door is closed", and what
+// an admin reads to answer "someone tried to sign in as me".
+// ssoRefusal is the shape of a refused SSO login, as the ledger records it.
+type ssoRefusal struct {
+	Reason  string
+	Subject string
+	Email   string
+	Target  string
+	Pending string
+}
+
+func (h *SSOHandler) auditSSORefusal(c *gin.Context, provider *models.SSOProvider, status int, r ssoRefusal) {
 	if h.store == nil || h.store.Audit == nil {
 		return
 	}
-	details := map[string]any{"reason": reason, "provider": provider.Name}
-	if subject != "" {
-		details["subject"] = subject
+	details := map[string]any{"reason": r.Reason, "provider": provider.Name}
+	if r.Subject != "" {
+		details["subject"] = r.Subject
 	}
-	if email != "" {
-		details["asserted_email"] = email
+	if r.Email != "" {
+		details["asserted_email"] = r.Email
+	}
+	if r.Target != "" {
+		details["target_user"] = r.Target
+	}
+	if r.Pending != "" {
+		details["pending_identity"] = r.Pending
 	}
 	auditRefusedOnce(c, h.store, models.AuditAuthLoginFailed, status,
 		AuditTarget{Type: "sso-provider", ID: provider.Name}, details)
@@ -553,6 +587,11 @@ func (h *SSOHandler) auditSSORefusal(c *gin.Context, provider *models.SSOProvide
 // session yet — this is the act that creates one. `id_token_verified` is stated, not
 // hidden: false means the provider has no `jwks_uri` (its endpoints were typed by
 // hand), so its identity rested on the userinfo call alone.
+//
+// When 2.4-3's `link_policy=link` stamped the identity onto an account that already
+// existed, that is a second row (`sso.link`) naming the account: it is the pre-2.4
+// behaviour, reachable only by the operator's explicit choice, and an operator who
+// enables it should be able to see every time it happened.
 func (h *SSOHandler) auditSSOLogin(c *gin.Context, outcome *sso.LoginOutcome, provider *models.SSOProvider) {
 	if h.store == nil || h.store.Audit == nil || outcome == nil || outcome.User == nil {
 		return
@@ -566,6 +605,17 @@ func (h *SSOHandler) auditSSOLogin(c *gin.Context, outcome *sso.LoginOutcome, pr
 		roles = joinRoles(names)
 	}
 	markAudited(c)
+	loginDetails := map[string]any{
+		"provider":          provider.Name,
+		"subject":           outcome.Subject,
+		"email":             outcome.Email,
+		"email_verified":    outcome.EmailVerified,
+		"id_token_verified": outcome.VerifiedByIDToken,
+		"roles":             roles,
+	}
+	if len(outcome.MappedRoles) > 0 {
+		loginDetails["role_mapping_applied"] = true
+	}
 	_ = h.store.Audit.Record(&models.AuditLog{
 		ID:            models.NewAuditID(),
 		ActorUserID:   outcome.User.ID,
@@ -576,15 +626,30 @@ func (h *SSOHandler) auditSSOLogin(c *gin.Context, outcome *sso.LoginOutcome, pr
 		TargetType:    "sso-provider",
 		TargetID:      provider.Name,
 		Outcome:       models.AuditOutcomeOK,
-		Details: store.EncodeDetails(map[string]any{
-			"provider":          provider.Name,
-			"subject":           outcome.Subject,
-			"email":             outcome.Email,
-			"email_verified":    outcome.EmailVerified,
-			"id_token_verified": outcome.VerifiedByIDToken,
-		}),
-		SourceIP: c.ClientIP(),
+		Details:       store.EncodeDetails(loginDetails),
+		SourceIP:      c.ClientIP(),
 	})
+
+	if outcome.LinkedExisting {
+		_ = h.store.Audit.Record(&models.AuditLog{
+			ID:            models.NewAuditID(),
+			ActorUserID:   outcome.User.ID,
+			ActorUsername: outcome.User.Username,
+			ActorRoles:    roles,
+			ActorProvider: provider.Name,
+			Action:        models.AuditSSOLink,
+			TargetType:    "user",
+			TargetID:      outcome.User.ID,
+			Outcome:       models.AuditOutcomeOK,
+			Details: store.EncodeDetails(map[string]any{
+				"provider": provider.Name,
+				"subject":  outcome.Subject,
+				"email":    outcome.Email,
+				"policy":   models.SSOLinkPolicyLink,
+			}),
+			SourceIP: c.ClientIP(),
+		})
+	}
 }
 
 func (h *SSOHandler) redirectURIFor(provider *models.SSOProvider) string {
