@@ -45,7 +45,10 @@
     "active": "Active",
     "inactive": "Inactive",
     "enabled": "Enabled",
-    "disabled": "Disabled"
+    "disabled": "Disabled",
+    "enable": "Enable",
+    "disable": "Disable",
+    "dismiss": "Dismiss"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -628,6 +631,11 @@
       "title": "Delete this threshold rule?",
       "body": "Units covered only by this rule return to the built-in floor: {{scope}} {{target}}, {{metric}}.",
       "action": "Delete rule"
+    },
+    "deleteChannel": {
+      "title": "Delete this notification channel?",
+      "body": "{{name}} delivers {{events}}. Its delivery history stays; nothing new will be delivered on this channel.",
+      "action": "Delete channel"
     }
   },
   "clients": {
@@ -787,5 +795,68 @@
       "disk": "Disk"
     },
     "globalName": "every unit"
+  },
+  "channels": {
+    "title": "Notification channels",
+    "subtitle": "Who hears about what. One routing, one delivery ledger, for an HTTP endpoint, a chat post, or a mailbox.",
+    "addChannel": "Add channel",
+    "editChannel": "Edit channel",
+    "kind": "Kind",
+    "kindBody": "The kind decides what arrives: a JSON event, a chat card, or a mail. It cannot change after the channel exists.",
+    "namePlaceholder": "On-call mailbox",
+    "endpoint": "Endpoint",
+    "endpointPlaceholder": "https://hooks.slack.com/services/…",
+    "recipients": "Recipients",
+    "recipientsBody": "One address per line. The mail server belongs to the installation; who it writes to is the channel's.",
+    "minSeverity": "Severity floor",
+    "minSeverityBody": "Events below this severity are never routed here — and no delivery row is written for them.",
+    "scope": "Tenants",
+    "scopeBody": "Empty reaches every tenant. Naming tenants narrows the channel to them.",
+    "scopeAll": "Every tenant",
+    "tags": "Tags",
+    "tagsBody": "Empty reaches every unit. Named tags narrow the channel to units carrying one.",
+    "events": "Events",
+    "state": "State",
+    "routing": "Routing",
+    "none": "No channels yet",
+    "noneDesc": "A channel is how a fact about the fleet reaches a person: a mailbox, a chat post, an endpoint of your own.",
+    "testSend": "Send a test",
+    "testSent": "Test queued — it appears in the delivery history.",
+    "deliveries": "Delivery history",
+    "noDeliveries": "Nothing delivered yet.",
+    "deliveryEvent": "Event",
+    "deliveryStated": "Recorded",
+    "deliveryTries": "Tries",
+    "deliveryResult": "Result",
+    "deliveryAnswer": "Their answer",
+    "nextRetry": "Next retry",
+    "retry": "Retry now",
+    "deleteChannel": "Delete channel",
+    "mailNotice": "This installation has no mail server (SMTP_HOST, SMTP_PORT), so email channels cannot deliver.",
+    "mailReady": "Mail server set: {{host}}:{{port}}, sending as {{from}}.",
+    "floor": {
+      "info": "info and above",
+      "warning": "warning and above",
+      "critical": "critical only",
+      "none": "any event"
+    },
+    "kindLabel": {
+      "webhook": "HTTP endpoint",
+      "slack": "Slack",
+      "teams": "Teams",
+      "email": "Mailbox"
+    },
+    "types": {
+      "alert_created": "Alert created",
+      "alert_resolved": "Alert resolved",
+      "device_online": "Unit online",
+      "device_offline": "Unit offline",
+      "device_registered": "Unit enrolled",
+      "patch_deployed": "Patch deployed",
+      "patch_detected": "Patch available",
+      "session_started": "Session started",
+      "test": "Test notification"
+    },
+    "formBody": "Routing is applied before anything is sent: a channel that is not asked for an event writes no record of it."
   }
 }

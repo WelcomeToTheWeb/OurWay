@@ -22,6 +22,20 @@ import (
 	"ourway/server/ws"
 )
 
+// mailTransport is the installation's mail transport. main sets it from the
+// loaded config, the same way it sets the installers directory: the package
+// stays usable (and testable) without a server bootstrap, and an installation
+// with no SMTP host cannot send mail, which the channel API states at save time.
+var mailTransport webhooks.SMTP
+
+// SetMailTransport sets the SMTP transport email channels deliver through.
+func SetMailTransport(transport webhooks.SMTP) {
+	mailTransport = transport
+}
+
+// MailTransport reads the configured transport.
+func MailTransport() webhooks.SMTP { return mailTransport }
+
 // SetupRouter configures and returns the Gin router with all routes.
 // ctx scopes the router's background jobs (webhook retry loop, scheduled
 // update scan); cancelling it stops them (M9).
@@ -70,7 +84,7 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 	ssoHandler := NewSSOHandler(store, jwtAuth, webURL)
 	installerHandler := NewInstallerHandler(installersDir)
 	apiKeyHandler := CreateAPIKeyHandler(store, jwtAuth)
-	webhookDispatcher := webhooks.NewDispatcher(store)
+	webhookDispatcher := webhooks.NewDispatcherWithSMTP(store, MailTransport())
 	webhookHandler := NewWebhookHandler(store, webhookDispatcher)
 	events.SetPublisher(webhookDispatcher)
 
@@ -341,6 +355,23 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 			webhookGroup.POST("/:id/test", RequireAnyRole("admin", "manager"), webhookHandler.Test)
 			webhookGroup.GET("/:id/deliveries", RequireAnyRole("admin", "manager"), webhookHandler.ListDeliveries)
 			webhookGroup.POST("/:id/deliveries/:delivery_id/retry", RequireAnyRole("admin", "manager"), webhookHandler.RetryDelivery)
+		}
+
+		// Notification channel routes (2.4-6). A channel is a webhook generalized to
+		// mail and chat, so both names address the same ledger through the same
+		// handlers: `/v2/webhooks` is what a v2.3 integration already calls, and
+		// `/v2/channels` is the name the console uses now that the ledger holds
+		// mailboxes and chat endpoints as well as URLs.
+		channelGroup := protected.Group("/v2/channels")
+		{
+			channelGroup.POST("", RequireAnyRole("admin", "manager"), webhookHandler.Create)
+			channelGroup.GET("", RequireAnyRole("admin", "manager"), webhookHandler.List)
+			channelGroup.GET("/:id", RequireAnyRole("admin", "manager"), webhookHandler.Get)
+			channelGroup.PUT("/:id", RequireAnyRole("admin", "manager"), webhookHandler.Update)
+			channelGroup.DELETE("/:id", RequireRole("admin"), webhookHandler.Delete)
+			channelGroup.POST("/:id/test", RequireAnyRole("admin", "manager"), webhookHandler.Test)
+			channelGroup.GET("/:id/deliveries", RequireAnyRole("admin", "manager"), webhookHandler.ListDeliveries)
+			channelGroup.POST("/:id/deliveries/:delivery_id/retry", RequireAnyRole("admin", "manager"), webhookHandler.RetryDelivery)
 		}
 
 		// API key routes

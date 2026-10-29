@@ -155,7 +155,17 @@ func TestRouteRoleMatrix(t *testing.T) {
 		// Webhooks.
 		{"viewer cannot create webhook", "POST", "/api/v2/webhooks", "viewer", 403},
 		{"technician cannot create webhook", "POST", "/api/v2/webhooks", "technician", 403},
-		{"manager passes create-webhook middleware", "POST", "/api/v2/webhooks", "manager", 400},
+		// 2.4-6: a manager may define a channel, but only one scoped to the
+		// tenants they administer. An unscoped channel reaches every tenant, and
+		// that is not a tenant administrator's decision — so the handler refuses
+		// it, on the same ground as the threshold scopes in 2.4-5.
+		{"manager cannot define an all-tenant channel", "POST", "/api/v2/webhooks", "manager", 403},
+		{"manager cannot define an all-tenant channel under the channel name", "POST", "/api/v2/channels", "manager", 403},
+		{"viewer cannot create channel", "POST", "/api/v2/channels", "viewer", 403},
+		{"technician cannot create channel", "POST", "/api/v2/channels", "technician", 403},
+		{"admin passes create-channel middleware", "POST", "/api/v2/channels", "admin", 400},
+		{"manager cannot delete channel", "DELETE", "/api/v2/channels/wh-id", "manager", 403},
+		{"admin passes delete-channel middleware", "DELETE", "/api/v2/channels/wh-id", "admin", 404},
 		{"manager cannot delete webhook", "DELETE", "/api/v2/webhooks/wh-id", "manager", 403},
 		{"admin passes delete-webhook middleware", "DELETE", "/api/v2/webhooks/wh-id", "admin", 404},
 		// SSO provider management.

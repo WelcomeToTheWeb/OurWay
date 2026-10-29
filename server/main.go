@@ -20,6 +20,7 @@ import (
 	"ourway/server/files"
 	"ourway/server/metrics"
 	"ourway/server/store"
+	"ourway/server/webhooks"
 	"ourway/server/ws"
 )
 
@@ -30,6 +31,10 @@ func main() {
 
 	// Single source of truth for the installer download directory.
 	api.SetInstallersDir(cfg.InstallersDir)
+	api.SetMailTransport(webhooks.SMTP{
+		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
+		Password: cfg.SMTPPassword, From: cfg.SMTPFrom, StartTLS: cfg.SMTPStartTLS,
+	})
 
 	// Server lifecycle context: background workers started with this
 	// context stop when it is cancelled during shutdown.

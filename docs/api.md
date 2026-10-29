@@ -22,12 +22,12 @@ Complete reference for the OurWay REST API and WebSocket endpoint.
 - [Remote Session Endpoints](#remote-session-endpoints)
 - [Patch Management Endpoints](#patch-management-endpoints)
 - [File Transfer Endpoints](#file-transfer-endpoints)
-- [Webhook Endpoints (API v2)](#webhook-endpoints-api-v2)
+- [Notification Channels (API v2)](#notification-channels-api-v2)
 - [API Key Endpoints (API v2)](#api-key-endpoints-api-v2)
 - [Health, Readiness and Version](#health-readiness-and-version)
 - [WebSocket Endpoint](#websocket-endpoint)
 - [Rate Limiting](#rate-limiting)
-- [Webhook Payload Format](#webhook-payload-format)
+- [Channel Payload Format](#channel-payload-format)
 - [Error Format](#error-format)
 - [Data Models](#data-models)
 
@@ -2344,71 +2344,144 @@ DELETE /api/sso/providers/:id
 
 ---
 
-## Webhook Endpoints (API v2)
+## Notification Channels (API v2)
 
-### Create Webhook
-```
-POST /api/v2/webhooks
-```
+A **channel** is one way this installation tells people what happened. Since 2.4-6
+one row carries four kinds — `webhook` (the v2.3 HTTP endpoint), `slack`, `teams`
+and `email` — with its routing (tenants, tags, severity floor) stated on the row,
+and one delivery ledger behind every kind.
 
-**Request:**
+`/api/v2/webhooks` and `/api/v2/channels` address the **same ledger through the
+same handlers**: the old name is what a v2.3 integration already calls, the new
+name is what the row is now. Both are documented here; neither is a shim.
+
+### Create Channel
+```
+POST /api/v2/channels          (also: POST /api/v2/webhooks)
+```
+**Access:** admin, manager. A manager must name the tenants the channel reaches.
+
+**Request** (only `name`, `events` and the kind's destination are required; absent
+fields keep their stored value on update):
 ```json
 {
-  "name": "Slack notifications",
-  "url": "https://hooks.slack.com/services/xxx",
-  "events": ["alert_created", "alert_resolved"],
+  "name": "On-call mailbox",
+  "kind": "email",
+  "events": ["alert_created", "patch_deployed"],
+  "config": { "to": ["oncall@corp.example"] },
+  "min_severity": "critical",
+  "scope_clients": ["<client-id>"],
+  "tags": ["prod"],
   "headers": { "X-Custom": "value" },
   "enabled": true
 }
 ```
 
-**Supported event types:**
-- `device_registered` — new device registered
-- `device_online` — device comes online
-- `device_offline` — device goes offline
-- `alert_created` — new alert created
-- `alert_resolved` — alert resolved
-- `patch_deployed` — patch deployed to device
-- `session_started` — remote session started
-- `session_frame` — remote session video frame received
+| Field | Meaning |
+| --- | --- |
+| `kind` | `webhook`, `slack`, `teams`, `email`. Immutable after creation. |
+| `url` | The endpoint for `webhook`, `slack`, `teams`. An email channel takes none. |
+| `config` | Per-kind settings. For `email`: `to` (addresses), optional `from`. |
+| `min_severity` | `""` (any event), `info`, `warning`, `critical`. Events below the floor are never routed here. |
+| `scope_clients` | Tenant ids the channel receives. Empty reaches every tenant — an admin-only choice. |
+| `tags` | Tags the unit must carry. Empty reaches every unit. |
+| `events` | The event types the channel subscribes to, `["alert_created", …]`. Include `test` to allow a test send. |
 
-### List Webhooks
+**Supported event types:** `device_registered`, `device_online`, `device_offline`,
+`alert_created`, `alert_resolved`, `patch_deployed`, `patch_detected`,
+`reboot_pending`, `session_started`, `test`.
+
+**Response** — `201`, with the generated HMAC signing secret shown once:
+```json
+{ "webhook": { "id": "…", "kind": "email", "min_severity": "critical", … },
+  "secret": "hex" }
 ```
-GET /api/v2/webhooks
+No read path returns the secret again; the channel's JSON never carries it.
+
+### List Channels
+```
+GET /api/v2/channels           (also: GET /api/v2/webhooks)
+```
+Returns every channel for an admin, and only the channels scoped to the caller's
+tenants for a manager. The response also states the installation's mail transport,
+which is a fact of the installation rather than of any channel, and which is what
+explains an email channel that cannot deliver:
+```json
+{ "webhooks": [ … ],
+  "mail": { "configured": true, "host": "mail.corp.example", "port": 587, "sender": "ourway@corp.example" } }
+```
+Credentials are never part of `mail`.
+
+### Get · Update · Delete Channel
+```
+GET    /api/v2/channels/:id
+PUT    /api/v2/channels/:id
+DELETE /api/v2/channels/:id    (admin only)
+```
+A field that is absent from the request keeps its stored value, so the console's
+enable toggle sends `{"enabled": false}` and cannot wipe the routing beside it.
+
+### Test a Channel
+```
+POST /api/v2/channels/:id/test
+```
+Queues a `test` event **through the channel's own routing** and writes the same
+delivery row every send writes, so the test is pointable in the ledger.
+
+### Delivery History
+```
+GET /api/v2/channels/:id/deliveries
+```
+```json
+{ "deliveries": [{
+    "id": "…", "webhook_id": "…", "kind": "slack", "channel": "ops slack",
+    "event": "alert_created", "status": "pending", "attempts": 2,
+    "status_code": 500, "response_body": "endpoint refused",
+    "next_retry_at": "2026-10-29T10:30:00Z", "created_at": "…" }] }
+```
+`status` is `pending`, `in_flight`, `delivered` or `failed`. `next_retry_at` is the
+scheduled backoff (1m, 2m, 4m, 8m after the first failure). A permanent refusal —
+a 4xx, an unreachable mail configuration — ends on the first attempt and says so
+in `response_body`.
+
+### Retry a Delivery
+```
+POST /api/v2/channels/:id/deliveries/:delivery_id/retry
 ```
 
-### Get Webhook
-```
-GET /api/v2/webhooks/:id
-```
+### Refusals
+Every refusal names the requirement in words, with a machine-readable `reason`, so
+the console states what is missing instead of showing a code:
 
-### Update Webhook
-```
-PUT /api/v2/webhooks/:id
-```
+| Status | `reason` | Means |
+| --- | --- | --- |
+| `400` | `url_required` | `url is required for a webhook, slack and teams channel` |
+| `400` | `url_not_used` | `an email channel has no url: name the recipients in config.to` |
+| `400` | `kind_invalid` | `kind must be webhook, email, slack or teams` |
+| `400` | `min_severity_invalid` | `min_severity must be empty, info, warning or critical` |
+| `400` | `recipient_invalid` | `config.to must hold mail addresses` |
+| `400` | `mail_not_configured` | no mail server on this installation (`SMTP_HOST`, `SMTP_PORT`) |
+| `403` | `admin_only_scope` | only an admin may define a channel that reaches every tenant |
+| `404` | `client_unavailable` | a tenant in `scope_clients` that does not exist, or that the caller does not administer |
+| `409` | `kind_immutable` | `kind cannot be changed: a channel that delivers a different payload is a different channel` |
+| `422` | `test_refused` | the channel does not subscribe to the `test` event |
 
-### Delete Webhook
-```
-DELETE /api/v2/webhooks/:id
-```
+A channel's kind is immutable because it decides what the payload means, and the
+delivery history is read against that meaning: create the other kind as its own
+channel.
 
-### Test Webhook
-Sends a test event to the webhook.
-```
-POST /api/v2/webhooks/:id/test
-```
+### Routing semantics
+Routing is applied **before** a delivery row is written. An event below the floor,
+from a tenant the channel does not list, or from a unit carrying none of its tags
+produces **no row at all** — not a failed row an operator has to explain. A unit
+with no facts attached (an event carrying no unit) is matched by a channel with no
+tag and no tenant restriction.
 
-### List Deliveries
-Returns recent delivery history for a webhook.
-```
-GET /api/v2/webhooks/:id/deliveries
-```
-
-### Retry Delivery
-Retries a failed webhook delivery.
-```
-POST /api/v2/webhooks/:id/deliveries/:delivery_id/retry
-```
+### Audit
+`webhook.create`, `webhook.update`, `webhook.delete` and `webhook.test` record the
+kind, destination, events, severity floor, tenant scope, tags, enabled state and —
+for a mail channel — the addresses it was told to reach. The signing secret and the
+SMTP credentials are never recorded.
 
 ---
 
@@ -2497,9 +2570,11 @@ POST /api/v2/api-keys/:id/rotate
 
 ---
 
-## Webhook Payload Format
+## Channel Payload Format
 
-All webhook events use a consistent JSON payload format:
+The `webhook` kind ships this event JSON exactly as v2.3 shipped it — a receiver
+written against the older release keeps parsing the same body, signature included.
+The other kinds render the same event for the place it arrives at.
 
 ```json
 {
@@ -2522,3 +2597,25 @@ Request headers include:
 - `X-OurWay-Event: <event_type>`
 - `X-OurWay-Signature: sha256=<hex>` — HMAC-SHA256 of the payload under the
   webhook's secret (sent when the webhook has a signing secret)
+
+### Slack and Teams
+A `slack` channel posts the event as an attachment: the alert's own message as the
+text, the event type and severity as fields, and the unit, metric, value and
+threshold as a field line. A `teams` channel posts a MessageCard with the same
+facts, coloured by severity.
+
+### Mail
+An `email` channel renders a localized subject and body from the templates in
+`server/i18n/locales` (`en`, `de`, `fr`), checked by the same key-parity gate as
+the console's own strings: a notification that reaches a German operator is
+German, and the fields it names are the same fields in every locale. The rendered
+mail carries the unit, severity, metric, value, threshold, tenant and the
+engine's own message, plus the addresses it was sent to.
+
+The mail server is the installation's (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`,
+`SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_STARTTLS`); **who** it writes to is the
+channel's (`config.to`), which is what makes "client A's criticals to the on-call
+mailbox" one row.
+
+The bytes a delivery attempt sent are what the ledger records, and a retry sends
+**those bytes** — the record an operator reads is the record that went out.

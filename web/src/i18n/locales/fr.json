@@ -45,7 +45,10 @@
     "active": "Actif",
     "inactive": "Inactif",
     "enabled": "Activé",
-    "disabled": "Désactivé"
+    "disabled": "Désactivé",
+    "enable": "Activer",
+    "disable": "Désactiver",
+    "dismiss": "Ignorer"
   },
   "dashboard": {
     "title": "Tableau de bord",
@@ -628,6 +631,11 @@
       "title": "Supprimer cette règle de seuil ?",
       "body": "Les machines que seule cette règle couvre reviennent au plancher intégré : {{scope}} {{target}}, {{metric}}.",
       "action": "Supprimer la règle"
+    },
+    "deleteChannel": {
+      "title": "Supprimer ce canal de notification ?",
+      "body": "{{name}} livre {{events}}. Son journal de livraison reste ; rien de nouveau ne sera livré sur ce canal.",
+      "action": "Supprimer le canal"
     }
   },
   "clients": {
@@ -787,5 +795,68 @@
       "disk": "Disque"
     },
     "globalName": "toutes les machines"
+  },
+  "channels": {
+    "title": "Canaux de notification",
+    "subtitle": "Qui est au courant, et de quoi. Un routage, un journal de livraison, pour un point de terminaison HTTP, un message de discussion ou une boîte mail.",
+    "addChannel": "Ajouter un canal",
+    "editChannel": "Modifier le canal",
+    "kind": "Type",
+    "kindBody": "Le type décide ce qui arrive : un événement JSON, une carte de discussion ou un mail. Il ne change plus après la création.",
+    "namePlaceholder": "Boîte de l'astreinte",
+    "endpoint": "Point de terminaison",
+    "endpointPlaceholder": "https://hooks.slack.com/services/…",
+    "recipients": "Destinataires",
+    "recipientsBody": "Une adresse par ligne. Le serveur mail appartient à l'installation ; où il écrit, c'est le canal qui le décide.",
+    "minSeverity": "Seuil de gravité",
+    "minSeverityBody": "Les événements sous ce seuil ne sont jamais routés ici — et aucun enregistrement de livraison n'est écrit pour eux.",
+    "scope": "Ténants",
+    "scopeBody": "Vide atteint tous les ténants. En nommer restreint le canal à ceux-là.",
+    "scopeAll": "Tous les ténants",
+    "tags": "Étiquettes",
+    "tagsBody": "Vide atteint toutes les unités. Des étiquettes nommles restreignent le canal aux unités qui en portent une.",
+    "events": "Événements",
+    "state": "État",
+    "routing": "Routage",
+    "none": "Aucun canal pour l'instant",
+    "noneDesc": "Un canal porte un fait sur le parc jusqu'à une personne : boîte mail, message de discussion, point de terminaison à vous.",
+    "testSend": "Envoyer un test",
+    "testSent": "Test programmé — il apparaît dans le journal de livraison.",
+    "deliveries": "Journal de livraison",
+    "noDeliveries": "Rien de livré pour l'instant.",
+    "deliveryEvent": "Événement",
+    "deliveryStated": "Enregistré",
+    "deliveryTries": "Tentatives",
+    "deliveryResult": "Résultat",
+    "deliveryAnswer": "Leur réponse",
+    "nextRetry": "Prochaine tentative",
+    "retry": "Réessayer",
+    "deleteChannel": "Supprimer le canal",
+    "mailNotice": "Cette installation n'a pas de serveur mail (SMTP_HOST, SMTP_PORT) : les canaux mail ne peuvent pas livrer.",
+    "mailReady": "Serveur mail défini : {{host}}:{{port}}, expéditeur {{from}}.",
+    "floor": {
+      "info": "info et au-dessus",
+      "warning": "warning et au-dessus",
+      "critical": "critical seulement",
+      "none": "tout événement"
+    },
+    "kindLabel": {
+      "webhook": "Point HTTP",
+      "slack": "Slack",
+      "teams": "Teams",
+      "email": "Boîte mail"
+    },
+    "types": {
+      "alert_created": "Alerte créée",
+      "alert_resolved": "Alerte résolue",
+      "device_online": "Unité en ligne",
+      "device_offline": "Unité hors ligne",
+      "device_registered": "Unité inscrite",
+      "patch_deployed": "Correctif déployé",
+      "patch_detected": "Correctif disponible",
+      "session_started": "Session démarrée",
+      "test": "Notification de test"
+    },
+    "formBody": "Le routage s'applique avant tout envoi : un canal qui ne demande pas un événement n'en écrit aucune trace."
   }
 }

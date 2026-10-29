@@ -47,7 +47,8 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - Patching (scan, deploy, policies) for Windows, macOS, and Linux
 - File transfer (push/pull with transfer tracking)
 - SSO (OpenID Connect, OAuth 2.0)
-- Webhooks with HMAC-SHA256 signatures and delivery retries
+- Notification channels: HTTP webhooks (HMAC-SHA256 signed, with retries), Slack,
+  Teams and SMTP mail, each with tenant/tag/severity routing
 - API keys with read/write scopes
 - Rate limiting (in-memory or Redis token bucket)
 - Redis-backed scaling (cache, rate limits)
@@ -63,7 +64,8 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - File transfer with drag-and-drop and download links
 - User management (create, roles, delete)
 - SSO provider configuration
-- Webhook management with delivery history
+- Notification channel ledger (webhook, Slack, Teams, mail) with routing per row and
+  one delivery history for every kind
 - Sessions page for active remote sessions
 - Settings and configuration
 
@@ -262,7 +264,9 @@ See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Implemented:
 - ✅ **SSO Integration**: OpenID Connect and OAuth 2.0
 - ✅ **macOS Support**: Complete agent with launchd service and native metrics
 - ✅ **File Transfer**: Push/pull files with drag-and-drop and download links
-- ✅ **Webhooks**: Event subscriptions with HMAC signatures and retry queue
+- ✅ **Webhooks & channels**: Event subscriptions with HMAC signatures and a retry queue;
+  since 2.4.0 the same row delivers to Slack, Teams, or a mailbox, with tenant, tag and
+  severity routing
 - ✅ **API Keys**: Scoped (read/write) long-lived credentials
 - ✅ **Scalability**: Redis-backed cache and distributed rate limiting
 - ⬜ **Automation**: Runbooks, scheduled scripts, workflows
@@ -315,6 +319,11 @@ discover it in production. Each item is tracked in
   installation. **Closed in v2.4.0 (2.4-5):** threshold rules per scope — device →
   tag → client → global, most specific wins per metric, built-in floor for a unit no
   rule covers, with a precedence preview and a value simulation in the console.
+- **Notifications were HTTP-only.** A webhook was the only way a fact about the fleet
+  reached a person, and every alert was delivered to every channel. **Closed in v2.4.0
+  (2.4-6):** a channel is now an HTTP endpoint, a Slack post, a Teams post or a
+  localized mail, with the routing (tenants, tags, severity floor) stated on the row
+  and applied before any record is written — one ledger, one retry loop, one console.
 
 ## Key Design Decisions
 

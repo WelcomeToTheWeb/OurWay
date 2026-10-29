@@ -133,6 +133,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `provider not changed` and leaves the stored row working. **The name is immutable**
   (`409`, `name_immutable`): it is the identity key stored on every account signed in
   through this provider. Audited as `sso.update` — never the secret.
+- **Notification channels: the webhook generalized to mail and chat** (2.4-6) — one
+  row is now a **channel** of four kinds: `webhook` (the v2.3 HTTP endpoint, payload
+  and HMAC signature byte-identical), `slack`, `teams` and `email`. Migration 15
+  (`notification_channels`) adds `kind`, `config`, `scope_clients`, `min_severity`
+  and `tags` to `webhooks`; an installation that already had webhooks delivers
+  exactly what it delivered before — same URL, events, custom headers, signing
+  secret and enabled state — with no operator step.
+  - **Routing is stated on the row and applied before a delivery row exists.** A
+    channel listens on its events, a **severity floor** (`info`/`warning`/`critical`),
+    the **tenants** it reaches and the **tags** its units carry. An event below the
+    floor, from a tenant the channel does not list, or from a unit carrying none of
+    its tags produces **no record at all** — not a failed row an operator has to
+    explain.
+  - **One ledger, one retry loop, one console for every kind.** A Slack post, a
+    Teams MessageCard, a rendered mail and an event JSON all write the same delivery
+    row (event, attempts, peer status code, peer answer, next retry), retry on the
+    same 1m/2m/4m/8m backoff, are tested through `POST …/test` (which queues through
+    the channel's own routing, so the test is pointable), and answer `400`/`403`/
+    `404`/`409`/`422` with a `reason` and words that name the requirement. A test
+    send on a channel that does not subscribe to the `test` event is refused, and the
+    page says so — never a reported send with no record.
+  - **SMTP is a transport, not a feature toggle** (`SMTP_HOST`, `SMTP_PORT`,
+    `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_STARTTLS`): the installation
+    owns the server and the credentials, the **channel** owns the recipients
+    (`config.to`), which is what makes "client A's criticals to the on-call mailbox"
+    one row. `SMTP_STARTTLS` refuses to send in clear when the server does not offer
+    STARTTLS. Defining an email channel on an installation with no mail server is
+    refused at save time (`mail_not_configured`), and the console states the
+    transport it has (host, port, sender — never credentials).
+  - **The mail an operator sends is as localizable as the console.** Subjects and
+    bodies are templates in `server/i18n/locales/{en,de,fr}.json`, checked by
+    `scripts/i18n-parity.py` as a **second locale bundle**, and by tests that the
+    three locales reference the same fields, that every field the renderer supplies
+    is a field a template may name, and that a German mail is not the English mail.
+  - **`/api/v2/channels` is the same ledger as `/api/v2/webhooks`** — both names
+    address the same handlers, so a v2.3 integration keeps its door and the console
+    has a name that describes the row. Create and update share one validation path;
+    field presence is respected (the enable toggle sends one field and cannot wipe
+    the routing); **kind is immutable** (`409`) because it decides what the payload
+    and the delivery history mean; an email channel rejects a `url` and names
+    `config.to`; a tenant the caller cannot see in `scope_clients` answers `404`;
+    a channel reaching **every** tenant is admin-only. Writes are audited
+    (`webhook.create` / `_update` / `_delete` / `_test`) with kind, destination,
+    events, floor, tenant scope, tags and the mail addresses — never the signing
+    secret and never the SMTP credentials.
+  - Console: **Webhooks** is a channel ledger (kind, destination, tenants and floor,
+    events, open/closed) with per-row enable toggle, test send, delivery history
+    (peer answer, status code, next retry, retry now), edit, and delete carried in
+    the confirm sheet naming what stops arriving. The add form asks a mailbox for
+    recipients and the other kinds for an endpoint, so it cannot ask for a column a
+    mailbox does not have.
+
 - Login page: the provider list is the operator's `sort_order` (server-side ordering,
   page preserves it), and a disabled door disappears without a console rebuild.
 
@@ -151,6 +203,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scheduler-aware 20 s budget, the binary-frame hops kept a hard 5 s. Under
   `go test -race ./...` with the 2.4-5 suite in the parallel load, a hop was late
   and the relay was correct; every hop in that test now shares one budget.
+- **A refused webhook delivery was recorded once and never retried.** `ClaimPending`
+  moves a row to `in_flight`; `markFailed` set the attempts, the peer's answer and the
+  next retry time, but left the row `in_flight` — and `FindPending` only looks for
+  `pending` rows. The documented 1m/2m/4m/8m backoff was therefore dead code in
+  production, and 2.4-6's retry criterion (a channel that succeeds on attempt 2 is
+  delivered with `attempts: 2`) made it visible. A failed send now returns to
+  `pending` when a retry is scheduled, and ends `failed` when it is not.
+- Failures that **retrying cannot fix** are recorded once, with the reason: a 4xx from
+  an endpoint, a 5xx SMTP refusal (bad address, refused sender), a missing mail
+  transport, a channel with no recipient, and STARTTLS required-but-not-offered. Their
+  ledger row says `not retried`, rather than filling the ledger with identical
+  refusals.
+- `common.dismiss` was the label of three console buttons (the alert detail banner and
+  the channel answer) and existed in **no locale file**, so the button rendered the
+  literal key path `common.dismiss` in every language. `enable`/`disable` were used
+  with no locale entries too. All three keys now exist in `en`/`de`/`fr`, and the i18n
+  gate keeps them in lockstep.
 
 ---
 

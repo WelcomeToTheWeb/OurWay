@@ -1,0 +1,54 @@
+{
+  "mail": {
+    "footer": "Gesendet von OurWay an {{.To}}.",
+    "notices": "Antworten Sie auf diese Nachricht, um die zuständige Person zu erreichen.",
+    "fields": {
+      "device": "Gerät",
+      "severity": "Schweregrad",
+      "metric": "Messwert",
+      "value": "Wert",
+      "threshold": "Grenzwert",
+      "client": "Mandant",
+      "user": "Benutzer",
+      "name": "Name",
+      "message": "Meldung",
+      "type": "Ereignis",
+      "version": "Version",
+      "at": "Zeitpunkt"
+    },
+    "fallback": {
+      "subject": "OurWay: {{.Type}}",
+      "body": "{{.Message}}\n\nGerät: {{.Device}}\nEreignis: {{.Type}}\n{{.Footer}}"
+    },
+    "events": {
+      "alert_created": {
+        "subject": "OurWay {{.Severity}} auf {{.Device}}: {{.Message}}",
+        "body": "{{.Message}}\n\nGerät: {{.Device}}\nSchweregrad: {{.Severity}}\nMesswert: {{.Metric}}\nWert: {{.Value}} (Grenzwert {{.Threshold}})\nMandant: {{.Client}}\nZeitpunkt: {{.At}}\n\n{{.Footer}}"
+      },
+      "alert_resolved": {
+        "subject": "OurWay Warnung beendet auf {{.Device}}: {{.Message}}",
+        "body": "Die Warnung auf {{.Device}} ist beendet.\n\n{{.Message}}\nMesswert: {{.Metric}}\nMandant: {{.Client}}\nZeitpunkt: {{.At}}\n\n{{.Footer}}"
+      },
+      "patch_deployed": {
+        "subject": "OurWay Patch auf {{.Device}}: {{.Name}}",
+        "body": "Auf {{.Device}} wurde ein Patch installiert.\n\nAktualisierung: {{.Name}}\n{{.Message}}\nMandant: {{.Client}}\nZeitpunkt: {{.At}}\n\n{{.Footer}}"
+      },
+      "device_online": {
+        "subject": "OurWay: {{.Device}} ist wieder erreichbar",
+        "body": "{{.Device}} meldet sich wieder bei OurWay.\n\nMandant: {{.Client}}\nZeitpunkt: {{.At}}\n\n{{.Footer}}"
+      },
+      "device_offline": {
+        "subject": "OurWay: {{.Device}} ist nicht erreichbar",
+        "body": "{{.Device}} meldet sich nicht mehr bei OurWay.\n\nMandant: {{.Client}}\nZeitpunkt: {{.At}}\n\n{{.Footer}}"
+      },
+      "device_registered": {
+        "subject": "OurWay: {{.Device}} wurde aufgenommen",
+        "body": "{{.Device}} wurde in OurWay aufgenommen.\n\nMandant: {{.Client}}\nZeitpunkt: {{.At}}\n\n{{.Footer}}"
+      },
+      "session_started": {
+        "subject": "OurWay: Fernsitzung auf {{.Device}} gestartet",
+        "body": "{{.User}} hat auf {{.Device}} eine Fernsitzung gestartet.\n\nMandant: {{.Client}}\nZeitpunkt: {{.At}}\n\n{{.Footer}}"
+      }
+    }
+  }
+}

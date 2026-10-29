@@ -45,7 +45,10 @@
     "active": "Aktiv",
     "inactive": "Inaktiv",
     "enabled": "Aktiviert",
-    "disabled": "Deaktiviert"
+    "disabled": "Deaktiviert",
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren",
+    "dismiss": "Ausblenden"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -628,6 +631,11 @@
       "title": "Diese Schwellen-Regel löschen?",
       "body": "Geräte, die nur diese Regel abdeckt, fallen auf die Grundgrenze zurück: {{scope}} {{target}}, {{metric}}.",
       "action": "Regel löschen"
+    },
+    "deleteChannel": {
+      "title": "Diesen Benachrichtigungskanal löschen?",
+      "body": "{{name}} stellt {{events}} zu. Sein Zustellprotokoll bleibt; über diesen Kanal wird nichts Neues zugestellt.",
+      "action": "Kanal löschen"
     }
   },
   "clients": {
@@ -787,5 +795,68 @@
       "disk": "Festplatte"
     },
     "globalName": "alle Geräte"
+  },
+  "channels": {
+    "title": "Benachrichtigungskanäle",
+    "subtitle": "Wer von was erfährt. Ein Routing, ein Zustellprotokoll — für HTTP-Endpunkt, Chat-Post oder Mailbox.",
+    "addChannel": "Kanal anlegen",
+    "editChannel": "Kanal bearbeiten",
+    "kind": "Art",
+    "kindBody": "Die Art entscheidet, was ankommt: ein JSON-Ereignis, eine Chat-Karte oder eine Mail. Nach dem Anlegen ist sie fest.",
+    "namePlaceholder": "Bereitschafts-Mailbox",
+    "endpoint": "Endpunkt",
+    "endpointPlaceholder": "https://hooks.slack.com/services/…",
+    "recipients": "Empfänger",
+    "recipientsBody": "Eine Adresse pro Zeile. Der Mailserver gehört zur Installation; wohin er schreibt, entscheidet der Kanal.",
+    "minSeverity": "Mindestschwelle",
+    "minSeverityBody": "Ereignisse unter dieser Schwelle werden nie hierhin geroutet — und es wird kein Zustellrecord dafür geschrieben.",
+    "scope": "Mandanten",
+    "scopeBody": "Leer erreicht alle Mandanten. Genannte Mandanten grenzen den Kanal ein.",
+    "scopeAll": "Alle Mandanten",
+    "tags": "Tags",
+    "tagsBody": "Leer erreicht alle Einheiten. Genannte Tags grenzen den Kanal auf Einheiten mit einem davon ein.",
+    "events": "Ereignisse",
+    "state": "Zustand",
+    "routing": "Routing",
+    "none": "Noch keine Kanäle",
+    "noneDesc": "Ein Kanal bringt eine Tatsache über die Flotte zu einer Person: Mailbox, Chat-Post, eigener Endpunkt.",
+    "testSend": "Test senden",
+    "testSent": "Test eingeplant — er erscheint im Zustellprotokoll.",
+    "deliveries": "Zustellprotokoll",
+    "noDeliveries": "Noch nichts zugestellt.",
+    "deliveryEvent": "Ereignis",
+    "deliveryStated": "Festgehalten",
+    "deliveryTries": "Versuche",
+    "deliveryResult": "Ergebnis",
+    "deliveryAnswer": "Ihre Antwort",
+    "nextRetry": "Nächster Versuch",
+    "retry": "Jetzt erneut",
+    "deleteChannel": "Kanal löschen",
+    "mailNotice": "Diese Installation hat keinen Mailserver (SMTP_HOST, SMTP_PORT) — Mailkanäle können nicht zustellen.",
+    "mailReady": "Mailserver gesetzt: {{host}}:{{port}}, Absender {{from}}.",
+    "floor": {
+      "info": "info und darüber",
+      "warning": "warning und darüber",
+      "critical": "nur critical",
+      "none": "jedes Ereignis"
+    },
+    "kindLabel": {
+      "webhook": "HTTP-Endpunkt",
+      "slack": "Slack",
+      "teams": "Teams",
+      "email": "Mailbox"
+    },
+    "types": {
+      "alert_created": "Alarm erzeugt",
+      "alert_resolved": "Alarm behoben",
+      "device_online": "Einheit online",
+      "device_offline": "Einheit offline",
+      "device_registered": "Einheit registriert",
+      "patch_deployed": "Patch installiert",
+      "patch_detected": "Patch verfügbar",
+      "session_started": "Sitzung gestartet",
+      "test": "Testbenachrichtigung"
+    },
+    "formBody": "Geroutet wird, bevor etwas gesendet wird: ein Kanal, für den ein Ereignis nicht bestellt ist, schreibt keinen Record darüber."
   }
 }

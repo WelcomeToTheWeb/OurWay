@@ -1,0 +1,54 @@
+{
+  "mail": {
+    "footer": "Sent by OurWay to {{.To}}.",
+    "notices": "Reply to this message to reach the operator who owns the unit.",
+    "fields": {
+      "device": "Unit",
+      "severity": "Severity",
+      "metric": "Metric",
+      "value": "Value",
+      "threshold": "Threshold",
+      "client": "Tenant",
+      "user": "User",
+      "name": "Name",
+      "message": "Message",
+      "type": "Event",
+      "version": "Version",
+      "at": "At"
+    },
+    "fallback": {
+      "subject": "OurWay: {{.Type}}",
+      "body": "{{.Message}}\n\nUnit: {{.Device}}\nEvent: {{.Type}}\n{{.Footer}}"
+    },
+    "events": {
+      "alert_created": {
+        "subject": "OurWay {{.Severity}} on {{.Device}}: {{.Message}}",
+        "body": "{{.Message}}\n\nUnit: {{.Device}}\nSeverity: {{.Severity}}\nMetric: {{.Metric}}\nValue: {{.Value}} (threshold {{.Threshold}})\nTenant: {{.Client}}\nAt: {{.At}}\n\n{{.Footer}}"
+      },
+      "alert_resolved": {
+        "subject": "OurWay alert resolved on {{.Device}}: {{.Message}}",
+        "body": "The alert on {{.Device}} is resolved.\n\n{{.Message}}\nMetric: {{.Metric}}\nTenant: {{.Client}}\nAt: {{.At}}\n\n{{.Footer}}"
+      },
+      "patch_deployed": {
+        "subject": "OurWay patch deployment on {{.Device}}: {{.Name}}",
+        "body": "A patch deployment ran on {{.Device}}.\n\nUpdate: {{.Name}}\n{{.Message}}\nTenant: {{.Client}}\nAt: {{.At}}\n\n{{.Footer}}"
+      },
+      "device_online": {
+        "subject": "OurWay: {{.Device}} is online",
+        "body": "{{.Device}} is reporting to OurWay again.\n\nTenant: {{.Client}}\nAt: {{.At}}\n\n{{.Footer}}"
+      },
+      "device_offline": {
+        "subject": "OurWay: {{.Device}} is offline",
+        "body": "{{.Device}} has stopped reporting to OurWay.\n\nTenant: {{.Client}}\nAt: {{.At}}\n\n{{.Footer}}"
+      },
+      "device_registered": {
+        "subject": "OurWay: {{.Device}} enrolled",
+        "body": "{{.Device}} enrolled in OurWay.\n\nTenant: {{.Client}}\nAt: {{.At}}\n\n{{.Footer}}"
+      },
+      "session_started": {
+        "subject": "OurWay: remote session started on {{.Device}}",
+        "body": "{{.User}} started a remote session on {{.Device}}.\n\nTenant: {{.Client}}\nAt: {{.At}}\n\n{{.Footer}}"
+      }
+    }
+  }
+}

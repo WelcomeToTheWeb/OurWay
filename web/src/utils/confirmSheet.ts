@@ -33,7 +33,10 @@ export type ConfirmAction =
   // the act an operator should read the consequence of before pressing.
   | 'approveIdentity'
   | 'mergeIdentity'
-  | 'deleteThreshold';
+  | 'deleteThreshold'
+  // 2.4-6: deleting a notification channel. The delivery history outlives it, so
+  // the sheet says what stops arriving rather than implying the record goes too.
+  | 'deleteChannel';
 
 export function confirmRequest(
   t: TFunction,
