@@ -312,14 +312,18 @@ func auditForAnswer(c *gin.Context, st *store.Store, action string, target Audit
 
 // auditOKOnce records a success, and marks the request as recorded so a
 // deferred catch-all in the same request does not write a second row.
+//
+// The marking is `recordAudit`'s job: it writes, then marks, and its guard is what
+// makes the single-row rule hold. Marking *before* the write is how these two
+// helpers silently wrote nothing for the whole of 2.3 — the guard they were meant to
+// coordinate with ran first and swallowed the row. 2.4-2's login refusals were the
+// first callers, and the ledger's silence is what found it.
 func auditOKOnce(c *gin.Context, st *store.Store, action string, target AuditTarget, details map[string]any) {
-	markAudited(c)
 	auditOK(c, st, action, target, details)
 }
 
 // auditRefusedOnce is `auditRefused` with the same guard.
 func auditRefusedOnce(c *gin.Context, st *store.Store, action string, status int, target AuditTarget, details map[string]any) {
-	markAudited(c)
 	auditRefused(c, st, action, status, target, details)
 }
 

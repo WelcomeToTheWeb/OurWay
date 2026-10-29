@@ -291,6 +291,7 @@ var migrations = []migration{
 			{"link_policy", "LinkPolicy"},
 			{"role_mapping", "RoleMapping"},
 			{"sort_order", "SortOrder"},
+			{"pkce_supported", "PKCESupported"},
 		} {
 			if !db.Migrator().HasColumn(&models.SSOProvider{}, col.name) {
 				if err := db.Migrator().AddColumn(&models.SSOProvider{}, col.field); err != nil {

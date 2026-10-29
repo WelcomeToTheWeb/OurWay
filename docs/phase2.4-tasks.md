@@ -135,31 +135,66 @@ dropdown, so an operator can add Keycloak by API today and not by UI.
 
 ---
 
-## 2.4-2 · Verify the `id_token` before trusting an identity
+## 2.4-2 · Verify the `id_token` before trusting an identity · ✅ delivered 2026-10-29
+
+**Delivered (2.4-2)** — `server/sso/oauth.go` (the callback's verification path,
+PKCE, claim mapping), `server/sso/jwks.go` (the verifier, landed with 2.4-1),
+`server/sso/testidp` (PKCE enforcement, nonce capture, token sabotages), migration 12
+(+ `pkce_supported`). Tests: `server/api/sso_verify_test.go`,
+`server/store/sso_attributes_test.go`, plus the rotation and round-trip cases in
+`server/sso/oidc_test.go` and `server/api/sso_oidc_test.go`.
 
 **Context:** identity today comes from the userinfo call alone, and the raw
 `id_token` is stuffed into `users.sso_attributes`
 (`server/sso/oauth.go`, `fmt.Sprintf("{\"id_token\":\"%s\"}", idToken)`).
 
 **Do**
-- [ ] Verify `iss`, `aud` (this provider's client id), `exp`/`iat` with leeway, and
+- [x] Verify `iss`, `aud` (this provider's client id), `exp`/`iat` with leeway, and
       the signature against the discovered JWKS (`kid` lookup, rotation-tolerant),
-      with a cached JWKS fetch and a refresh on unknown `kid`.
-- [ ] When `userinfo` and a verified `id_token` both exist, **require them to agree**
-      on `sub`; disagreement is a refused login, audited.
-- [ ] Stop storing the raw `id_token`. Persist only the verified claim summary the
-      product needs (`provider`, `provider_id`, mapped groups), in
-      `users.sso_attributes` as structured JSON, not string-concatenated.
-- [ ] PKCE on the code flow, and `state`/`nonce` bound to the server-side session
-      (the C6/M13 remediation already produced a one-time `sso_code` and a
-      state cookie — keep that contract, don't re-open it).
+      with a cached JWKS fetch and a refresh on unknown `kid`. RS256 only, checked on
+      the JWS header before a key is consulted.
+- [x] When `userinfo` and a verified `id_token` both exist, **require them to agree**
+      on `sub`; disagreement is a refused login, audited (`subject_mismatch`).
+- [x] Stop storing the raw `id_token`. `users.sso_attributes` is the claim summary —
+      `provider`, `provider_id`, `name`, `email`, `email_verified`, mapped `groups` —
+      as JSON. Pinned at the store boundary by
+      `TestUserSSOAttributesStoreTheClaimSummaryNotTheToken` (field set closed, no
+      token material).
+- [x] PKCE on the code flow (`S256`, sent when the provider published a challenge
+      method at save time), and `state`/`nonce` bound to a server-side single-use
+      record. The C6/M13 contract — one-time `sso_code`, consumed state cookie —
+      is unchanged.
 
 **Acceptance criteria**
 - Fixture suite proves: valid token accepted; wrong-key token, foreign `aud`,
   `iss` mismatch, and expired token each refused with a distinct audited outcome.
-- JWKS rotation mid-session keeps logins working (kid changes between issuances).
-- `users.sso_attributes` contains no raw `id_token` (asserted in a store test).
-- userinfo/`id_token` `sub` disagreement → refused, and the row is audited.
+  ✅ `TestSSOCallbackRefusesEveryUnverifiableToken` (also `alg: none`, HS256 against
+  the RSA set, no `id_token` at all, and a token minted for an earlier login). Each
+  refusal is a 401 with a named `reason` and an `auth.login_failed` row naming the
+  reason **and the asserted email**, and provisions no account.
+- JWKS rotation mid-session keeps logins working (kid changes between issuances). ✅
+  `TestSSOKeyRotationMidSessionKeepsLoginsWorking`.
+- `users.sso_attributes` contains no raw `id_token` (asserted in a store test). ✅
+- userinfo/`id_token` `sub` disagreement → refused, and the row is audited. ✅
+  `TestSSORequiresUserinfoAndIDTokenToAgreeOnSubject`.
+
+**What the tests caught in code.**
+
+1. `auditOKOnce` / `auditRefusedOnce` called `markAudited(c)` **before** writing, and
+   `recordAudit`'s duplicate-row guard then swallowed the row — so those two helpers
+   wrote nothing. 2.4-2's login refusals are their first callers, and the ledger's
+   silence is what found it. The helpers now let `recordAudit` do the write and the
+   marking, which is the single-row rule as designed.
+2. With 2.4-1's discovery precedence in place, a provider saved with **no issuer**
+   kept the endpoints the operator typed only by accident: `applyDiscovery` returned
+   before the typed endpoints were applied, so such a provider authorized to an empty
+   URL. The precedence is now applied in one place, on both paths.
+3. A login's identity facts are only trustworthy after verification, so userinfo is
+   read **first** and trusted **after**: the order changes nothing about what is
+   trusted, and it is what lets a refusal name who tried to arrive as whom.
+
+**Stated, not hidden:** `id_token_verified` is recorded on every SSO login row. A
+provider configured by hand-typed endpoints has no key set, and its logins say so.
 
 ---
 

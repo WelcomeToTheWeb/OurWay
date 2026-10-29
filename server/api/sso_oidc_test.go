@@ -535,11 +535,15 @@ func TestSSOLoginRoundTripThroughADiscoveredProvider(t *testing.T) {
 	}
 }
 
-// loginThrough walks the full authorization-code round trip through a saved
+// attemptLogin walks the full authorization-code round trip through a saved
 // provider: authorize → the IdP's own redirect back with a code → the callback →
 // `sso_code` → the exchange. The fixture IdP enforces the redirect URI, so the
 // claims are pointed at this provider's callback.
-func (f *ssoFixture) loginThrough(t *testing.T, providerName string, idp *testidp.IdP, claims testidp.Claims) string {
+//
+// It returns the access token, and — when the callback refused the login — the HTTP
+// status and the named reason the callback answered with. A test that expects a
+// refusal needs the reason, because the reason is the assertion.
+func (f *ssoFixture) attemptLogin(t *testing.T, providerName string, idp *testidp.IdP, claims testidp.Claims) (access string, status int, reason string) {
 	t.Helper()
 	claims.RedirectURI = f.baseURL + "/api/auth/sso/" + providerName + "/callback"
 	idp.SeedLogin(claims)
@@ -588,7 +592,11 @@ func (f *ssoFixture) loginThrough(t *testing.T, providerName string, idp *testid
 	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusFound {
 		payload, _ := io.ReadAll(resp3.Body)
-		t.Fatalf("callback = %d, want 302\n%s", resp3.StatusCode, payload)
+		var refused struct {
+			Reason string `json:"reason"`
+		}
+		_ = json.Unmarshal(payload, &refused)
+		return "", resp3.StatusCode, refused.Reason
 	}
 	landing, err := url.Parse(resp3.Header.Get("Location"))
 	if err != nil {
@@ -609,7 +617,18 @@ func (f *ssoFixture) loginThrough(t *testing.T, providerName string, idp *testid
 	if err := json.Unmarshal(body, &tokens); err != nil || tokens.AccessToken == "" {
 		t.Fatalf("exchange answered no access token: %v\n%s", err, body)
 	}
-	return tokens.AccessToken
+	return tokens.AccessToken, http.StatusFound, ""
+}
+
+// loginThrough is the round trip with the success asserted: a refusal is a test
+// failure, with the reason printed.
+func (f *ssoFixture) loginThrough(t *testing.T, providerName string, idp *testidp.IdP, claims testidp.Claims) string {
+	t.Helper()
+	access, status, reason := f.attemptLogin(t, providerName, idp, claims)
+	if status != http.StatusFound {
+		t.Fatalf("the callback refused the login with %d (reason %q)", status, reason)
+	}
+	return access
 }
 
 // saveOIDCProvider is the operator's form: a name, a client id/secret, an issuer.

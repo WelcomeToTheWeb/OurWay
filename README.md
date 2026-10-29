@@ -280,18 +280,29 @@ discover it in production. Each item is tracked in
   macOS screen capture additionally needs the Screen Recording grant.
 - **SAML is not implemented.** SSO is OAuth 2.0 / OIDC; the API rejects a
   `saml`-typed provider at create, authorize, and callback.
-- **SSO presets are the big three.** The flow is generic OAuth2 and the create API
-  accepts `auth_url`/`token_url`/`user_info_url` overrides, but the console's
-  provider list is hardcoded to Google, Microsoft and Apple, there is no OIDC
-  discovery from an issuer, and `id_token` signature/`iss`/`aud` are not verified.
-  Self-hosted IdPs (Keycloak, Authentik, Zitadel, Okta, a fixed-tenant Entra ID) are
-  a manual paste-the-URLs exercise. Planned in 2.4.0 — see `docs/roadmap-2.x.md`.
+- **SSO is verified OIDC, configured by issuer.** An SSO provider is named by its
+  **issuer**; OurWay fetches `<issuer>/.well-known/openid-configuration` at save time
+  and uses the endpoints the provider publishes, so Keycloak, Authentik, Zitadel,
+  kanidm, Okta, a fixed-tenant Entra ID or a home IdP are a form, not a code change
+  (Google, Microsoft and Apple are presets of the same path). A provider is refused at
+  save with a named reason when discovery fails, and nothing is written. The
+  `id_token` is verified (signature against the published JWKS, `iss`, `aud`, `exp`,
+  `nonce`), the code flow carries PKCE when the provider supports it, and userinfo and
+  the signed token must name the same subject. **The console's provider UI is still the
+  hardcoded big three** (2.4-4) — any other IdP is added through the API today.
+  Planned in 2.4.0 — see `docs/roadmap-2.x.md`.
+- **The identity-linking contract is not enforced yet.** `allowed_domains`,
+  `require_verified_email`, `link_policy` and `role_mapping` are stored per provider
+  and validated at the API door; enforcement (domain allow-list, pending identities for
+  new provider/email pairs, opt-in role mapping) is 2.4-3, the release's gate test. An
+  SSO login today can still match an existing account by asserted email.
 - **macOS patch rollback is unsupported.** `agent/patch` deploys on macOS but
   refuses rollback; packages are restored manually (brew pin/reinstall).
 - **Linux patching covers apt and yum/dnf only** — no pacman or zypper.
 - **No client/tenant isolation.** Access scope is a global role, so a technician
   sees every device in the installation. Device tags scope patch policies, not
-  visibility.
+  visibility. **Not true since v2.3.0:** clients (tenants), device→client assignment
+  and route-enforced scoping shipped there — see `docs/phase2.3-tasks.md`.
 - **Alert thresholds are global.** One threshold set per metric for the whole
   installation; no per-device, per-group, or per-tag overrides.
 

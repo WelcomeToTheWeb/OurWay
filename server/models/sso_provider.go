@@ -50,6 +50,10 @@ type SSOProvider struct {
 	RedirectURI  string     `json:"redirect_uri"`
 	DiscoveryDoc string     `json:"-"` // the document as published, for the preview
 	DiscoveredAt *time.Time `json:"discovered_at"`
+	// PKCESupported is what discovery said about `code_challenge_methods_supported`,
+	// recorded at save time: the authorize redirect has to decide whether to send a
+	// challenge, and it must not pay for a round trip to the IdP to find out (2.4-2).
+	PKCESupported bool `gorm:"not null;default:false" json:"pkce_supported"`
 
 	// Claim mapping: which claim carries which fact. IdPs do not agree on this,
 	// and the product must not guess. Empty means the OIDC standard names.
