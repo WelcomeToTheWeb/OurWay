@@ -21,6 +21,9 @@ const Clients = lazy(() => import('./pages/Clients').then((m) => ({ default: m.C
 const Audit = lazy(() => import('./pages/Audit').then((m) => ({ default: m.Audit })));
 // 2.4-5: the threshold ledger (admin, manager)
 const Thresholds = lazy(() => import('./pages/Thresholds').then((m) => ({ default: m.Thresholds })));
+// 2.4-8: the recording ledger (admin, manager, technician — the same scopes the
+// recordings themselves are read with)
+const Recordings = lazy(() => import('./pages/Recordings').then((m) => ({ default: m.Recordings })));
 
 function RouteFallback() {
   return (
@@ -87,6 +90,16 @@ export function App() {
               <RoleRoute roles={['admin', 'manager', 'technician']}>
                 <Suspense fallback={<RouteFallback />}>
                   <Sessions />
+                </Suspense>
+              </RoleRoute>
+            }
+          />
+          <Route
+            path="recordings"
+            element={
+              <RoleRoute roles={['admin', 'manager', 'technician']}>
+                <Suspense fallback={<RouteFallback />}>
+                  <Recordings />
                 </Suspense>
               </RoleRoute>
             }

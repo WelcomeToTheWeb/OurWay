@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { X, MousePointer2, Keyboard, Monitor, Settings } from 'lucide-react';
 import { sendInput, endSession, setQuality as setSessionQuality } from '../api/sessions';
 import type { Session } from '../api/sessions';
+import { startRecording } from '../api/recordings';
+import { invalidateFleet } from '../stores/fleet';
+import { useFleet } from '../hooks/useFleet';
 import { useAuth } from '../auth/context';
 import { Stamp } from './Stamp';
 import { useTranslation } from 'react-i18next';
@@ -31,6 +34,20 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
   const [quality, setQualityValue] = useState(80);
   const [showSettings, setShowSettings] = useState(false);
   const [frame, setFrame] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState('');
+  // 2.4-8: the installation's recording promise is stated on the screen where the
+  // technician is about to type, not only on a ledger page. The recording ledger is
+  // a shared collection, so this panel adds no read of its own.
+  const { data: recordingIndex } = useFleet('recordings');
+  const recording = recordingIndex.recordings.find((r) => r.session_id === session.id);
+  const policy = recordingIndex.recording_policy;
+
+  const handleRecord = () => {
+    setRecordingError('');
+    startRecording(session.id)
+      .then(() => invalidateFleet('recordings'))
+      .catch((e: unknown) => setRecordingError(e instanceof Error ? e.message : 'The recording could not be started'));
+  };
 
   // Receive screen frames over the reliable user WebSocket: the server
   // relays agent frames as "session_frame" events (base64 JPEG). The
@@ -144,6 +161,15 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
             {status === 'active' ? 'Connected' : status === 'connecting' ? 'Connecting' : 'Ended'}
           </Stamp>
           <Stamp tone={mode === 'control' ? 'service' : 'neutral'}>{mode === 'control' ? 'Controlling' : 'Watching'}</Stamp>
+          {recording ? (
+            <Stamp tone="alert">
+              {recording.status === 'recording'
+                ? `Recording · ${recording.frame_count} frames`
+                : 'Recorded'}
+            </Stamp>
+          ) : (
+            <Stamp tone="neutral">Not recorded</Stamp>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {mode === 'view' ? (
@@ -153,6 +179,15 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
           ) : (
             <button onClick={() => setMode('view')} className="btn px-2.5 py-1.5 text-[12px]">
               Release control
+            </button>
+          )}
+          {!recording && policy !== 'off' && (
+            <button
+              onClick={handleRecord}
+              className="btn px-2.5 py-1.5 text-[12px]"
+              title="Start recording this session. Nothing in the product stops a recording once it has started."
+            >
+              Record session
             </button>
           )}
           <button
@@ -167,6 +202,12 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
           </button>
         </div>
       </header>
+
+      {recordingError && (
+        <p role="alert" className="mx-4 mt-2 text-[12px] text-[var(--error)]">
+          {recordingError}
+        </p>
+      )}
 
       {showSettings && (
         <div className="mx-4 mt-2 flex items-center gap-3 border border-rule px-3 py-2" style={{ background: 'var(--bg-card)' }}>

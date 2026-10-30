@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { MonitorSmartphone, RefreshCw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { endSession, type Session } from '../api/sessions';
+import { startRecording, type SessionRecording } from '../api/recordings';
 import { useFleet } from '../hooks/useFleet';
 import { useClientScope } from '../hooks/useClientScope';
 import { clientNameForSlug } from '../utils/clientFilter';
@@ -19,16 +20,43 @@ export function Sessions() {
   // The session ledger is a fleet collection (2.2-2): the dashboard reads the
   // same list, so opening this page next to it costs no second read.
   const { data: sessions, loading, refresh } = useFleet('sessions', { owner: true });
+  // 2.4-8: the recording ledger is a collection of the same read model, so the
+  // session ledger can state which sessions **are** being recorded without adding
+  // a read of its own. Joining by `session_id` is the whole join.
+  const { data: recordingIndex } = useFleet('recordings');
   // The tenant facet (2.3-5): a session names a device, so filtering the
   // ledger by tenant is a lookup on that tenant's unit set.
   const scope = useClientScope();
   const visibleSessions =
     scope.slug === '' ? sessions : sessions.filter((x) => scope.scopedDeviceIds.has(x.device_id));
+  const recordingBySession = new Map<string, SessionRecording>(
+    recordingIndex.recordings.map((r) => [r.session_id, r])
+  );
+  const policy = recordingIndex.recording_policy;
+
   const [endingId, setEndingId] = useState<string | null>(null);
+  const [startingId, setStartingId] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [error, setError] = useState('');
 
   const load = useCallback(() => refresh(), [refresh]);
+
+  const handleRecord = async (session: Session) => {
+    setStartingId(session.id);
+    setError('');
+    try {
+      await startRecording(session.id);
+      // The recording ledger is the collection the column reads; the mutation
+      // that created a row tells the model, not the page.
+      invalidateFleet('recordings');
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('common.error'));
+    } finally {
+      setStartingId(null);
+      setPending(null);
+    }
+  };
 
   const handleEnd = async (session: Session) => {
     setEndingId(session.id);
@@ -99,6 +127,7 @@ export function Sessions() {
                 <th>{t('sessions.colTenant')}</th>
                 <th>Opened</th>
                 <th>State</th>
+                <th>Recording</th>
                 <th className="text-right">Action</th>
               </tr>
             </thead>
@@ -118,6 +147,24 @@ export function Sessions() {
                   <td className="text-text-secondary">{agoLabel(s.created_at)}</td>
                   <td>
                     <Stamp tone={s.status === 'active' ? 'online' : 'neutral'}>{s.status}</Stamp>
+                  </td>
+                  <td className="text-[11px] text-text-secondary">
+                    {recordingBySession.has(s.id) ? (
+                      <Stamp tone={recordingBySession.get(s.id)!.status === 'recording' ? 'due' : 'service'}>
+                        {recordingBySession.get(s.id)!.status === 'recording' ? 'Recording' : 'Recorded'}
+                      </Stamp>
+                    ) : policy === 'off' ? (
+                      <span>recording off</span>
+                    ) : (
+                      <button
+                        onClick={() => handleRecord(s)}
+                        disabled={startingId === s.id}
+                        className="btn px-2 py-1 text-[11px]"
+                        title="Start recording this session. Nothing in the product stops a recording once it has started."
+                      >
+                        Record
+                      </button>
+                    )}
                   </td>
                   <td className="text-right">
                     <button

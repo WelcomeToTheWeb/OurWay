@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"ourway/server/models"
+	"ourway/server/recordings"
 	"ourway/server/store"
 )
 
@@ -169,5 +171,86 @@ func TestDefaultRetentionPolicyWindows(t *testing.T) {
 	}
 	if p.Cold != 365*24*time.Hour {
 		t.Errorf("cold retention = %v, want 365d", p.Cold)
+	}
+}
+
+// TestRetentionSweepsRecordingsOnTheSameTick: 2.4-8's recordings are a second
+// table with a retention window, so they get 2.3-6's treatment — the manager that
+// already owns this job, the same tick, a counter an operator can read. A
+// recording nobody prunes is a disk that fills up quietly, which is M11's pattern.
+func TestRetentionSweepsRecordingsOnTheSameTick(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.MetricHistory{}, &models.AuditLog{}, &models.Session{}, &models.SessionRecording{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { sqlDB.Close() })
+
+	metrics := store.NewMetricHistoryStore(db)
+	stores, err := store.NewWithDB(db)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	policy := recordings.Policy{Mode: models.RecordingModeOn, Dir: t.TempDir(), Retention: 30 * 24 * time.Hour}
+	policy.Normalize()
+	writer := recordings.NewWriter(policy)
+	t.Cleanup(writer.Close)
+
+	now := time.Now().UTC()
+
+	// A recording whose window closed, and a recording inside the window.
+	expired := &models.SessionRecording{
+		ID: "expired-recording", SessionID: "session-expired", DeviceID: "device-1", UserID: "user-1",
+		StartedAt: now.Add(-40 * 24 * time.Hour), FrameCount: 3, Path: policy.PathFor("expired-recording"),
+		Policy: models.RecordingModeOn, Reason: models.RecordingReasonPolicyOn,
+	}
+	inside := &models.SessionRecording{
+		ID: "inside-recording", SessionID: "session-inside", DeviceID: "device-1", UserID: "user-1",
+		StartedAt: now.Add(-24 * time.Hour), FrameCount: 3, Path: policy.PathFor("inside-recording"),
+		Policy: models.RecordingModeOn, Reason: models.RecordingReasonPolicyOn,
+	}
+	insideUntil := now.Add(29 * 24 * time.Hour)
+	inside.RetentionUntil = &insideUntil
+	expired.RetentionUntil = &now
+	for _, rec := range []*models.SessionRecording{expired, inside} {
+		if err := stores.Recordings.Create(rec); err != nil {
+			t.Fatalf("create recording: %v", err)
+		}
+		if err := writer.Start(rec); err != nil {
+			t.Fatalf("start: %v", err)
+		}
+		if err := writer.Append(rec.ID, []byte("frame"), rec.StartedAt); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+		if _, _, err := writer.Finish(rec.ID); err != nil {
+			t.Fatalf("finish: %v", err)
+		}
+	}
+
+	manager := NewRetentionManager(metrics, DefaultRetentionPolicy(), time.Hour).
+		WithRecordings(RecordingRetentionPolicy{Sweep: recordings.NewSweep(stores, writer, 30*24*time.Hour)})
+	manager.enforce()
+
+	counters := manager.Counters()
+	if counters.RecordingsDeleted != 1 {
+		t.Errorf("counter = %d recordings pruned, want 1", counters.RecordingsDeleted)
+	}
+	if counters.RecordingFiles != 1 {
+		t.Errorf("counter = %d files removed, want 1", counters.RecordingFiles)
+	}
+	if _, err := stores.Recordings.GetByID(expired.ID); err == nil {
+		t.Error("the expired recording survived the sweep")
+	}
+	if _, err := os.Stat(expired.Path); !os.IsNotExist(err) {
+		t.Error("the expired recording's file survived the sweep")
+	}
+	if _, err := stores.Recordings.GetByID(inside.ID); err != nil {
+		t.Error("a recording inside the window was pruned")
+	}
+	if !recordings.Exists(inside.Path) {
+		t.Error("a recording inside the window lost its file")
 	}
 }

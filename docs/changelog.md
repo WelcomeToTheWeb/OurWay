@@ -256,6 +256,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Login page: the provider list is the operator's `sort_order` (server-side ordering,
   page preserves it), and a disabled door disappears without a console rebuild.
 
+- **Remote-control session recording and playback** (2.4-8) — a session becomes a
+  record, so the audit log can answer **who was controlling that machine at 14:00**
+  with the screen and the acts in one view. Migration 17 (`session_recordings`) — the
+  number the plan reserved for recordings, which 2.4-6 and 2.4-7 consumed as 15 and 16.
+  - **The recording policy is the installation's**, not the participant's:
+    `RECORD_SESSIONS=off|on|control-only` (**off is the default**), `RECORDINGS_DIR`,
+    `RECORDING_RETENTION_DAYS` (30). An unparseable value is never read as an enabled
+    policy: the boot log prints what it received and the server records nothing.
+    `control_only` is accepted as the spelling people type and normalized.
+  - **Frames come from the path the live session already uses.** `POST
+    /api/sessions/:id/frame` relays the agent's JPEG to the console **and** appends it
+    to the session's recording: a file with no re-encode step, no trailer to lose, and
+    no ffmpeg in the product. `OWRS1` + length-prefixed records (kind, timestamp,
+    length, payload), 25 MiB per frame, 2 GiB per recording, each record synced.
+  - **A restart resumes the same recording** — the row names the file, the writer
+    appends to it, `interruptions` increments and a `resume` marker states the break, so
+    playback shows the minutes nobody recorded. A file cut mid-record reads with its
+    earlier frames and says it is truncated.
+  - **The toggle starts a recording; the product has no stop.**
+    `POST /api/sessions/:id/recording` (audited `session.record_start`) is the
+    technician's own request (`technician:self`) or an admin's order
+    (`operator:ordered`); a session has one recording (unique index), and the only end a
+    recording knows is its session's end. Under `off` the toggle refuses
+    (`409 recording_disabled`): a technician cannot make an installation capture screens
+    it declined to.
+  - **Playback in the console** (`/recordings`): the manifest, the frame index with the
+    time of each frame, frames served one at a time as `image/jpeg`, and **the input
+    events the ledger recorded for that session laid over the frame they produced** —
+    read from the audit ledger, not copied into a media file.
+  - **Reading a recording is scoped and audited.** `admin` reads the installation;
+    manager/technician read their tenants' recordings **and always their own** (the
+    record of what you did does not disappear when your grants change); an out-of-scope
+    recording answers the byte-identical `404` of a recording that never existed
+    (2.3.1). Opening a recording writes `session.recording_play` naming the player;
+    exporting writes `session.recording_fetch`. Frames are the playback stream and are
+    not audited per frame.
+  - **Retention runs on the sweep that already exists** (2.3-6's rule, applied to a
+    second table): the metric retention manager prunes recordings past
+    `retention_until` hourly — rows first, then the files they name — closes recordings
+    the database says are open while no session produces frames, and reports
+    `RecordingsDeleted` / `RecordingFiles` / `RecordingsClosed`.
+  - **`session.input` is its own audit act.** 2.4-7 shipped
+    `POST /api/sessions/:id/input` with the row labelled `session.start`; recording
+    playback and "what did this person do in that session" both select on input, so the
+    action is `session.input`. The audit registry now names it, and the frame route
+    stays on the documented skip list.
+  - Console: the live session panel and the sessions ledger state which sessions **are**
+    being recorded (`Recording · 42 frames` / `Recorded` / `Not recorded`), the recording
+    ledger names the unit, the account, the window and **why the recording exists**, and
+    the playback panel shows the interruptions, the cap, the truncation and the checksum
+    mismatch instead of smoothing them over.
+  - **Not in 2.4-8** (stated, not silent): audio, cursor-shape fidelity, per-frame
+    input capture (keystrokes are recorded as *types* in the ledger, never as text), and
+    server-side backup of `RECORDINGS_DIR` (the directory is media storage; exports are
+    audited).
+
 ### Fixed
 - `auditOKOnce` / `auditRefusedOnce` marked the request as recorded **before** writing,
   so `recordAudit`'s duplicate-row guard swallowed the row: those helpers wrote nothing.

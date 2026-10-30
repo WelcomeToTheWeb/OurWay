@@ -15,6 +15,7 @@ import {
   Webhook,
   Radio,
   Gauge,
+  ScreenShare,
 } from 'lucide-react';
 import { useAuth } from '../auth/context';
 import { useThemeStore, type Theme } from '../stores/themeStore';
@@ -54,6 +55,7 @@ const groups: { heading: string; items: GroupItem[] }[] = [
     heading: 'Manage',
     items: [
       { to: '/sessions', label: 'Sessions', icon: Radio, go: 'g r', roles: ['admin', 'manager', 'technician'] },
+      { to: '/recordings', label: 'Recordings', icon: ScreenShare, roles: ['admin', 'manager', 'technician'] }, // 2.4-8
       { to: '/files', label: 'Files', icon: FolderUp, go: 'g f', roles: ['admin', 'manager', 'technician'] },
       { to: '/patches', label: 'Patches', icon: Package, go: 'g p', roles: ['admin', 'manager', 'technician'] },
       { to: '/patch-policies', label: 'Policies', icon: Shield, go: 'g e', roles: ['admin', 'manager'] },

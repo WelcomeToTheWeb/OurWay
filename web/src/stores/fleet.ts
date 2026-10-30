@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { getAlerts, getDevices } from '../api/devices';
 import { getPatchOverview, listPolicies } from '../api/patching';
 import { listSessions, type Session } from '../api/sessions';
+import { listRecordings, type RecordingIndex } from '../api/recordings';
 import { isRateLimited } from '../api/client';
 import type { Alert } from '../types/alert';
 import type { Device, Metrics } from '../types/device';
@@ -35,6 +36,7 @@ export type FleetKey =
   | 'patchOverview'
   | 'patchPolicies'
   | 'sessions'
+  | 'recordings'
   | 'alerts'
   | 'clients'
   | 'clientRollups';
@@ -44,6 +46,15 @@ export interface FleetData {
   patchOverview: PatchOverview | null;
   patchPolicies: PatchPolicy[];
   sessions: Session[];
+  /**
+   * The recording ledger (2.4-8): the manifest rows this caller may read, plus
+   * the installation's recording policy.
+   *
+   * One collection, two surfaces: the sessions ledger joins it by `session_id`
+   * to state which live sessions **are** being recorded, and the recordings page
+   * is its ledger. A page adding a recording column adds no read.
+   */
+  recordings: RecordingIndex;
   /**
    * The alert ledger, read **unfiltered**.
    *
@@ -103,6 +114,9 @@ const POLL_MS: Record<FleetKey, number> = {
   patchOverview: 60_000,
   patchPolicies: 5 * 60_000,
   sessions: 30_000,
+  // A recording is written at human speed, and the ledger page asks for it on
+  // arrival; a minute is the cadence that keeps the sessions page honest.
+  recordings: 60_000,
   alerts: 30_000,
   // A tenant list changes when an operator edits it, not on a timer.
   clients: 10 * 60_000,
@@ -116,6 +130,7 @@ const FRESH_MS: Record<FleetKey, number> = {
   patchOverview: 30_000,
   patchPolicies: 5 * 60_000,
   sessions: 15_000,
+  recordings: 30_000,
   alerts: 15_000,
   clients: 5 * 60_000,
   clientRollups: 30_000,
@@ -126,6 +141,12 @@ const collectors: Record<FleetKey, () => Promise<unknown>> = {
   patchOverview: () => getPatchOverview().catch(() => null),
   patchPolicies: () => listPolicies().catch(() => [] as PatchPolicy[]),
   sessions: () => listSessions().catch(() => [] as Session[]),
+  recordings: () =>
+    listRecordings().catch(() => ({
+      recordings: [] as RecordingIndex['recordings'],
+      recording_policy: 'off' as RecordingIndex['recording_policy'],
+      retention_days: 0,
+    })),
   alerts: () => getAlerts().catch(() => [] as Alert[]),
   clients: () => getClients().catch(() => [] as Client[]),
   clientRollups: () => getClientRollups().catch(() => [] as ClientRollup[]),
@@ -136,6 +157,7 @@ const emptyFlags = {
   patchOverview: false,
   patchPolicies: false,
   sessions: false,
+  recordings: false,
   alerts: false,
   clients: false,
   clientRollups: false,
@@ -145,6 +167,7 @@ const emptyStamps: Record<FleetKey, number> = {
   patchOverview: 0,
   patchPolicies: 0,
   sessions: 0,
+  recordings: 0,
   alerts: 0,
   clients: 0,
   clientRollups: 0,
@@ -157,6 +180,7 @@ export const useFleetStore = create<FleetState>()(
       patchOverview: null,
       patchPolicies: [],
       sessions: [],
+      recordings: { recordings: [], recording_policy: 'off', retention_days: 0 },
       alerts: [],
       clients: [],
       clientRollups: [],

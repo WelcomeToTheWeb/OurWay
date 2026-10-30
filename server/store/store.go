@@ -41,6 +41,10 @@ type Store struct {
 	// Thresholds is 2.4-5: the alert rule set, with device → tag → client →
 	// global precedence.
 	Thresholds *ThresholdStore
+	// Recordings is 2.4-8: the manifest rows of recorded remote-control sessions.
+	// The frames are a file on disk; this is what states where it is, how big it is,
+	// and why it exists at all.
+	Recordings *RecordingStore
 }
 
 // NewWithDB creates a Store from an existing *gorm.DB instance,
@@ -73,6 +77,7 @@ func NewWithDB(db *gorm.DB) (*Store, error) {
 		DeploymentResults: NewDeploymentResultStore(db),
 		QueuedDeploys:     &QueuedDeployStore{db: db},
 		Thresholds:        NewThresholdStore(db),
+		Recordings:        &RecordingStore{db: db},
 	}
 
 	// Seed built-in roles
@@ -128,6 +133,7 @@ func New(dsn string) (*Store, error) {
 		DeploymentResults: NewDeploymentResultStore(db),
 		QueuedDeploys:     &QueuedDeployStore{db: db},
 		Thresholds:        NewThresholdStore(db),
+		Recordings:        &RecordingStore{db: db},
 	}
 
 	// Seed built-in roles

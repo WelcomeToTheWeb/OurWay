@@ -54,6 +54,12 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-ourway@localhost}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      # Session recording (2.4-8). off is the default: the installation records
+      # nothing until the operator says so. RECORDINGS_DIR is media storage the
+      # host owns — it is mounted below, and the server does not back it up.
+      RECORD_SESSIONS: ${RECORD_SESSIONS:-off}
+      RECORDINGS_DIR: ${RECORDINGS_DIR:-/var/lib/ourway/recordings}
+      RECORDING_RETENTION_DAYS: ${RECORDING_RETENTION_DAYS:-30}
       TZ: UTC
     ports:
       - "8080:8080"
@@ -70,6 +76,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    volumes:
+      # 2.4-8: the recording files outlive the container. A recording directory
+      # inside the container is a recording directory that disappears with it,
+      # which is the worst place for evidence to live.
+      - recordings_data:/var/lib/ourway/recordings
 
   web:
     image: ghcr.io/welcometotheweb/ourway/web:latest
@@ -100,4 +111,6 @@ networks:
 
 volumes:
   postgres_data:
+    driver: local
+  recordings_data:
     driver: local

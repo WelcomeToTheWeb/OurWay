@@ -74,9 +74,15 @@ func registerAuditRoutes() {
 
 	// Remote control.
 	auditRoute(http.MethodPost, "/api/devices/:id/sessions", models.AuditSessionStart)
-	auditRoute(http.MethodPost, "/api/sessions/:id/input", models.AuditSessionStart)
+	// 2.4-8: input is remote control of a unit, and it is its own act — the playback
+	// overlay and "what did this person do in that session" both select on it.
+	auditRoute(http.MethodPost, "/api/sessions/:id/input", models.AuditSessionInput)
 	auditRoute(http.MethodPost, "/api/sessions/:id/quality", models.AuditSessionQuality)
 	auditRoute(http.MethodDelete, "/api/sessions/:id", models.AuditSessionEnd)
+	// 2.4-8: starting a recording begins capturing a person's screen, so it is an act
+	// with a named actor. Nothing in the product stops one, so there is no stop route
+	// to audit.
+	auditRoute(http.MethodPost, "/api/sessions/:id/recording", models.AuditSessionRecordStart)
 
 	// Patching.
 	auditRoute(http.MethodPost, "/api/devices/:id/updates/scan", models.AuditPatchScan)

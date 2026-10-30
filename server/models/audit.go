@@ -110,6 +110,20 @@ const (
 	AuditSessionStart   = "session.start"
 	AuditSessionEnd     = "session.end"
 	AuditSessionQuality = "session.quality"
+	// 2.4-8: keyboard and mouse travel through `POST /api/sessions/:id/input`,
+	// which the ledger recorded as `session.start` until now — a control act filed
+	// under the act of opening the console. Input gets its own action, because the
+	// playback overlay and any reader asking "what did this person do in that
+	// session" select on it.
+	AuditSessionInput = "session.input"
+	// 2.4-8 · recording. Starting a recording is the act that begins capturing a
+	// person's screen, so it is a row naming who asked and why the policy allowed
+	// it; playing one back and downloading it are the acts that read a person's
+	// screen out of a file, so they are rows too.
+	AuditSessionRecordStart    = "session.record_start"
+	AuditSessionRecordingPlay  = "session.recording_play"
+	AuditSessionRecordingRead  = "session.recording_read"
+	AuditSessionRecordingFetch = "session.recording_fetch"
 
 	AuditPatchDeploy   = "patch.deploy"
 	AuditPatchApprove  = "patch.approve"

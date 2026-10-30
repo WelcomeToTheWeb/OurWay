@@ -19,6 +19,7 @@ import (
 	"ourway/server/config"
 	"ourway/server/files"
 	"ourway/server/metrics"
+	"ourway/server/recordings"
 	"ourway/server/store"
 	"ourway/server/webhooks"
 	"ourway/server/ws"
@@ -35,6 +36,21 @@ func main() {
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
 		Password: cfg.SMTPPassword, From: cfg.SMTPFrom, StartTLS: cfg.SMTPStartTLS,
 	})
+
+	// 2.4-8: the recording policy is the installation's, read from the environment,
+	// and the writer's open files belong to this process's life — they close on
+	// shutdown, so a restart resumes a recording instead of orphaning it. Off is
+	// the default, and the boot line states it: "are you recording me" deserves an
+	// answer an operator can read in the log.
+	recordingPolicy := recordings.Policy{
+		Mode:      cfg.RecordSessions,
+		Dir:       cfg.RecordingsDir,
+		Retention: time.Duration(cfg.RecordingRetentionDays) * 24 * time.Hour,
+	}
+	recordingPolicy.Normalize()
+	recordingWriter := recordings.NewWriter(recordingPolicy)
+	defer recordingWriter.Close()
+	api.SetRecording(recordingPolicy, recordingWriter)
 
 	// Server lifecycle context: background workers started with this
 	// context stop when it is cancelled during shutdown.
@@ -129,6 +145,11 @@ func main() {
 	).WithAudit(metrics.AuditRetentionPolicy{
 		Store:  st.Audit,
 		Window: time.Duration(cfg.AuditRetentionDays) * 24 * time.Hour,
+	}).WithRecordings(metrics.RecordingRetentionPolicy{
+		// 2.4-8: recordings are pruned by the same supervised sweeper, on the same
+		// schedule, with their own counters — M11's lesson applied to a second
+		// table, and the reason this line is here rather than a goroutine in main.
+		Sweep: recordings.NewSweep(st, recordingWriter, time.Duration(cfg.RecordingRetentionDays)*24*time.Hour),
 	})
 	retentionManager.Start()
 	api.SetRetentionSweeper(retentionManager)
