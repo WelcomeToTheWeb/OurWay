@@ -1138,6 +1138,34 @@ Windows viewer opens.
 List sessions. `admin` sees every active session; every other role sees only
 their own (`ListActiveAll` for admin, `ListActiveByUser` otherwise).
 
+**Response (200 OK):**
+
+```json
+{
+  "sessions": [ { "id": "…", "device_id": "…", "status": "active" } ],
+  "recordings": {
+    "session-id": {
+      "id": "recording-id",
+      "status": "recording",
+      "frame_count": 12,
+      "bytes": 481203,
+      "reason": "policy:control-only",
+      "policy": "control-only",
+      "started_at": "2026-10-30T14:00:00Z",
+      "interruptions": 0,
+      "dropped_frames": 0
+    }
+  },
+  "recording_policy": "control-only"
+}
+```
+
+2.4-8: `recordings` carries the recording of each session that has one, and
+`recording_policy` is the installation's policy (`off`, `on`, `control-only`).
+This is where the live session panel states plainly that a session **is** being
+recorded. A session absent from `recordings` has no recording: under
+`control-only` a view-only session is not recorded, and `off` records nothing.
+
 ---
 
 ### POST /api/sessions/:id/quality
@@ -1211,6 +1239,16 @@ the session stays view-only (`agent/session/input_darwin.go`).
 }
 ```
 
+**Record:** `session.input` naming the unit, its tenant, the session, and the
+input type. The `payload` is never in the record — keystrokes are not evidence,
+and a log of what a technician typed at a machine is a second system to breach.
+2.4-7 shipped this route's row as `session.start`, a second row naming the same
+session start; 2.4-8 names the act `session.input`, which is what the playback
+overlay and the ledger filter select on.
+
+Under `RECORD_SESSIONS=control-only` this request is also the moment a session's
+recording starts (see [Recording a session](#post-apisessionsidrecording)).
+
 ---
 
 ### DELETE /api/sessions/:id
@@ -1224,6 +1262,137 @@ End a remote session.
   "status": "ended"
 }
 ```
+
+2.4-8: ending the session ends its recording. The writer's final counters go to
+the manifest row and the row gets its `ended_at`. This is the only way a
+recording ends — the product has no stop.
+
+---
+
+### POST /api/sessions/:id/recording
+
+Start recording this session (2.4-8). **There is no route that stops one:** a
+participant who can end the installation's recording of their own session has a
+recording that ends exactly when it stops helping them, which is the opposite of
+why the audit log asks for one. The only end a recording knows is its session's
+end.
+
+**Who may start one:** the session's own operator (`reason: technician:self`),
+and `admin` for a session inside their scope (`reason: operator:ordered`). A
+caller who is neither gets the `404` a session that does not exist gets.
+
+**Refusals:**
+
+| Situation | Answer |
+| --- | --- |
+| `RECORD_SESSIONS=off` | `409` `recording_disabled` — a technician cannot make an installation capture screens it declined to |
+| the session is `ended`/`error` | `409` `session_over` — a recording starts while the session is live |
+| the recording row cannot be written | `409` `recording_unavailable` |
+| the session belongs to another caller, or its unit is outside the caller's tenants | `404` (the same body as a session that never existed) |
+
+Asking twice returns the **existing** recording: a session has one recording, by
+the unique index on `session_id`, because two recordings of the same screen leave
+the ledger unable to say which is the frame a person saw.
+
+**Response (201 Created):** the recording manifest, as `GET /api/recordings/:id`
+describes it.
+
+**Record:** `session.record_start` naming the recording, the session, the reason,
+and the policy — starting a recording begins capturing a person's screen.
+
+---
+
+### GET /api/sessions/:id/recording
+
+The recording of one session, or its absence (`404`). The live session panel
+reads this to state that a session **is** being recorded.
+
+**Response (200 OK):** the manifest (`recording`, plus `playable`).
+
+---
+
+## Session recordings (2.4-8)
+
+A recording is a manifest row plus a file of the frames the agent already posted
+(`RECORDINGS_DIR/<recording-id>.seq`). The recording policy is the installation's
+(`RECORD_SESSIONS`, see [Configuration](configuration.md)), and it is the reason
+each recording exists: `on` records every session from its start,
+`control-only` records a session from the moment someone sends control input,
+`off` records nothing.
+
+**Reading a recording is reading a person's screen**, so the doors are scoped the
+way every tenant-facing ledger is (2.3.1), and the two acts that a recording is
+used for are audited:
+
+| Door | Who | Record |
+| --- | --- | --- |
+| `GET /api/recordings` | `admin`: the installation; manager/technician: their tenants' recordings **plus their own** | — |
+| `GET /api/recordings/:id` | same scoping | **`session.recording_play`** naming the player and the recording |
+| `GET /api/recordings/:id/frames` | same | — |
+| `GET /api/recordings/:id/frames/:index` | same | — (the playback stream; the manifest row already named the act) |
+| `GET /api/recordings/:id/events` | same | — |
+| `GET /api/recordings/:id/manifest` | same | **`session.recording_fetch`** (`what: manifest`) |
+| `GET /api/recordings/:id/file` | same | **`session.recording_fetch`** (`what: sequence`) |
+
+A recording outside the caller's tenants answers the `404` a recording that never
+existed answers, with the identical body. Two doors let a caller read a recording
+that is not theirs to nobody: `admin` (the installation) and a manager/technician
+whose tenant scope covers the unit. A person **always** reads their own
+recordings, including on units they have since lost scope over — the record of
+what you did does not become unaccountable when your grants change.
+
+**Manifest fields:** `id`, `session_id`, `device_id`, `device_name`,
+`client_id`, `user_id`, `username`, `status`, `reason`, `policy`, `started_at`,
+`ended_at`, `frame_count`, `bytes`, `checksum`, `interruptions`,
+`dropped_frames`, `retention_until`, `playable`.
+
+- `status` is `recording` (the session's recording is open), `complete` (ended,
+  file present) or `missing` (ended, file gone). A row with no `ended_at` is a
+  recording being appended to.
+- `reason` is `policy:on`, `policy:control-only`, `operator:ordered`, or
+  `technician:self`: why this recording exists.
+- `interruptions` counts server restarts that resumed the file, and the sequence
+  carries a `resume` marker at each, so playback shows the break instead of
+  hiding it.
+- `dropped_frames` counts frames the writer refused — over the 10 MiB frame cap,
+  or once the recording hit `MaxBytes` (2 GiB per recording by default). A
+  recording that quietly lost frames is a recording an operator would read as
+  complete.
+- The live counters are a **sample**: the frame path writes the row every fifth
+  frame. The read that shows a recording refreshes it from the writer, so the
+  numbers a person is shown are exact; the session's end writes the final ones.
+
+**Playback index** (`GET /api/recordings/:id`) adds `frames` (`{index, at}` per
+frame), `markers`, `bytes_on_disk`, `checksum_on_disk`, and
+`checksum_mismatch` when the file is not what the row says it is.
+`GET /api/recordings/:id/frames` answers the index alone; a recording whose file
+is gone answers `404` `recording_unreadable`. A frame index past the end answers
+`404` `frame_not_found`.
+
+**Input overlay** (`GET /api/recordings/:id/events`) answers the acts the ledger
+recorded for that session inside the recording's own window, oldest first:
+`session.input` (with its `input_type`), `session.start`, `session.quality`,
+`session.end`, `session.record_start`. The events come from the audit ledger and
+not from the recording file: the ledger is the installation's record of acts, it
+is scoped, and it is pruned by a policy the operator reads. Input copied into a
+media file would be a second copy of what a person did, kept for a different
+reason and pruned on a different schedule.
+
+**Retention.** `RECORDING_RETENTION_DAYS` (default 30) is written to the row as
+`retention_until`. The metric retention manager prunes recordings past that date
+on its hourly tick — rows first, then the files they name — and reports the
+counts (`RecordingsDeleted`, `RecordingFiles`, `RecordingsClosed`) the same way it
+reports the ledger's prune. It also closes recordings the database says are open
+while no session is producing frames, so the console never shows a live recording
+forever. A recording this server is appending to is never closed by the sweep.
+
+**Restart.** `RECORDINGS_DIR/<recording-id>.seq` is an append-only sequence of
+length-prefixed frames with no trailer to lose: a server that stops mid-session
+leaves every earlier frame readable, and a restart appends to the same file
+(`interruptions` +1, `resume` marker). A file cut mid-record is reported as
+truncated. The sweep deletes files with their rows, and `RECORDINGS_DIR` is not
+backed up by the server — export the manifest you need kept, and treat the
+directory as media storage.
 
 ---
 

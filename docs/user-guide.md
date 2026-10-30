@@ -763,6 +763,108 @@ the signing rules and the contract above are the shipped surface.
 
 ---
 
+## Session Recording and Playback (2.4-8)
+
+Remote control leaves a record. A recording answers the question a compliance
+conversation starts with — **who was controlling that machine at 14:00** — with
+the screen the technician saw and the keyboard and mouse the audit ledger
+recorded, in the order they happened.
+
+Recording is **off by default**. It is a promise to the people whose screens it
+shows, so the installation has to say so:
+
+| `RECORD_SESSIONS` | What it records |
+| --- | --- |
+| `off` (default) | Nothing. The console says so on the recording page, and the toggle refuses. |
+| `on` | Every remote-control session, from the moment it starts. |
+| `control-only` | A session from the moment someone **sends control input**. A view-only session is not the act the question is about. |
+
+`RECORDINGS_DIR` is where the files live (a directory you size and back up:
+frames are media, and the server does not back it up). `RECORDING_RETENTION_DAYS`
+(default 30) is how long a recording is kept; a sweep you can read the counters
+of prunes expired recordings and removes their files. An unparseable
+`RECORD_SESSIONS` value is not read as a policy: the server prints what it
+received at boot and records nothing.
+
+### Turning it on
+
+Set the variable and restart the server:
+
+```
+RECORD_SESSIONS=control-only
+RECORDINGS_DIR=/var/lib/ourway/recordings
+RECORDING_RETENTION_DAYS=90
+```
+
+The boot log states which policy is running, and every surface that reads a
+recording states it too.
+
+### What the console shows
+
+- **The live session panel** carries a stamp: `Recording · 42 frames`, `Recorded`,
+  or `Not recorded`. Under `control-only` a view-only session says it is not
+  recorded and why, and the panel has a **Record session** button.
+- **Sessions ledger** has a Recording column, with the same button.
+- **Recordings** (`/recordings`) is the ledger: unit, account, tenant, from, to,
+  frames, size, state, and **why the recording exists** — the installation's
+  policy, an administrator's order, or the technician's own request.
+
+There is **no way to stop a recording** in the product. A participant who could
+end the installation's recording of their own session would have a recording that
+ends exactly when it stops helping them, which is the opposite of why it exists.
+The only end a recording knows is its session's end.
+
+### Playing a recording
+
+Play opens the frames in order with a scrubber, the time of each frame, and the
+input events the ledger recorded for that session laid over the frame they
+produced. Markers in the sequence are shown, not smoothed over: a server restart
+that interrupted the recording, the moment the size cap started dropping frames,
+and a file that ends mid-record.
+
+**Playing a recording is audited.** The read that opens it writes
+`session.recording_play` naming you and the recording; exporting the manifest or
+the sequence file writes `session.recording_fetch`. The frames themselves are the
+playback stream and are not audited per frame.
+
+### Who can read a recording
+
+`admin` reads the installation. A manager or technician reads the recordings of
+the tenants they are granted, **and always their own** — the record of what you
+did does not disappear when your grants change. A recording outside your tenants
+answers the same `404` as a recording that never existed.
+
+### What is not recorded
+
+Keystrokes are not recorded as text. The ledger stores the **input type** (a key
+event, a mouse click), the unit, the session and the time — the record that says
+what was done, without a copy of everything typed at somebody's machine. The
+recording's frames are the screen the agent posted; nothing the agent did not
+stream is in them, so the minutes before a `control-only` session is controlled,
+and the minutes a restart interrupted, are simply not recorded — and the
+recording says so.
+
+The sequence file is exported from the console (Manifest / Sequence file
+buttons). It is a plain append-only frame sequence: play it with any tool, hand
+it to whoever the conversation needs, and know that the export is audited.
+
+### Retention, disk, and the honest state of a recording
+
+- A recording is capped at 2 GiB and one frame at 25 MiB. Frames refused by the
+  cap are counted on the manifest (`dropped_frames`) and stated in playback.
+- The manifest row is a **sample** while the session is live (it is written every
+  fifth frame); the read that shows it refreshes it, and the session's end writes
+  the final numbers.
+- A row whose file is gone is `missing`, and the console does not offer playback.
+- Recordings past `RECORDING_RETENTION_DAYS` are pruned by the hourly retention
+  sweep — rows first, then the files — and the sweep reports its counts. It also
+  closes recordings the database says are open while no session is producing
+  frames, so the console never shows a live recording forever.
+
+---
+
+---
+
 ## Notification Channels (2.4-6)
 
 A channel is how a fact about the fleet reaches a person. One ledger holds all four

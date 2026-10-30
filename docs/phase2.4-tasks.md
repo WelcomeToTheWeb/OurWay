@@ -1,6 +1,8 @@
 # Phase 2.4: Escalate to Humans, Own Your Identity — Task Breakdown
 
-**Status:** Planned
+**Status:** All eight tasks delivered (2.4-1 … 2.4-8, last on 2026-10-30). **Open:**
+the Keycloak/AD FS vendor interop pass the OIDC and SAML proofs owe, and the release
+tag.
 **Target release:** `v2.4.0`
 **Parent plan:** [`roadmap-2.x.md`](roadmap-2.x.md)
 **Baseline:** `v2.3.x` (tenancy + audit log shipped)
@@ -706,45 +708,95 @@ copy of the SP private key is the server's row. **Deferred** (in "Deferred insid
 
 ---
 
-## 2.4-8 · Session recording, so the audit log has an answer
+## 2.4-8 · Session recording, so the audit log has an answer ✅ delivered 2026-10-30
 
 **Context:** `server/models/session.go` records tokens and status, no media;
 `POST /api/sessions/:id/frame` relays frames to the owner and stores nothing.
 `server/files/service.go` is the existing shape for server-side blob storage
 (directory, per-transfer file, cleanup sweep) — recordings follow it.
 
-**Do**
-- [ ] Migration **17** (the plan's 16: 15 went to 2.4-6's channels and 16 to 2.4-7's
-      SAML columns — see the numbering note above): `session_recordings` —
-      `session_id`, `device_id`, `user_id`,
-      `client_id`, `started_at`, `ended_at`, `frame_count`, `bytes`, `path`,
-      `retention_until`, `reason`.
-- [ ] Recording written as an append-only JPEG sequence file under
-      `RECORDINGS_DIR`, with the retention sweep scheduled (the M11 lesson again:
-      an unpruned delete method is not a policy) and `RECORDING_RETENTION_DAYS`.
-- [ ] Policy: `RECORD_SESSIONS=off|on|control-only` (default **off**), per-session
-      toggle surfaced to the technician, and the console states plainly when a
-      session **is** being recorded — this is an operator-visible promise, not a
-      background behaviour.
-- [ ] Playback in the console: scrub, frame stepping, keyboard/mouse events shown
-      over the frames from the audit rows, and a download of the recording manifest.
-- [ ] Access control: recordings are client-scoped per 2.3.1 (a technician scoped
-      to A cannot read a client-B recording), and **playing a recording is audited**
-      like any other action.
-- [ ] Recording survives a server restart mid-session (the file is append-only; the
-      row records the gap, it does not pretend continuity).
+**Delivered**
+- [x] Migration **17** (`session_recordings`): `server/models/session_recording.go` —
+      `session_id` (unique: a session has one recording), `device_id`, `user_id`,
+      `client_id`, `started_at`, `ended_at`, `frame_count`, `bytes`, `path`, `checksum`,
+      `interruptions`, `dropped_frames`, `reason`, `policy`, `retention_until`.
+      `server/store/recordings.go` is the manifest store (create, get by session,
+      own/scoped lists, flush, end, open rows, prune-past-retention, count).
+- [x] Append-only JPEG sequence under `RECORDINGS_DIR` (`server/recordings/writer.go`):
+      `OWRS1` header + length-prefixed records (kind, unix-ms timestamp, length,
+      payload), each record synced; 25 MiB per frame (the frame endpoint's own cap),
+      2 GiB per recording. No container format, no re-encode, no ffmpeg: a crash leaves
+      every earlier frame readable, and a tail cut mid-record is read as
+      `truncated`. Frames are appended **from the frame path the live session already
+      uses** (`ReportFrame` → `appendFrame`), so the recording exists for the session
+      the console watched.
+- [x] Retention sweep on the sweep that already exists (`server/recordings/sweep.go`,
+      attached to `metrics.RetentionManager.WithRecordings`): closes recordings the
+      database says are open while no session is producing frames (never one this
+      process is appending to), prunes rows past `retention_until`, then removes the
+      files they name. Counters: `RecordingsDeleted`, `RecordingFiles`,
+      `RecordingsClosed`, plus the run timestamp, on `RetentionCounters`.
+- [x] Policy in `server/config/config.go` (`RECORD_SESSIONS`, `RECORDINGS_DIR`,
+      `RECORDING_RETENTION_DAYS`; default `off`, `./dist/recordings`, 30). An
+      unparseable mode prints what it received and runs `off`. `control_only` is
+      normalized to `control-only`. Documented in `docs/configuration.md` and
+      `.env.example`.
+- [x] The **toggle starts a recording and nothing stops one**:
+      `POST /api/sessions/:id/recording` (the session's operator, or admin for a
+      session in scope), `409 recording_disabled` under `off`, `409 session_over` for a
+      finished session, and the existing row returned when asked twice. The only end is
+      the session's end (`EndSession` → `finishRecording`). Under `control-only` the
+      first control input starts the recording (`noteControlInput`), and the row's
+      `reason` says which rule made it.
+- [x] The console **states the promise**: the live session panel carries
+      `Recording · N frames` / `Recorded` / `Not recorded` and a *Record session*
+      button; the sessions ledger has the Recording column and button; `/recordings` is
+      the ledger (unit, account, tenant, window, frames + dropped + resumes, size,
+      state, **why it exists**) and opens playback.
+- [x] Playback (`web/src/components/RecordingPlayer.tsx`): manifest + frame index with
+      the time of each frame, frames fetched one at a time through the authenticated
+      client (an `<img src>` carries no bearer token, and a token in a URL is a token in
+      the access log), scrub, 1 frame/s play, the input events the ledger recorded for
+      that session laid over the frame they produced, and the manifest/sequence exports.
+      Interruptions, cap, truncation and checksum mismatch are printed, not smoothed.
+- [x] Access control (2.3.1) and audit: `admin` all, manager/technician their tenants'
+      recordings **plus their own always** (a technician's record of what they did does
+      not become unreadable when their grants change); an out-of-scope recording answers
+      the byte-identical 404. `GET /api/recordings/:id` writes
+      `session.recording_play` naming the player; the manifest and sequence exports
+      write `session.recording_fetch`; frames are the stream and are not audited per
+      frame. Starting a recording writes `session.record_start`.
+- [x] Restart continuity: the writer resumes the same file (row → `path`),
+      `interruptions` +1, a `resume` marker in the sequence, and the resumed writer
+      counts the frames already in the file, so the manifest never reads as a recording
+      that started over.
 
-**Acceptance criteria**
-- A 3-minute control session with `RECORD_SESSIONS=control-only` produces a
-  recording whose frame count and byte size are recorded, and playback shows the
-  technician's input events at the frames they were sent.
-- A scoped technician gets 404 on a client-B recording by ID, matching 2.3.1.
-- Playing a recording writes an audit row naming the player and the recording.
-- Retention sweep removes `retention_until` rows and their files; the sweep is
-  observable in a counter (feeds 2.5.0's metrics surface).
-- `RECORD_SESSIONS=off` (default) produces zero recording rows and zero files.
+**Acceptance criteria → the tests that prove them**
 
----
+| Criterion | Proof |
+| --- | --- |
+| A control session under `control-only` produces a recording with frame count and byte size, and playback shows the input events at the frames they were sent | `TestControlOnlyStartsAtTheFirstControlInput`, `TestInputIsItsOwnActInTheLedgerAndTheOverlayReadsIt`, `TestRecordedFramesPlayBackInOrderWithTheManifestsChecksum` (`server/api/recordings_test.go`) |
+| A scoped technician gets 404 on a client-B recording by ID, byte-identical to a recording that does not exist | `TestRecordingsAreScopedToTheTechniciansClients` |
+| Playing a recording writes an audit row naming the player and the recording | `TestPlayingARecordingIsAuditedAndFetchingFramesIsNot`, `TestPolicyOnRecordsEverySessionFromItsStart` |
+| Retention sweep removes `retention_until` rows **and their files**, observably | `TestRetentionSweepPrunesRecordingsAndTheirFiles`, `TestSweepClosesAbandonedRecordingsAndLeavesLiveOnes`, `TestRetentionSweepsRecordingsOnTheSameTick` (`server/metrics`) |
+| `RECORD_SESSIONS=off` (default) produces zero rows and zero files | `TestRecordingIsOffUnlessTheInstallationSaysSo`, `TestLoadRecordingPolicyDefaultsToOff` (`server/config`) |
+| The file format's promises: append-only, crash-safe, resumable, capped, addressable by index | `server/recordings/writer_test.go` — `TestSequenceIsAppendOnlyFramesWithTimestamps`, `TestResumeAppendsToTheSameRecordingAndCountsTheInterruption`, `TestTruncatedTailKeepsEarlierFramesAndSaysItIsTruncated`, `TestWriterCapDropsFramesAndCountsThem`, `TestARestartResumesTheSameRecordingAndStatesTheInterruption` (API level) |
+| The live session panel states which sessions are recorded, and a view-only session under `control-only` is not | `TestTheSessionListStatesWhichSessionsAreRecorded`; console: `web/src/pages/Recordings.test.tsx` (8 tests), `SessionView` stamps |
+| The recording is capped and the session survives it | `TestARecordingThatReachesItsCapSaysSoAndKeepsTheSessionAlive` |
+| A person always reads their own recording | `TestATechnicianAlwaysReadsTheirOwnRecording` |
+
+**Gates measured with 2.4-8 in:** `go -C server test -p 1 -race -count=1 ./...` green
+(14 packages), `npm run test:run --prefix web` 193 tests (26 files), `npm run typecheck`,
+`npm run build`, `scripts/i18n-parity.py` (no new keys: 782 web + 30 server paths in
+lockstep), `scripts/browser-dialogs-check.sh` (0 native dialogs, 111 sources).
+
+**Deviation from the plan, stated plainly:** the plan's criterion is *"a 3-minute control
+session"*; the tests run seconds-long sessions with 2–25 frames, because the assertions
+are the counters, the scoping and the audit rows, not wall-clock length. The manifest's
+live counters are a **sample** (the row is written every fifth frame of the file; the
+read that shows a recording refreshes it from the writer, and the session's end writes
+the final numbers) — a per-frame manifest write would put a database write in the live
+session's hot loop for a number nobody reads mid-frame.
 
 ## Release gate for `v2.4.0`
 
@@ -784,17 +836,29 @@ Plus, non-negotiable for this release:
       2.4-6** — `TestOneAlertReachesEveryKindInOnePass`,
       `TestRoutingRefusalsWriteNoDeliveryRow` (`server/webhooks`), against a real SMTP
       server (`server/webhooks/testsmtp`).
-- [ ] Recordings are client-scoped, playback is audited, and the default is off.
-      **Open with 2.4-8** — not built.
+- [x] Recordings are client-scoped, playback is audited, and the default is off.
+      **Green since 2.4-8** — `TestRecordingsAreScopedToTheTechniciansClients` (the
+      byte-identical 404, the scoped list, the admin's and manager's doors),
+      `TestPlayingARecordingIsAuditedAndFetchingFramesIsNot` (the manifest read names
+      the player, the frame stream writes nothing),
+      `TestRecordingIsOffUnlessTheInstallationSaysSo` +
+      `TestLoadRecordingPolicyDefaultsToOff` (off records nothing, and says so),
+      `TestATechnicianAlwaysReadsTheirOwnRecording`.
 - [x] `docs/api.md` updated for every new route with the 2.2-7 route↔docs check
       green; new env vars documented in `docs/configuration.md` and `.env.example`.
       **Every route this release added is documented** — SSO discovery/test/edit
       (2.4-1/2.4-4), pending-identity approve and merge (2.4-3), the threshold rules
       and the resolve/simulate reads (2.4-5), the channel ledger and its `/v2/webhooks`
-      alias (2.4-6), and the SAML metadata + assertion consumer routes (2.4-7). New env
-      vars: the SMTP set (2.4-6) in `configuration.md`, `.env.example` and
+      alias (2.4-6), the SAML metadata + assertion consumer routes (2.4-7), and the
+      recording ledger — `POST/GET /api/sessions/:id/recording`,
+      `GET /api/recordings`, `/recordings/:id`, its `/frames`, `/frames/:index`,
+      `/events`, `/manifest` and `/file` (2.4-8), plus the session list's
+      `recordings` / `recording_policy` fields and the input route's audit action.
+      New env vars: the SMTP set (2.4-6) in `configuration.md`, `.env.example` and
       `docker-compose.prod.yml`; 2.4-7 adds none, and `configuration.md` now states that
-      `WEB_URL` is the base of the SAML ACS URL. **Stated:** the "route↔docs check" has
+      `WEB_URL` is the base of the SAML ACS URL; 2.4-8 adds `RECORD_SESSIONS`,
+      `RECORDINGS_DIR` and `RECORDING_RETENTION_DAYS` to all three, with
+      `recordings_data` mounted as a volume in the production compose file. **Stated:** the "route↔docs check" has
       no script behind it — `scripts/` checks i18n parity, native dialogs, coverage and
       the release gate, and `TestEveryMutatingRouteIsAudited` is the executable route
       check on the audit side, not the docs side. The route↔docs comparison is made by

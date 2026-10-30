@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -21,6 +22,11 @@ import (
 type SessionHandler struct {
 	store *store.Store
 	hub   *ws.Hub
+	// recording is 2.4-8's wiring: the installation's recording policy, the writer
+	// that appends the frames this handler already receives, and the sessions this
+	// process is writing for. Nil means this installation records nothing, which is
+	// the default (`RECORD_SESSIONS=off`).
+	recording *RecordingState
 }
 
 // NewSessionHandler creates a new session handler.
@@ -118,6 +124,13 @@ func (h *SessionHandler) StartSession(c *gin.Context) {
 		"device":     device.Name,
 		"user_id":    userID,
 	})
+
+	// 2.4-8 · `RECORD_SESSIONS=on` records this session from its start, so the
+	// recording exists — and the session panel can say it exists — before the first
+	// frame arrives. `control-only` waits for control input; `off` starts nothing.
+	if models.RecordingModeRecords(h.RecordingMode()) && h.RecordingMode() == models.RecordingModeOn {
+		h.startRecording(session, device, models.RecordingReasonPolicyOn)
+	}
 
 	// The viewer launch URL carries the viewer token; the server URL is
 	// what the viewer dials. The token is returned only here, once.
@@ -221,6 +234,10 @@ func (h *SessionHandler) EndSession(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to end session"})
 		return
 	}
+	// 2.4-8: the recording ends with the session, and its final counters are
+	// written to the row. A recording left open in the database is a recording the
+	// console reports as live forever.
+	h.finishRecording(sessionID)
 
 	// Tell the device to stop capturing.
 	if device, err := h.store.Devices.GetByID(session.DeviceID); err == nil {
@@ -265,8 +282,13 @@ func (h *SessionHandler) SendInput(c *gin.Context) {
 	// Input is remote control of a unit, so it is recorded as the act it is:
 	// the unit, its tenant, the session, and the input type. The `payload` is
 	// not in the record — keystrokes are not evidence, and a log of what a
-	// technician typed at a machine is a second system to breach.
-	defer auditForAnswer(c, h.store, models.AuditSessionStart, DeviceTarget(device), map[string]any{
+  // technician typed at a machine is a second system to breach.
+	//
+	// 2.4-8: input is its own act (`session.input`), not a second `session.start`.
+	// The playback overlay selects on it, and an operator asking "what did this
+	// person do in that session" filters on it.
+	h.noteControlInput(sessionID)
+	defer auditForAnswer(c, h.store, models.AuditSessionInput, DeviceTarget(device), map[string]any{
 		"session_id": sessionID,
 		"input_type": req.Type,
 	})
@@ -341,6 +363,13 @@ func (h *SessionHandler) ReportFrame(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "empty frame body"})
 		return
 	}
+
+	// 2.4-8: the frame is appended to the session's recording when the
+	// installation's policy says this session is recorded. A frame that cannot be
+	// recorded is logged and counted as dropped on the row; the live session is not
+	// affected, because remote control is the product and the recording is its
+	// record.
+	h.appendFrame(session, data, time.Now().UTC())
 
 	// Relay only to the session owner's browser connection so no other
 	// authenticated client can watch a live session.
@@ -422,5 +451,17 @@ func (h *SessionHandler) ListSessions(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to list sessions"})
 		return
 	}
-	c.JSON(200, gin.H{"sessions": sessions})
+
+	// 2.4-8: the live session list states which sessions **are** being recorded.
+	// Recording a person's screen is a promise the console makes visibly, so the
+	// list carries it, and it carries the policy too — a technician who sees
+	// `control-only` knows why their view-only session has no recording and why a
+	// session where they type has one.
+	recordings := map[string]any{}
+	for i := range sessions {
+		if info := h.SessionRecordingInfo(sessions[i].ID); info != nil {
+			recordings[sessions[i].ID] = info
+		}
+	}
+	c.JSON(200, gin.H{"sessions": sessions, "recordings": recordings, "recording_policy": h.RecordingMode()})
 }

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"ourway/server/recordings"
 	"ourway/server/store"
 )
 
@@ -59,6 +60,12 @@ type RetentionManager struct {
 	auditDeleted   int64
 	lastRunAt      time.Time
 	lastRunErrored bool
+
+	// recordingsSweep is 2.4-8's half of this job, and lastRecording is what it
+	// reported: the plan's rule for the ledger applies to recordings too — one
+	// supervised sweeper, one schedule, observable counters.
+	recordingsSweep *recordings.Sweep
+	lastRecording   recordings.SweepCounters
 }
 
 // NewRetentionManager creates a new retention manager.
@@ -83,15 +90,37 @@ func (m *RetentionManager) WithAudit(audit AuditRetentionPolicy) *RetentionManag
 	return m
 }
 
+// RecordingRetentionPolicy is 2.4-8's recording window, attached to the same
+// sweep.
+type RecordingRetentionPolicy struct {
+	// Sweep is the recordings' job: close what the sessions left open, prune
+	// what passed its retention date, and remove the files with the rows.
+	Sweep *recordings.Sweep
+}
+
+// WithRecordings attaches 2.4-8's recording sweep to the same hourly job.
+func (m *RetentionManager) WithRecordings(policy RecordingRetentionPolicy) *RetentionManager {
+	m.recordingsSweep = policy.Sweep
+	return m
+}
+
 // RetentionCounters reports what the sweeper last did, for the metrics
 // surface and the ledger page: rows pruned per table, when it last ran, and
 // whether it errored.
 type RetentionCounters struct {
 	MetricDeleted int64
 	AuditDeleted  int64
-	LastRunAt     time.Time
-	Errored       bool
-	RetentionDays int
+	// RecordingsDeleted, RecordingFiles and RecordingsClosed are 2.4-8: recordings
+	// pruned past their retention window, the files removed with them, and the
+	// recordings the sweep had to close because the session was over and nothing
+	// in this process was writing them. A recording nobody prunes is a recording
+	// whose frames quietly outgrow the disk, which is M11's pattern exactly.
+	RecordingsDeleted int64
+	RecordingFiles    int
+	RecordingsClosed  int
+	LastRunAt         time.Time
+	Errored           bool
+	RetentionDays     int
 }
 
 // RetentionSummary implements the ledger's view of the sweeper: the same
@@ -106,11 +135,14 @@ func (m *RetentionManager) Counters() RetentionCounters {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return RetentionCounters{
-		MetricDeleted: m.metricDeleted,
-		AuditDeleted:  m.auditDeleted,
-		LastRunAt:     m.lastRunAt,
-		Errored:       m.lastRunErrored,
-		RetentionDays: int(m.audit.Window / (24 * time.Hour)),
+		MetricDeleted:     m.metricDeleted,
+		AuditDeleted:      m.auditDeleted,
+		RecordingsDeleted: m.lastRecording.RecordingsDeleted,
+		RecordingFiles:    m.lastRecording.FilesRemoved,
+		RecordingsClosed:  m.lastRecording.RecordingsClosed,
+		LastRunAt:         m.lastRunAt,
+		Errored:           m.lastRunErrored,
+		RetentionDays:     int(m.audit.Window / (24 * time.Hour)),
 	}
 }
 
@@ -181,4 +213,20 @@ func (m *RetentionManager) enforce() {
 	m.lastRunAt = time.Now()
 	m.lastRunErrored = errored
 	m.mu.Unlock()
+
+	// 2.4-8: the recordings' turn, after the two tables above. The order is the
+	// same rule as the ledger's: a recording that cannot be pruned must not turn
+	// into metrics that are never pruned.
+	if m.recordingsSweep != nil {
+		result := m.recordingsSweep.Run()
+		m.mu.Lock()
+		m.lastRecording.RecordingsDeleted += result.RecordingsDeleted
+		m.lastRecording.RecordingsClosed += result.RecordingsClosed
+		m.lastRecording.FilesRemoved += result.FilesRemoved
+		m.lastRecording.LastRunAt = result.LastRunAt
+		if result.Errored {
+			m.lastRunErrored = true
+		}
+		m.mu.Unlock()
+	}
 }

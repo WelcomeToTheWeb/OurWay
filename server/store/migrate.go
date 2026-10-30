@@ -441,6 +441,19 @@ var migrations = []migration{
 		// so the backfill writes the value SAML's default is, not a guess per row.
 		return db.Exec("UPDATE sso_providers SET nameid_format = 'emailaddress' WHERE nameid_format IS NULL OR nameid_format = ''").Error
 	}},
+	{version: 17, name: "session_recordings", fn: func(db *gorm.DB) error {
+		// 2.4-8: a remote-control session can leave its frames behind, so the audit
+		// log has an answer to "who was controlling that machine at 14:00" that is
+		// not a reconstruction.
+		//
+		// Numbering: the plan reserved 16 for recordings; 2.4-6 consumed 15 and 2.4-7
+		// consumed 16, so recordings are 17 (see `docs/phase2.4-tasks.md`).
+		//
+		// Nothing is seeded, and nothing is enabled: `RECORD_SESSIONS` defaults to
+		// `off`, so an installation upgrades with the recording behaviour it already
+		// had — which is none. A table is not a promise to start recording screens.
+		return db.AutoMigrate(&models.SessionRecording{})
+	}},
 }
 
 // Migrate applies all pending schema migrations inside a transaction per

@@ -110,7 +110,7 @@ story stops being three vendors' hosted endpoints.
 | Per-device / per-group thresholds | **Delivered 2026-10-29** (2.4-5): threshold overrides on device, client, and tag; the engine resolves device → tag → client → global. Alert-rule configuration UI in the console (roadmap 2.0 Phase 1 open item, `docs/phase1-tasks.md:50-56`). |
 | Notification channels | **Delivered 2026-10-29** (2.4-6): Email (SMTP), Slack, and Microsoft Teams on top of `server/events` — the webhook machinery (HMAC signatures, retries, delivery tracking) reused, not duplicated. Per-client routing: "client A's critical alerts go to my phone". |
 | SAML 2.0 SSO | **Delivered 2026-10-30** (2.4-7): the feature `buglist.md` L8 declared and guarded as missing is implemented, and L8's guard survives as its rule — a provider row that cannot answer logins is refused at save, loudly, and an unknown protocol type is still refused. A provider row is `oidc` **or** `saml`: SP metadata per provider (public, no key material), an assertion consumer service, XML-DSig assertion verification against the operator's pinned certificate, audience/recipient/destination/expiry/subject-confirmation checks, replay protection, and the **2.4-3 identity contract unchanged** on the asserted identity — one contract, two protocols. Ordered **after** generic OIDC as planned: discovery-based OIDC covered Keycloak/Authentik/Zitadel/Okta; SAML needed SP metadata, XML signing and an assertion consumer. **Open:** the round trip is green against OurWay's Go peer-IdP fixture (`server/sso/testsaml`), which proves the rules and not vendor interop — a Keycloak/AD FS container pass over the metadata + pinned-certificate path is owed before 2.4.0 is tagged. |
-| Session recording | **Open (2.4-8, migration 17).** Frame-sequence recording with playback, written into the audit log, so "who was controlling that machine at 14:00" is answerable. (Roadmap 2.0 §2.1.) |
+| Session recording | **Delivered 2026-10-30** (2.4-8, migration 17 `session_recordings`). Frame-sequence recording with playback, so "who was controlling that machine at 14:00" is answerable (roadmap 2.0 §2.1). The policy is the installation's — `RECORD_SESSIONS=off|on|control-only`, **off by default**, `RECORDINGS_DIR`, `RECORDING_RETENTION_DAYS` — and the toggle starts a recording while nothing in the product stops one: the only end a recording knows is its session's end. Frames come from the path the live session already uses, stored as an append-only `OWRS1` sequence (no container, no re-encode, no ffmpeg): a crash leaves the earlier frames readable, a restart appends to the same file and states the interruption, and the size cap counts what it dropped. Playback in the console shows the frames with their times and the input events the audit ledger recorded for that session, laid over the frames they produced — the events are read from the ledger, never copied into a media file. Reading a recording is scoped (2.3.1) and audited: opening it writes `session.recording_play`, exporting writes `session.recording_fetch`, and starting one writes `session.record_start`. A manager/technician reads their tenants' recordings **and always their own**. |
 
 ### The security contract the OIDC item must ship with
 
@@ -147,7 +147,10 @@ land in pending, not linked); SAML round-trip against a real IdP fixture (**ship
 2026-10-30 against `server/sso/testsaml`, a Go peer IdP that signs real XML-DSig
 assertions and sabotages itself on command; the vendor-container pass over the
 metadata + pinned-certificate path is the open half**); recording/playback test on a
-recorded frame sequence.
+recorded frame sequence (**shipped 2026-10-30**: `server/recordings/writer_test.go`
+pins the format's promises — append-only, resumable, truncated-tail readable, cap
+counted — and `server/api/recordings_test.go` runs the recording through the routes,
+including a restart mid-session and the scoped 404).
 
 **Wire contract:** new event types and new routes → MINOR. New provider fields
 are additive on the provider row; the admin-only provider endpoint keeps
@@ -216,7 +219,7 @@ Deliberately not in 2.x, so the four releases above stay four:
 |---|---|
 | 2.2.0 | Remote control works on all three OSes. A dashboard mount costs under 10 reads. Zero hardcoded English in the console. Every documented endpoint exists. |
 | 2.3.0 | A technician scoped to one client cannot read another client's devices on any route. Every mutating action appears in the audit log. |
-| 2.4.0 | A critical alert on a client reaches a human outside the console within one engine pass. OurWay logs in against a self-hosted IdP via issuer + discovery, with `iss`/`aud` verified and no identity accepted outside the domain allow-list. SAML works against a real IdP — proven against a signing peer-IdP fixture, with the Keycloak/AD FS interop pass owed. |
+| 2.4.0 | A critical alert on a client reaches a human outside the console within one engine pass. OurWay logs in against a self-hosted IdP via issuer + discovery, with `iss`/`aud` verified and no identity accepted outside the domain allow-list. SAML works against a real IdP — proven against a signing peer-IdP fixture, with the Keycloak/AD FS interop pass owed. "Who was controlling that machine at 14:00" is answerable from a recording, and reading one is scoped and audited. |
 | 2.5.0 | WS drops are counted, visible in the console, and non-zero drops are explainable. Linux fleets beyond apt/dnf are patchable. |
 
 **2.x line-level metric:** a 200-endpoint, three-client MSP can run a full shift

@@ -43,6 +43,8 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - Event stream for UI updates
 - Authentication (JWT + refresh tokens, RBAC roles)
 - Remote sessions (agent frame relay over HTTP, input over the device WebSocket)
+- Remote-control **session recording** with playback (`RECORD_SESSIONS`, off by
+  default): frames, the input events the audit ledger recorded, scoped and audited
 - Native Windows remote-control viewer (`cmd/ourway-viewer`), launched via `ourway://`
 - Patching (scan, deploy, policies) for Windows, macOS, and Linux
 - File transfer (push/pull with transfer tracking)
@@ -66,7 +68,9 @@ Cross-platform Remote Monitoring and Management tool for Windows, Linux, and mac
 - SSO provider configuration
 - Notification channel ledger (webhook, Slack, Teams, mail) with routing per row and
   one delivery history for every kind
-- Sessions page for active remote sessions
+- Sessions page for active remote sessions, stating which sessions are recorded
+- Recordings ledger and playback: scrub, frame times, the input events laid over the
+  frames they produced, and the manifest/sequence exports
 - Settings and configuration
 
 ## Project Structure
@@ -216,10 +220,11 @@ Files you added to the install directory are left alone.
 releases (2.2.0 make the claims true · 2.3.0 MSP tenancy + audit log · 2.4.0
 alert thresholds, notification channels, generic OIDC + SAML · 2.5.0
 self-host observability), what each must pass before it is tagged, and what is
-deliberately deferred. **2.4.0 is in flight:** 2.4-1…2.4-7 (OIDC by issuer +
+deliberately deferred. **2.4.0 is in flight:** 2.4-1…2.4-8 (OIDC by issuer +
 discovery, `id_token` verification, the identity-linking contract, the provider
-ledger, threshold rules, notification channels, SAML 2.0) are delivered; session
-recording (2.4-8) is the open task. Task breakdowns with acceptance criteria:
+ledger, threshold rules, notification channels, SAML 2.0, session recording with
+playback) are delivered. The open items are the Keycloak/AD FS vendor interop pass the
+SAML and OIDC proofs owe, and the release tag. Task breakdowns with acceptance criteria:
 [`docs/phase2.2-tasks.md`](docs/phase2.2-tasks.md),
 [`docs/phase2.3-tasks.md`](docs/phase2.3-tasks.md),
 [`docs/phase2.4-tasks.md`](docs/phase2.4-tasks.md) and
@@ -261,6 +266,12 @@ See the full [2.0 Roadmap](docs/roadmap-2.0.md) for details. Implemented:
 - ✅ **Remote Sessions**: agent frame relay with browser and native Windows viewers
   (control is implemented on Windows, Linux and macOS — macOS needs the cgo agent
   build and an Accessibility grant, see Known gaps)
+- ✅ **Session recording and playback** (2.4-8): the installation's policy
+  (`RECORD_SESSIONS=off|on|control-only`, **off** by default) records the frames the
+  session already streamed, and playback shows them with the keyboard and mouse the
+  audit ledger recorded for that session. Reading a recording is tenant-scoped and
+  audited. **The toggle starts a recording and nothing in the product stops one** — the
+  only end a recording knows is its session's end.
 - ✅ **Streaming mode**: detail page switches the agent to 2 s metric intervals
 - ✅ **Patching**: OS update management for Windows, macOS, and Linux (scan, deploy, policies)
 - ✅ **User Management**: RBAC with roles and permissions

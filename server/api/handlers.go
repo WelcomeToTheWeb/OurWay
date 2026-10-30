@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,7 +16,9 @@ import (
 	"ourway/server/config"
 	"ourway/server/events"
 	"ourway/server/files"
+	"ourway/server/models"
 	"ourway/server/patching"
+	"ourway/server/recordings"
 	"ourway/server/sessions"
 	"ourway/server/store"
 	"ourway/server/webhooks"
@@ -35,6 +38,39 @@ func SetMailTransport(transport webhooks.SMTP) {
 
 // MailTransport reads the configured transport.
 func MailTransport() webhooks.SMTP { return mailTransport }
+
+// recordingOnceMu guards the recording wiring the session routes read.
+var recordingOnceMu sync.Mutex
+var (
+	recordingPolicyRef *recordings.Policy
+	recordingWriterRef *recordings.Writer
+)
+
+// SetRecording gives the session routes the installation's recording policy and
+// the writer that appends the frames they already receive.
+//
+// The writer comes from `main`, built from `RECORD_SESSIONS`, `RECORDINGS_DIR`
+// and `RECORDING_RETENTION_DAYS`: the recording directory belongs to the
+// server's lifecycle, not to a router — the files outlive a router, and the
+// writer's open handles must close at shutdown.
+func SetRecording(policy recordings.Policy, writer *recordings.Writer) {
+	recordingOnceMu.Lock()
+	defer recordingOnceMu.Unlock()
+	recordingPolicyRef = &policy
+	recordingWriterRef = writer
+}
+
+func recordingWiring() (recordings.Policy, *recordings.Writer) {
+	recordingOnceMu.Lock()
+	defer recordingOnceMu.Unlock()
+	if recordingPolicyRef == nil {
+		// No wiring means no recording promise: `RECORD_SESSIONS=off`, which is the
+		// product's default. The routes stay, because a console that can read "this
+		// installation records nothing" is a truer answer than a 404.
+		return recordings.Policy{Mode: models.RecordingModeOff}, nil
+	}
+	return *recordingPolicyRef, recordingWriterRef
+}
 
 // SetupRouter configures and returns the Gin router with all routes.
 // ctx scopes the router's background jobs (webhook retry loop, scheduled
@@ -267,11 +303,28 @@ func SetupRouter(ctx context.Context, store *store.Store, jwtAuth *auth.JWTAuth,
 		// Session routes: starting a session and sending input are
 		// remote-control operations, so plain viewers cannot drive them (C1).
 		// Ending someone else's session needs the same control role.
+		//
+		// 2.4-8: the recording policy and writer attach to the handler that already
+		// receives every frame. The toggle **starts** a recording — the product has
+		// no stop, and the only end a recording knows is its session's end. The
+		// reads are scoped by 2.3.1, and the manifest read and the downloads are
+		// audited, because playing a recording is reading a person's screen.
+		sessionHandler.WithRecordings(recordingWiring())
+		recHandler := NewRecordingHandler(store, sessionHandler)
 		protected.POST("/devices/:id/sessions", RequireAnyRole("admin", "manager", "technician"), sessionHandler.StartSession)
 		protected.GET("/sessions", sessionHandler.ListSessions)
 		protected.POST("/sessions/:id/input", RequireAnyRole("admin", "manager", "technician"), sessionHandler.SendInput)
 		protected.POST("/sessions/:id/quality", RequireAnyRole("admin", "manager", "technician"), sessionHandler.SetQuality)
 		protected.DELETE("/sessions/:id", RequireAnyRole("admin", "manager", "technician"), sessionHandler.EndSession)
+		protected.POST("/sessions/:id/recording", RequireAnyRole("admin", "manager", "technician"), recHandler.StartRecording)
+		protected.GET("/sessions/:id/recording", RequireAnyRole("admin", "manager", "technician"), recHandler.ForSession)
+		protected.GET("/recordings", RequireAnyRole("admin", "manager", "technician"), recHandler.List)
+		protected.GET("/recordings/:id", RequireAnyRole("admin", "manager", "technician"), recHandler.Manifest)
+		protected.GET("/recordings/:id/frames", RequireAnyRole("admin", "manager", "technician"), recHandler.Frames)
+		protected.GET("/recordings/:id/frames/:index", RequireAnyRole("admin", "manager", "technician"), recHandler.Frame)
+		protected.GET("/recordings/:id/events", RequireAnyRole("admin", "manager", "technician"), recHandler.Events)
+		protected.GET("/recordings/:id/manifest", RequireAnyRole("admin", "manager", "technician"), recHandler.DownloadManifest)
+		protected.GET("/recordings/:id/file", RequireAnyRole("admin", "manager", "technician"), recHandler.DownloadFile)
 
 		// Agent-facing session frame upload: the agent authenticates with the
 		// X-Device-Key header (no JWT), so this route is registered outside the
