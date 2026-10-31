@@ -678,9 +678,22 @@ verifies against the certificate **you pinned** — not against a key set it fet
    attribute names, the **Email / Username / Display name / Groups attribute** fields,
    and — required when you turn on **Require a verified email** — the
    **Verified-email attribute**. SAML has no standard one and OurWay does not guess it.
+   An IdP that asserts a **persistent** or **transient** NameID (Keycloak's default, and
+   the shape its admin console offers no way to avoid) does not put the address in the
+   NameID at all: it puts it in an `email` **attribute**. Set **NameID format** to
+   `persistent`, set the **Email attribute** to `email`, and name the **Groups
+   attribute** after what that IdP calls roles — `Role` for Keycloak, `memberOf` for an
+   LDAP-backed IdP. A persistent NameID with no email attribute named is refused as
+   `no_identity_claim`, naming the format and the attribute it read: the SP does not
+   guess an address. Setting `persistent` **and** an `email` attribute is what the
+   Keycloak pass was proven with.
 5. **Sign our requests (generate a key)** when your IdP requires signed requests.
    OurWay makes the key pair; the private key never leaves the server and the public
    half is in the metadata. On a saved provider this replaces the key the IdP imported.
+   The signature covers the query string **as the browser sends it** (percent-encoded),
+   which is what an IdP that requires signed requests verifies; a request signed over
+   the decoded parameters verifies against nothing, and Keycloak answers it
+   `invalid_signature`.
 6. Set the identity contract, the order, and **Enabled**, as for any provider. A SAML
    provider needs **no client id**.
 7. **Save**. A SAML provider that cannot validate an assertion is **not saved**, and
@@ -760,6 +773,45 @@ whether a verified-email requirement has an attribute to read.
 Artifact binding (the IdP posts an `IDPList`/artifact reference instead of the
 assertion), IdP-initiated single logout, and encrypted assertions. The POST binding,
 the signing rules and the contract above are the shipped surface.
+
+### Proven against a vendor IdP (2.4-0)
+
+The round trip is green against a real **Keycloak 26** realm (`quay.io/keycloak/keycloak:26.4`)
+fronted by nginx at `https://kc.sso.test`, with OurWay at `https://ow.sso.test`, the
+client created from **OurWay's own metadata document**, `Sign on` (signed
+`AuthnRequest`) and `Include Assertion signature` on, and the realm certificate
+imported as the pinned certificate. A real browser flow — SP-initiated redirect, the
+realm login page, the posted assertion — ends at the ACS 302 to `/login?sso_code=…`,
+and the code exchanges for an access and refresh token.
+
+Three facts about how vendors write SAML came out of that pass, each pinned by a test:
+
+- **A Response declares its namespaces once, at the root.** Keycloak declares
+  `xmlns:saml` on the `Response` and declares only the *default* namespace on the
+  `Assertion`; every `saml:` element inside the signed subtree resolves through the
+  enclosing document. Exclusive canonicalization of that subtree carries those
+  in-scope declarations, so a verifier that canonicalizes the subtree as if its
+  namespaces were its own digests bytes the IdP never signed and refuses a perfectly
+  valid assertion. OurWay puts the in-scope declarations back before taking the digest.
+- **`Destination` names the recipient, not the answer's address.** An `AuthnRequest` is
+  addressed to the IdP's SSO location; the ACS URL is where the assertion comes back.
+  Keycloak refuses a request addressed to the ACS (`invalid_destination`), and per the
+  profile it is right to.
+- **A signed request signs the transmitted bytes.** See step 5 above.
+
+The probe that keeps this honest is `server/sso/capture_vendor_saml_test.go`: it runs
+the IdP's **own** captured document through the verifier — shape guard (the assertion
+declares no prefixed namespaces), canonicalization method, expiry window, then the
+validation, plus one tampered byte in the NameID (refused `assertion_signature_invalid`)
+and the signature stripped (refused `assertion_unsigned`). It is fed by environment
+(`OURWAY_SAML_CAPTURE`, `OURWAY_SAML_CERT`, `OURWAY_SAML_REQUEST_ID`, `OURWAY_SAML_AT`)
+and skips when they are unset, so the suite stays hermetic and the pass stays
+re-runnable by anyone with a container and a browser.
+
+**What the pass has not closed:** the OIDC half of 2.4-0 — Keycloak's discovery document
+read through the *published* issuer, which requires `localhost` issuer support first —
+and a second vendor (AD FS). The capture test's defaults name this installation and
+override every one of them, so the next vendor's capture runs against the same proof.
 
 ---
 

@@ -253,6 +253,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     requirement has an attribute to read. `en`/`de`/`fr` in lockstep (782 key paths).
   - **Not in 2.4-7** (stated, not silent): artifact binding, IdP-initiated single
     logout, and encrypted assertions.
+  - **Proven against a vendor IdP (2.4-0, 2026-10-31).** The round trip ran against a
+    live **Keycloak 26** realm — client built from OurWay's **own SP metadata**, realm
+    certificate pinned, `Sign on` + `Include assertion signature` on, `persistent`
+    NameID, `attr_email=email`, `attr_groups=Role` — browser-driven, ending at the ACS
+    `302` and a token-bearing exchange. It found three real bugs (below), and it left a
+    permanent probe: `server/sso/capture_vendor_saml_test.go` runs a **captured vendor
+    document** through the verifier — shape guard (the assertion must declare no prefixed
+    namespaces, canonicalization method, the expiry window the capture itself asserts),
+    validation, one tampered NameID byte refused, the stripped signature refused — fed by
+    `OURWAY_SAML_CAPTURE` / `OURWAY_SAML_CERT` / `OURWAY_SAML_REQUEST_ID` /
+    `OURWAY_SAML_AT` and skipping when unset, so the suite stays hermetic and the pass is
+    re-runnable against any vendor that can produce a capture. **Not covered:** AD FS, and
+    Keycloak's OIDC discovery through its published issuer.
 - Login page: the provider list is the operator's `sort_order` (server-side ordering,
   page preserves it), and a disabled door disappears without a console rebuild.
 
@@ -344,6 +357,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   literal key path `common.dismiss` in every language. `enable`/`disable` were used
   with no locale entries too. All three keys now exist in `en`/`de`/`fr`, and the i18n
   gate keeps them in lockstep.
+- **A valid vendor assertion was refused: canonicalization dropped the namespaces in
+  scope from the enclosing document** (found by the Keycloak pass, 2.4-0). Keycloak
+  declares `xmlns:saml` on the `Response` and only the *default* namespace on the
+  `Assertion`; exclusive canonicalization of a signed subtree carries the in-scope
+  declarations of that subtree, so OurWay digested bytes the IdP never signed and
+  answered `assertion_signature_invalid` to a genuine assertion. The verifier now puts
+  the in-scope declarations back before taking the digest
+  (`saml.go:declareInScopeNamespaces`). `testsaml` declared its namespaces on the signed
+  assertion, which is why the peer fixture agreed with our verifier and never caught
+  this: it now mints both shapes (`SignAssertionInResponseNamespaces`).
+- **`AuthnRequest.Destination` named our ACS URL, not the IdP's SSO location** — the
+  SAML Web SSO profile puts the recipient of the request there, and Keycloak refused the
+  login with `invalid_destination`. The ACS address is carried by
+  `AssertionConsumerServiceURL`, which is where it belonged.
+- **The HTTP-Redirect signature covered the decoded request parameters, not the bytes
+  the browser transmits.** An IdP verifies the signature over the deflated,
+  percent-encoded query string it received; signing the decoded form produces a
+  signature that verifies against nothing, and Keycloak answered `invalid_signature`.
+  Deflate, encode, then sign, in that order.
 
 ---
 

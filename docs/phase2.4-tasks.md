@@ -1,8 +1,10 @@
 # Phase 2.4: Escalate to Humans, Own Your Identity — Task Breakdown
 
 **Status:** All eight tasks delivered (2.4-1 … 2.4-8, last on 2026-10-30). **Open:**
-the Keycloak/AD FS vendor interop pass the OIDC and SAML proofs owe, and the release
-tag.
+the OIDC half of the vendor interop pass (2.4-0 — Keycloak discovery through its
+published issuer, which needs `localhost` issuer support first) and a second vendor
+(AD FS); the release tag. The **SAML** half of that pass ran on 2026-10-31 against a
+live Keycloak 26 realm and found three real bugs; see 2.4-0 below.
 **Target release:** `v2.4.0`
 **Parent plan:** [`roadmap-2.x.md`](roadmap-2.x.md)
 **Baseline:** `v2.3.x` (tenancy + audit log shipped)
@@ -66,9 +68,42 @@ task list, and features arrive in the order they are built.
       vendor IdP**: the fixture signs with `goxmldsig`, the library OurWay verifies
       with, so canonicalization and digest agreement are proven against an independent
       implementation of the *same algorithm*, not against Keycloak, AD FS or
-      Shibboleth. A Keycloak/AD FS container pass over the metadata + ACS +
-      pinned-certificate path is owed before 2.4.0 is tagged (2.4-7's acceptance
-      criteria say so).
+      Shibboleth. **The SAML half of that pass ran 2026-10-31, against a live Keycloak
+      26 container** — realm `ourway` at `kc.sso.test` behind nginx, OurWay at
+      `ow.sso.test`, the client built from **OurWay's own SP metadata** (fetched, parsed,
+      POSTed to the admin API), `Sign on` + `Include assertion signature` on, realm
+      certificate pinned, `nameid_format=persistent`, `attr_email=email`,
+      `attr_groups=Role`. A browser ran the SP-initiated flow: `/authorize` → signed
+      HTTP-Redirect → the realm login page → the posted assertion → the ACS `302` with a
+      single-use code → `POST /api/auth/sso/exchange` → access + refresh tokens. It found
+      **three real bugs**, each pinned by a test, and the first is exactly what this
+      section said a fixture could not produce:
+      1. **Exclusive canonicalization dropped the namespaces in scope from the enclosing
+         `Response`.** Keycloak declares `xmlns:saml` on the `Response` and only the
+         *default* namespace on the `Assertion`; exc-c14n of the signed subtree carries
+         the in-scope declarations, so OurWay digested bytes Keycloak never signed and
+         refused a valid assertion. `testsaml` declares its namespaces on the signed
+         assertion, so our fixture agrees with our verifier — the vendor-shape case was
+         invisible until a vendor produced it. Fixed in `saml.go`
+         (`declareInScopeNamespaces` before `dsig.Validate`);
+         `TestAnAssertionWhoseNamespacesComeFromTheResponseRootVerifies` proves it, and
+         `testsaml` now mints both shapes (`SignAssertionInResponseNamespaces`).
+      2. **`AuthnRequest.Destination` was our ACS URL.** The profile names the IdP's SSO
+         location there; Keycloak answered `invalid_destination`.
+      3. **The HTTP-Redirect signature covered the decoded parameters,** not the
+         percent-encoded query string the browser transmits — the bytes every IdP
+         verifies. Keycloak answered `invalid_signature`.
+      The proof is kept as a probe, not a story: `server/sso/capture_vendor_saml_test.go`
+      runs the vendor's **own captured document** through the verifier (shape guard: the
+      assertion declares no prefixed namespaces; canonicalization method; expiry window),
+      then refuses one tampered NameID byte (`assertion_signature_invalid`) and the
+      stripped signature (`assertion_unsigned`). Fed by `OURWAY_SAML_CAPTURE`,
+      `OURWAY_SAML_CERT`, `OURWAY_SAML_REQUEST_ID`, `OURWAY_SAML_AT`; it skips when
+      unset, so the suite stays hermetic and the pass is re-runnable against any vendor
+      that can produce a capture.
+      **Still owed:** the OIDC half — Keycloak discovery through the **published**
+      issuer, which needs `localhost` issuer support first (2.4-0's container-harness
+      item) — and a second vendor (AD FS).
 - [~] Mock SMTP (accepting, rejecting, and TLS-failing), Slack, and Teams webhook
       endpoints for channel tests. **2.4-6 shipped `server/webhooks/testsmtp`** — a
       real SMTP server fixture (EHLO, MAIL/RCPT/DATA, recipient and data rejection,
@@ -644,7 +679,12 @@ paths.
   redirect → ACS `302` → `sso_code` → `POST /api/auth/sso/exchange` → a session naming
   the asserted subject, and the `auth.login` row states `protocol: saml` and
   `assertion_signature_verified: true`.
-  **Owed:** the same walk against **Keycloak/AD FS**, not the Go fixture (see 2.4-0).
+  **Done 2026-10-31 (2.4-0):** the same walk against **Keycloak 26** — metadata →
+  client imported from it → SP-initiated login → assertion accepted → session issued
+  through the `sso_code` exchange → tokens. Three vendor-shape bugs found and fixed
+  (in-scope-namespace canonicalization, request `Destination`, request-signature bytes);
+  the captured assertion is a permanent probe, `TestAVendorCaptureValidatesRefusesTamperingAndRefusesAnUnsignedAssertion`.
+  **AD FS is not covered.**
 - Negative fixtures each refused with a distinct audited outcome: tampered assertion,
   wrong audience, expired `NotOnOrAfter`, wrong recipient, a replayed assertion, an
   unsigned assertion. ✅ `TestSAMLRefusalsAreNamedInTheLedger` (all five: each a 401
@@ -819,11 +859,13 @@ Plus, non-negotiable for this release:
 - [~] OIDC accepted against Keycloak by issuer alone; SAML round trip green; the
       negative fixtures in 2.4-2 and 2.4-7 each refused. **The SAML round trip, and every
       negative fixture 2.4-2 and 2.4-7 name, are green** (2.4-7's acceptance list
-      above). The open half is the word **Keycloak**: both protocols are proven against
-      OurWay's own Go fixtures (`server/sso/testidp`, `server/sso/testsaml`), which
-      proves the rules and not vendor interop. A Keycloak (and ideally AD FS) container
-      pass over issuer-only save and the metadata + pinned-certificate path is owed
-      before 2.4.0 is tagged.
+      above), **and the SAML half of the vendor pass ran**: a live Keycloak 26 realm
+      over the metadata + pinned-certificate path, ending in an exchanged session, with
+      the captured assertion kept as a probe that refuses tampering and an unsigned
+      assertion (2.4-0 above). **The open half is the word OIDC**: an issuer-only save
+      against Keycloak requires reading its discovery document through the **published**
+      issuer, which needs `localhost` issuer support first. A second vendor (AD FS) is
+      not covered.
 - [x] Threshold precedence suite green, including the `v2.3.x` byte-identical
       regression case for devices with no override. **Green since 2.4-5** —
       `TestThresholdPrecedenceUsesTheMostSpecificRulePerMetric`,

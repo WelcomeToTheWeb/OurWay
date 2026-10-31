@@ -2382,6 +2382,18 @@ certificate the operator pinned, issuer, destination, `InResponseTo`, expiry,
 audience, recipient, subject confirmation, replay) and **only then** is the identity
 run through the 2.4-3 contract. Nothing here trusts an assertion because it arrived.
 
+Two of the verification rules are vendor shapes, found by verifying a Keycloak
+assertion (2.4-0, `docs/user-guide.md`):
+
+- The assertion is canonicalized **with the namespaces in scope from its enclosing
+  document** — the `xmlns` declarations the `Response` made are part of what the
+  signature covers, because exclusive canonicalization carries the in-scope prefixes of
+  the subtree it canonicalizes. A verifier that hands the subtree only its own
+  declarations digests bytes the IdP never signed.
+- An `AuthnRequest`'s `Destination` is the **IdP's SSO location**, not this
+  installation's ACS URL; its `AssertionConsumerServiceURL` is the ACS. `GET` signs the
+  transmitted query string (percent-encoded), which is the bytes an IdP verifies.
+
 An SP-initiated login must answer *this* login: the `sso_state` cookie names the
 server-side state record, whose request ID the assertion's `InResponseTo` must match.
 An **IdP-initiated** POST carries no state and is accepted on the audience, recipient,
@@ -2648,6 +2660,8 @@ answer is not saved:
 | `idp_logout_url` | Optional, same rule when set |
 | `idp_certificate` | Required, must parse as a certificate with a validity window that has not closed |
 | `nameid_format` | `emailaddress` (default), `persistent`, `transient` or `unspecified` |
+| `attr_email`, `attr_username`, `attr_name`, `attr_groups` | The **attribute names the IdP writes** (defaults `email`, `username`, `displayName`, `memberOf`). An IdP asserting a `persistent` or `transient` NameID carries the address in an attribute, not in the NameID: `attr_email` is what makes such an assertion usable, and `persistent` with `attr_email` empty is refused as `no_identity_claim` |
+| `require_response_signature` | When true, the **Response** must carry a signature that verifies against the pinned certificate, in addition to the assertion's — for IdPs that sign the assertion inside a signed response envelope. The assertion signature is required by the protocol and is not a setting: `WantAssertionsSigned="true"` is what the metadata publishes |
 | `verified_email_attribute` | Required when `require_verified_email` is on: SAML has no standard "this email is verified" attribute and OurWay does not guess one |
 | `generate_sp_key` | When true, OurWay generates the SP signing key pair (cert + key) for signed `AuthnRequest`s. The key is write-only, and a key with no certificate is refused |
 

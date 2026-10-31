@@ -162,6 +162,13 @@ type AssertionOptions struct {
 	// element than the ACS the assertion is addressed to: the fixture where the
 	// document posted to us is addressed to someone else.
 	ResponseDestination string
+	// NamespacesOnRootOnly mints the assertion **without declaring its own
+	// namespaces**: every `saml:`-prefixed element resolves through the enclosing
+	// Response. That is how Keycloak writes a SAML Response, and it is the shape
+	// that separates an exclusive-canonicalization verifier that takes the signed
+	// subtree's in-scope namespaces from one that does not — the second one digests
+	// bytes the IdP never signed and refuses a valid assertion.
+	NamespacesOnRootOnly bool
 }
 
 // AssertionXML mints a signed assertion and returns its XML.
@@ -195,8 +202,10 @@ func (p *IdP) AssertionXML(claims Claims, opts AssertionOptions) string {
 	doc := etree.NewDocument()
 	assertion := doc.CreateElement("Assertion")
 	assertion.Space = "saml"
-	assertion.CreateAttr("xmlns:saml", Namespace)
-	assertion.CreateAttr("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+	if !opts.NamespacesOnRootOnly {
+		assertion.CreateAttr("xmlns:saml", Namespace)
+		assertion.CreateAttr("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+	}
 	assertion.CreateAttr("ID", assertionID)
 	assertion.CreateAttr("Version", "2.0")
 	assertion.CreateAttr("IssueInstant", utc(authnInstant))
@@ -337,6 +346,24 @@ func (p *IdP) ResponseXML(claims Claims, opts AssertionOptions, acsURL, inRespon
 	if assertionOpts.Destination == "" {
 		assertionOpts.Destination = acsURL
 	}
+	if opts.NamespacesOnRootOnly {
+		// The Keycloak shape: the assertion declares no namespaces of its own, so
+		// every prefix it uses resolves through the Response. Sign it **after**
+		// assembling, which is what an IdP that writes its Response this way does —
+		// the signed subtree's in-scope namespaces are the enclosing document's, and
+		// a verifier has to know that to reproduce the digest.
+		assertionOpts.NoSignature = true
+		assertionXML := p.AssertionXML(claims, assertionOpts)
+		doc := etree.NewDocument()
+		response := p.responseShell(doc, acsURL, inResponseTo, opts)
+		probe := etree.NewDocument()
+		if err := probe.ReadFromString(assertionXML); err != nil {
+			panic("testsaml: " + err.Error())
+		}
+		response.AddChild(probe.Root())
+		return p.signAssembledAssertion(doc, opts)
+	}
+
 	assertion := p.AssertionXML(claims, assertionOpts)
 
 	doc := etree.NewDocument()
@@ -401,6 +428,161 @@ func (p *IdP) ResponseXML(claims Claims, opts AssertionOptions, acsURL, inRespon
 		panic("testsaml: " + err.Error())
 	}
 	return xml
+}
+
+// responseShell writes the Response element an assertion travels in: the identity of
+// the IdP, the destination and the request it answers, and a Success status.
+func (p *IdP) responseShell(doc *etree.Document, acsURL, inResponseTo string, opts AssertionOptions) *etree.Element {
+	response := doc.CreateElement("Response")
+	response.Space = "samlp"
+	response.CreateAttr("xmlns:samlp", ProtoNS)
+	response.CreateAttr("xmlns:saml", Namespace)
+	response.CreateAttr("ID", "_resp_"+strings.ReplaceAll(uuid.NewString(), "-", ""))
+	response.CreateAttr("Version", "2.0")
+	response.CreateAttr("IssueInstant", utc(p.now()))
+	destination := acsURL
+	if opts.ResponseDestination != "" {
+		destination = opts.ResponseDestination
+	}
+	response.CreateAttr("Destination", destination)
+	if inResponseTo != "" {
+		response.CreateAttr("InResponseTo", inResponseTo)
+	}
+	responseIssuer := p.EntityID
+	if opts.ResponseIssuer != "" {
+		responseIssuer = opts.ResponseIssuer
+	}
+	el(response, "saml", "Issuer").SetText(responseIssuer)
+	status := el(response, "samlp", "Status")
+	el(status, "samlp", "StatusCode").CreateAttr("Value", StatusSuccess)
+	return response
+}
+
+// signAssembledAssertion signs the assertion of a Response that was serialized and
+// read back, so the element being signed sits in the document whose namespace
+// declarations it resolves through. The Signature goes where the schema puts it:
+// immediately after the assertion's Issuer.
+func (p *IdP) signAssembledAssertion(doc *etree.Document, opts AssertionOptions) string {
+	xml, err := doc.WriteToString()
+	if err != nil {
+		panic("testsaml: " + err.Error())
+	}
+	assembled := etree.NewDocument()
+	if err := assembled.ReadFromString(xml); err != nil {
+		panic("testsaml: " + err.Error())
+	}
+	// etree records an element's namespace as the *prefix* it was written with, and
+	// the assertion is written with the `saml:` prefix the Response declares.
+	assertion := findElement(assembled.Root(), "saml", "Assertion")
+	if assertion == nil {
+		panic("testsaml: the assembled Response has no assertion to sign")
+	}
+	// The declarations exist to be digested, not to be published: signing canonicalizes
+	// the element in place, so the attribute list the document is serialized with has
+	// to be put back afterwards. The shape under test is an assertion that declares
+	// nothing of what it resolves through.
+	transmitted := append([]etree.Attr(nil), assertion.Attr...)
+	// Exclusive canonicalization of a signed subtree carries the namespaces the
+	// subtree sits in. Keycloak signs the assertion with the Response's `xmlns:saml`
+	// in scope, so the fixture declares it on the element it signs: the signed bytes
+	// are the ones a vendor that writes the Response this way produces.
+	declareInScopeNamespaces(assembled.Root(), assertion)
+	signature, err := p.sign(assertion, true)
+	if err != nil {
+		panic("testsaml: " + err.Error())
+	}
+	assertion.Attr = transmitted
+	insertAfterIssuer(assertion, signature)
+	if !opts.SignResponse {
+		out, err := assembled.WriteToString()
+		if err != nil {
+			panic("testsaml: " + err.Error())
+		}
+		return out
+	}
+	// Sign the document too: re-serialize first, so the Response signature covers the
+	// bytes that carry the assertion signature.
+	again := etree.NewDocument()
+	text, err := assembled.WriteToString()
+	if err != nil {
+		panic("testsaml: " + err.Error())
+	}
+	if err := again.ReadFromString(text); err != nil {
+		panic("testsaml: " + err.Error())
+	}
+	root := again.Root()
+	responseSignature, err := p.sign(root, true)
+	if err != nil {
+		panic("testsaml: " + err.Error())
+	}
+	insertAfterIssuer(root, responseSignature)
+	out, err := again.WriteToString()
+	if err != nil {
+		panic("testsaml: " + err.Error())
+	}
+	return out
+}
+
+// declareInScopeNamespaces copies onto `target` every namespace declaration in scope
+// for it — its own and every ancestor's. Exclusive canonicalization digests a subtree
+// with those declarations, so an IdP that declares its namespaces once at the root
+// digests a signed subtree that way; the fixture models that IdP.
+func declareInScopeNamespaces(root, target *etree.Element) {
+	inScope := map[string]string{}
+	var walk func(el *etree.Element, inherited map[string]string)
+	walk = func(el *etree.Element, inherited map[string]string) {
+		scope := make(map[string]string, len(inherited)+len(el.Attr))
+		for prefix, uri := range inherited {
+			scope[prefix] = uri
+		}
+		for _, attr := range el.Attr {
+			if attr.Space == "xmlns" && attr.Key != "" {
+				scope[attr.Key] = attr.Value
+			} else if attr.Space == "" && attr.Key == "xmlns" {
+				scope[""] = attr.Value
+			}
+		}
+		if el == target {
+			inScope = scope
+			return
+		}
+		for _, child := range el.ChildElements() {
+			walk(child, scope)
+		}
+	}
+	walk(root, map[string]string{})
+	for prefix, uri := range inScope {
+		for _, attr := range target.Attr {
+			if prefix == "" && attr.Space == "" && attr.Key == "xmlns" {
+				continue
+			}
+			if prefix != "" && attr.Space == "xmlns" && attr.Key == prefix {
+				continue
+			}
+		}
+		if prefix == "" {
+			target.CreateAttr("xmlns", uri)
+			continue
+		}
+		target.CreateAttr("xmlns:"+prefix, uri)
+	}
+}
+
+// findElement walks a tree for the first element written with this namespace prefix
+// and name.
+func findElement(el *etree.Element, space, name string) *etree.Element {
+	if el != nil && el.Space == space && el.Tag == name {
+		return el
+	}
+	if el == nil {
+		return nil
+	}
+	for _, child := range el.ChildElements() {
+		if found := findElement(child, space, name); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 // ResponseFormValue is the `SAMLResponse` form field the browser posts to an ACS.
