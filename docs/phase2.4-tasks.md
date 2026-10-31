@@ -1,10 +1,10 @@
 # Phase 2.4: Escalate to Humans, Own Your Identity — Task Breakdown
 
-**Status:** All eight tasks delivered (2.4-1 … 2.4-8, last on 2026-10-30). **Open:**
-the OIDC half of the vendor interop pass (2.4-0 — Keycloak discovery through its
-published issuer, which needs `localhost` issuer support first) and a second vendor
-(AD FS); the release tag. The **SAML** half of that pass ran on 2026-10-31 against a
-live Keycloak 26 realm and found three real bugs; see 2.4-0 below.
+**Status:** All eight tasks delivered (2.4-1 … 2.4-8, last on 2026-10-30), and the
+vendor interop pass (2.4-0) ran on 2026-10-31 against a live Keycloak 26 realm — **both
+protocols**, ending in issued sessions, with a captured vendor document kept as a
+permanent probe for each. It found three real SAML bugs; see 2.4-0 below. **Open:** a
+second vendor (AD FS), and the release tag.
 **Target release:** `v2.4.0`
 **Parent plan:** [`roadmap-2.x.md`](roadmap-2.x.md)
 **Baseline:** `v2.3.x` (tenancy + audit log shipped)
@@ -101,9 +101,19 @@ task list, and features arrive in the order they are built.
       `OURWAY_SAML_CERT`, `OURWAY_SAML_REQUEST_ID`, `OURWAY_SAML_AT`; it skips when
       unset, so the suite stays hermetic and the pass is re-runnable against any vendor
       that can produce a capture.
-      **Still owed:** the OIDC half — Keycloak discovery through the **published**
-      issuer, which needs `localhost` issuer support first (2.4-0's container-harness
-      item) — and a second vendor (AD FS).
+      **Still owed:** a second vendor (**AD FS**). The OIDC half ran 2026-10-31 the same
+      day, and the thing it thought it needed turned out not to be needed: Keycloak
+      publishes its issuer from the `Forwarded` headers nginx gives it, so
+      `https://kc.sso.test/realms/ourway` is what its own
+      `.well-known/openid-configuration` names, and the provider saved **by that issuer
+      alone**. The issuer rule never refused it, because the rule's own remedy — publish
+      the IdP under a name — is what a real installation does. The OIDC capture probe
+      (`server/sso/capture_vendor_oidc_test.go`) is fed the IdP's **own minted
+      `id_token`** and the **`jwks_uri` document it publishes**: verification against the
+      vendor's key (`kid` lookup), the nonce binding, a tampered token refused, a token
+      minted for another client refused. What a vendor puts in an `id_token` and our
+      fixture did not: `azp`, `sid`, `at_hash`, `acr`, `auth_time`, `session_state`-derived
+      `sub`, a boolean `email_verified`, and groups under `realm_access.roles`.
 - [~] Mock SMTP (accepting, rejecting, and TLS-failing), Slack, and Teams webhook
       endpoints for channel tests. **2.4-6 shipped `server/webhooks/testsmtp`** — a
       real SMTP server fixture (EHLO, MAIL/RCPT/DATA, recipient and data rejection,
@@ -856,16 +866,23 @@ Plus, non-negotiable for this release:
 - [x] The 2.4-3 headline test — asserting an existing admin's email via a permissive
       IdP lands in **pending**, grants nothing, and is audited — green in CI
       (`TestSSOCannotClaimAnExistingAdminAccount`).
-- [~] OIDC accepted against Keycloak by issuer alone; SAML round trip green; the
-      negative fixtures in 2.4-2 and 2.4-7 each refused. **The SAML round trip, and every
-      negative fixture 2.4-2 and 2.4-7 name, are green** (2.4-7's acceptance list
-      above), **and the SAML half of the vendor pass ran**: a live Keycloak 26 realm
-      over the metadata + pinned-certificate path, ending in an exchanged session, with
-      the captured assertion kept as a probe that refuses tampering and an unsigned
-      assertion (2.4-0 above). **The open half is the word OIDC**: an issuer-only save
-      against Keycloak requires reading its discovery document through the **published**
-      issuer, which needs `localhost` issuer support first. A second vendor (AD FS) is
-      not covered.
+- [x] OIDC accepted against Keycloak by issuer alone; SAML round trip green; the
+      negative fixtures in 2.4-2 and 2.4-7 each refused. **Both halves of the vendor pass
+      ran, against a live Keycloak 26 realm** (2.4-0 above): SAML over the metadata +
+      pinned-certificate path, ending in an exchanged session; OIDC **by issuer alone**
+      (`https://kc.sso.test/realms/ourway` read through the IdP's own published
+      `*.well-known/openid-configuration`, endpoints stored at save), ending in a
+      session through the `sso_code` exchange — and the 2.4-3 contract fired on the
+      vendor's identity on the way there (a first login by a brand-new subject landed
+      `identity_pending`, was listed for an admin, approved, and only then issued a
+      session). Every negative fixture 2.4-2 and 2.4-7 names is green, and **both
+      protocols keep a permanent probe fed by a captured vendor document**:
+      `TestAVendorCaptureValidatesRefusesTamperingAndRefusesAnUnsignedAssertion` (the
+      SAML assertion) and
+      `TestAVendorIDTokenVerifiesRefusesTamperingAndRefusesAnExpiredToken` (the
+      IdP-minted `id_token` verified against the IdP's own published JWKS, with the
+      tampered token and a foreign audience refused). **Not covered:** a second vendor
+      (AD FS).
 - [x] Threshold precedence suite green, including the `v2.3.x` byte-identical
       regression case for devices with no override. **Green since 2.4-5** —
       `TestThresholdPrecedenceUsesTheMostSpecificRulePerMetric`,

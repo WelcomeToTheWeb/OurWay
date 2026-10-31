@@ -223,13 +223,15 @@ self-host observability), what each must pass before it is tagged, and what is
 deliberately deferred. **2.4.0 is in flight:** 2.4-1…2.4-8 (OIDC by issuer +
 discovery, `id_token` verification, the identity-linking contract, the provider
 ledger, threshold rules, notification channels, SAML 2.0, session recording with
-playback) are delivered, and the **SAML half of the vendor interop pass ran 2026-10-31**
-against a live Keycloak 26 realm — metadata, pinned certificate, signed requests, a
-browser flow that ended in an issued session — which found and fixed three real bugs
-(in-scope-namespace canonicalization, request `Destination`, request-signature bytes).
-The open items are that pass's **OIDC** half (Keycloak discovery through its published
-issuer needs `localhost` issuer support first), a second vendor (AD FS), and the release
-tag. Task breakdowns with acceptance criteria:
+playback) are delivered, and the **vendor interop pass ran 2026-10-31** against a live
+Keycloak 26 realm, **both protocols**: SAML over metadata + pinned certificate + signed
+requests (a browser flow ending in an issued session, which found and fixed three real
+bugs — in-scope-namespace canonicalization, request `Destination`, request-signature
+bytes), and OIDC **saved by issuer alone** through the IdP's own published discovery
+document, with the identity contract firing on a vendor's claims (pending, admin approve,
+then a session). Each protocol keeps a captured vendor document as a permanent probe.
+The open items are a second vendor (AD FS) and the release tag. Task breakdowns with
+acceptance criteria:
 [`docs/phase2.2-tasks.md`](docs/phase2.2-tasks.md),
 [`docs/phase2.3-tasks.md`](docs/phase2.3-tasks.md),
 [`docs/phase2.4-tasks.md`](docs/phase2.4-tasks.md) and
@@ -312,8 +314,10 @@ discover it in production. Each item is tracked in
   (signature, issuer, destination, audience, recipient, expiry, replay) **before** the
   asserted identity reaches the same contract an OIDC identity reaches. Artifact
   binding, IdP-initiated single logout and encrypted assertions stay deferred, and the
-  round trip is proven against our own IdP fixture, not against Keycloak or AD FS
-  (that container pass is open — `docs/phase2.4-tasks.md`).
+  round trip is proven against a **live Keycloak 26 realm** (client built from OurWay's
+  own metadata, realm certificate pinned) as well as the signing fixture, with the
+  captured assertion kept as a probe — `docs/phase2.4-tasks.md` 2.4-0. AD FS is not
+  covered.
 - **SSO is verified OIDC, configured by issuer.** An SSO provider is named by its
   **issuer**; OurWay fetches `<issuer>/.well-known/openid-configuration` at save time
   and uses the endpoints the provider publishes, so Keycloak, Authentik, Zitadel,

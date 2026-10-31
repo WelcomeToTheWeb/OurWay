@@ -266,6 +266,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `OURWAY_SAML_AT` and skipping when unset, so the suite stays hermetic and the pass is
     re-runnable against any vendor that can produce a capture. **Not covered:** AD FS, and
     Keycloak's OIDC discovery through its published issuer.
+  - **OIDC by issuer alone, against the same realm.** Keycloak publishes its issuer from
+    the `Forwarded` headers the proxy gives it, so `https://kc.sso.test/realms/ourway` is
+    what its own `.well-known/openid-configuration` names: the provider was saved typing
+    **that issuer alone**, every endpoint came from the IdP's document, and a browser flow
+    issued access and refresh tokens through the `sso_code` exchange — with 2.4-3 firing
+    first (the new subject landed `identity_pending`, appeared in `GET /api/users/pending`
+    with its link target, and issued a session only after `POST /api/users/:id/approve`).
+    Its probe is `server/sso/capture_vendor_oidc_test.go`: the IdP's **own minted
+    `id_token`** verified against the JWKS **it publishes** (`kid` lookup, the nonce
+    binding), a tampered token refused, a token minted for a different client refused.
+    What a vendor puts in an `id_token` that our fixture did not: `azp`, `sid`, `at_hash`,
+    `acr`, `auth_time`, a boolean `email_verified`, groups under `realm_access.roles`.
+    **No code change was needed for this half** — which is the finding: the rule the
+    issuer guard states (publish the IdP under a name) is what a real installation does,
+    so no `localhost` issuer support was required.
 - Login page: the provider list is the operator's `sort_order` (server-side ordering,
   page preserves it), and a disabled door disappears without a console rebuild.
 
