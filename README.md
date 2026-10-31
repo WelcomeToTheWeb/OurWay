@@ -223,8 +223,13 @@ self-host observability), what each must pass before it is tagged, and what is
 deliberately deferred. **2.4.0 is in flight:** 2.4-1…2.4-8 (OIDC by issuer +
 discovery, `id_token` verification, the identity-linking contract, the provider
 ledger, threshold rules, notification channels, SAML 2.0, session recording with
-playback) are delivered. The open items are the Keycloak/AD FS vendor interop pass the
-SAML and OIDC proofs owe, and the release tag. Task breakdowns with acceptance criteria:
+playback) are delivered, and the **SAML half of the vendor interop pass ran 2026-10-31**
+against a live Keycloak 26 realm — metadata, pinned certificate, signed requests, a
+browser flow that ended in an issued session — which found and fixed three real bugs
+(in-scope-namespace canonicalization, request `Destination`, request-signature bytes).
+The open items are that pass's **OIDC** half (Keycloak discovery through its published
+issuer needs `localhost` issuer support first), a second vendor (AD FS), and the release
+tag. Task breakdowns with acceptance criteria:
 [`docs/phase2.2-tasks.md`](docs/phase2.2-tasks.md),
 [`docs/phase2.3-tasks.md`](docs/phase2.3-tasks.md),
 [`docs/phase2.4-tasks.md`](docs/phase2.4-tasks.md) and

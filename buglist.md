@@ -27,9 +27,16 @@ assertion verification against the operator's pinned certificate, replay
 protection) whose asserted identity passes the same 2.4-3 contract an OIDC
 identity passes. The guard L8 asked for is kept as the product's rule, not as
 a refusal: a `saml` row that cannot answer logins is refused at save with the
-field named, and an unknown protocol type is still refused. **Open half:** the
-round trip is proven against OurWay's own signing IdP fixture
-(`server/sso/testsaml`), not against Keycloak/AD FS.
+field named, and an unknown protocol type is still refused. **Closed 2026-10-31
+(2.4-0):** the round trip ran against a **live Keycloak 26 realm** — client built from
+OurWay's own SP metadata, realm certificate pinned, signed requests and assertion
+signature on — ending in a session issued through the `sso_code` exchange. It found
+three real bugs (exclusive canonicalization dropped the namespaces in scope from the
+enclosing `Response`; `AuthnRequest.Destination` named our ACS instead of the IdP's SSO
+location; the HTTP-Redirect signature covered the decoded parameters, not the transmitted
+query string), each pinned by a test, and the captured assertion is now a permanent probe
+(`server/sso/capture_vendor_saml_test.go`). **Not covered:** a second vendor (AD FS), and
+Keycloak's OIDC discovery through its published issuer.
 
 ---
 
@@ -585,7 +592,7 @@ does.
 | Patch policy scheduling | ✅ Fixed 2026-10-03 — `server/patching/policy.go` `PolicyEngine` runs hourly, evaluates each policy against its Schedule (daily/weekly/monthly) and drives scan → approve → deploy; tests in `policy_test.go` |
 | Patch policy scoping | ✅ Fixed 2026-10-03 — `PolicyEngine.resolveScope` enforces Scope (all/devices; `ScopeValue` matches device IDs, names, or hostnames, comma-separated) |
 | Auto-reboot after patching | ✅ Fixed 2026-10-03 — `PolicyEngine` reboots devices whose deploy result is `success` when `AutoReboot` is set; deploy batching honors `MaxDevicesPerBatch` |
-| SAML SSO | ✅ Fixed 2026-10-30 (2.4-7) — SAML 2.0 Service Provider: SP metadata (`GET /api/auth/sso/saml/:name/metadata`), assertion consumer (`POST /api/auth/sso/saml/:name/acs`), XML-DSig assertion verification against the pinned IdP certificate, audience/recipient/destination/expiry/subject-confirmation checks, assertion-ID replay protection, and the 2.4-3 identity contract unchanged on the asserted identity. An unknown protocol type is still refused at create, and a SAML row that cannot answer logins is refused at save (`TestSSOProviderTypeGuard`, `TestSAMLProviderRefusesAFormThatCannotDeliver`). **Open:** proven against `server/sso/testsaml` (a peer IdP that signs real assertions), not against Keycloak/AD FS |
+| SAML SSO | ✅ Fixed 2026-10-30 (2.4-7) — SAML 2.0 Service Provider: SP metadata (`GET /api/auth/sso/saml/:name/metadata`), assertion consumer (`POST /api/auth/sso/saml/:name/acs`), XML-DSig assertion verification against the pinned IdP certificate, audience/recipient/destination/expiry/subject-confirmation checks, assertion-ID replay protection, and the 2.4-3 identity contract unchanged on the asserted identity. An unknown protocol type is still refused at create, and a SAML row that cannot answer logins is refused at save (`TestSSOProviderTypeGuard`, `TestSAMLProviderRefusesAFormThatCannotDeliver`). **Proven against a vendor 2026-10-31 (2.4-0):** a live Keycloak 26 realm over the metadata + pinned-certificate path, browser-driven, ending in an issued session — which found three real bugs (in-scope-namespace canonicalization, `AuthnRequest.Destination`, the HTTP-Redirect signature bytes) and left `server/sso/capture_vendor_saml_test.go` as a permanent probe over a captured vendor assertion. **Not covered:** AD FS, and Keycloak OIDC discovery through its published issuer |
 | Remote-control session recording | ✅ Implemented 2026-10-30 (2.4-8, migration 17 `session_recordings`) — the audit log's question "who was controlling that machine at 14:00" is answerable: the frames the session streamed are appended to an append-only `OWRS1` sequence under `RECORDINGS_DIR`, playback shows them with the keyboard/mouse the audit ledger recorded for that session, the policy is the installation's (`RECORD_SESSIONS=off|on|control-only`, **off** by default), reading a recording is tenant-scoped and audited (`session.recording_play` / `session.recording_fetch` / `session.record_start`), and the retention sweep prunes rows and files with counters. **The toggle starts a recording; nothing in the product stops one.** Tests: `server/recordings/writer_test.go`, `server/api/recordings_test.go`, `server/metrics/retention_test.go`, `web/src/pages/Recordings.test.tsx` |
 
 **Resolved 2026-10-02:** WebRTC remote control (removed — the agent never

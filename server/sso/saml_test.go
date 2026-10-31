@@ -12,9 +12,15 @@ package sso_test
 // agreement between the code and its own test.
 
 import (
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"encoding/xml"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +94,151 @@ func samlClaims() testsaml.Claims {
 		DisplayName:  "Ada Lovelace",
 		Groups:       []string{"technicians"},
 	}
+}
+
+// TestAnAssertionWhoseNamespacesComeFromTheResponseRootVerifies is the other
+// Keycloak lesson. Keycloak declares `xmlns:saml` once, on the Response; every
+// prefixed element inside the assertion resolves through that declaration. The
+// fixture mints that shape with NamespacesOnRootOnly, and a verifier that
+// canonicalizes the signed subtree as if its namespaces were only the ones its own
+// element declared digests bytes the IdP never signed — the signature is refused over
+// a document that is entirely valid. The pinned certificate is the trust anchor here,
+// so the only way this test can pass is by canonicalizing the way the IdP did.
+func TestAnAssertionWhoseNamespacesComeFromTheResponseRootVerifies(t *testing.T) {
+	f := newSAMLFixture(t)
+
+	requestID := sso.BuildAuthnRequestID()
+	formValue := f.IdP.ResponseFormValue(samlClaims(),
+		testsaml.AssertionOptions{NamespacesOnRootOnly: true}, testACS, requestID, testSPEntity)
+	doc, err := sso.ParseSAMLResponse(formValue)
+	if err != nil {
+		t.Fatalf("ParseSAMLResponse: %v", err)
+	}
+	raw, _ := doc.WriteToString()
+	assertionStart := strings.Index(raw, "<saml:Assertion")
+	if assertionStart < 0 {
+		t.Fatalf("the minted document has no prefixed assertion, so it is not the shape under test:\n%s",
+			raw[:min(len(raw), 400)])
+	}
+	if !strings.Contains(raw[:assertionStart], "xmlns:saml") {
+		t.Fatal("the fixture stopped declaring the namespaces on the Response: the fixture is not the shape under test")
+	}
+	if strings.Contains(raw[assertionStart:], "xmlns:saml") {
+		t.Fatal("the assertion declares its own namespaces: the fixture is not the shape under test")
+	}
+	identity, refusal := sso.ValidateResponse(doc, f.Cfg, requestID, time.Now())
+	if refusal != nil {
+		t.Fatalf("a signed assertion in the shape a real IdP writes was refused: %v", refusal)
+	}
+	if identity.Info.Email != "ada@ourway.example" {
+		t.Fatalf("identity is %+v, want the asserted email", identity.Info)
+	}
+}
+
+// TestSignedAuthnRequestIsSignedOverTheBytesTheIdPReceives is the Keycloak lesson,
+// pinned. The HTTP-Redirect profile signs the request, the relay state and the
+// algorithm as they are **transmitted** — percent-encoded — and a conformant IdP
+// rebuilds that exact string from the URL it received. Signing the decoded base64
+// instead produces a request that verifies against nothing: Keycloak answered
+// `invalid_signature`, while OurWay's own peer-IdP fixture accepted it, because the
+// fixture reads the decoded parameters. So the check here is the IdP's check.
+func TestSignedAuthnRequestIsSignedOverTheBytesTheIdPReceives(t *testing.T) {
+	f := newSAMLFixture(t)
+
+	requestXML := sso.SAMLAuthnRequest(f.Cfg, sso.BuildAuthnRequestID(), time.Now())
+	redirect, err := sso.SPInitiatedRedirect(requestXML, f.Cfg)
+	if err != nil {
+		t.Fatalf("SPInitiatedRedirect: %v", err)
+	}
+	if !strings.HasPrefix(redirect, f.Cfg.IdpSSOURL+"?") {
+		t.Fatalf("redirect goes to %q, not the provider's SSO location", redirect)
+	}
+	transmitted := strings.TrimPrefix(redirect, f.Cfg.IdpSSOURL+"?")
+
+	// What the IdP signs its verification with: the query, minus the Signature
+	// parameter, as the octets arrived.
+	signedPart, encodedSignature, found := strings.Cut(transmitted, "&Signature=")
+	if !found || encodedSignature == "" {
+		t.Fatalf("no Signature in the redirect query: %s", transmitted[:80])
+	}
+	decodedSigParam, unescapeErr := url.QueryUnescape(encodedSignature)
+	if unescapeErr != nil {
+		t.Fatalf("the Signature parameter is not percent-decodable: %v", unescapeErr)
+	}
+	signature, err := base64.StdEncoding.DecodeString(decodedSigParam)
+	if err != nil {
+		t.Fatalf("the signature is not base64 as the binding requires: %v", err)
+	}
+	if !strings.HasPrefix(signedPart, "SAMLRequest=") ||
+		!strings.Contains(signedPart, "&RelayState=") ||
+		!strings.HasSuffix(signedPart, "&SigAlg="+url.QueryEscape("http://www.w3.org/2001/04/xmldsig-more#rsa-sha256")) {
+		t.Fatalf("the signed string is not request+relay+algorithm in that order:\n%s", signedPart[:120])
+	}
+
+	_, block := pemDecode(f.SPPEM)
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatalf("parse the SP certificate: %v", err)
+	}
+	digest := sha256.Sum256([]byte(signedPart))
+	if err := rsa.VerifyPKCS1v15(cert.PublicKey.(*rsa.PublicKey), crypto.SHA256, digest[:], signature); err != nil {
+		t.Fatalf("an IdP that verifies the transmitted bytes refuses our request: %v", err)
+	}
+
+	// The string the pre-Keycloak code signed — the decoded parameters. It must NOT
+	// verify: that is the whole finding, and this is the assertion that keeps it from
+	// quietly coming back.
+	parsed, err := url.Parse(redirect)
+	if err != nil {
+		t.Fatalf("parse redirect: %v", err)
+	}
+	q := parsed.Query()
+	decodedForm := q.Get("SAMLRequest") + "&RelayState=" + url.QueryEscape(q.Get("RelayState")) +
+		"&SigAlg=" + url.QueryEscape(q.Get("SigAlg"))
+	decodedDigest := sha256.Sum256([]byte(decodedForm))
+	if err := rsa.VerifyPKCS1v15(cert.PublicKey.(*rsa.PublicKey), crypto.SHA256, decodedDigest[:], signature); err == nil {
+		t.Fatal("the escaped and decoded signing strings both verify: the request cannot be carrying the bytes it signed")
+	}
+
+	// The request the IdP inflates out of the transmitted parameter is the document
+	// the SP built — escaping must not have cost us a byte of it.
+	inflated, err := sso.InflateSAMLRequest(q.Get("SAMLRequest"))
+	if err != nil {
+		t.Fatalf("InflateSAMLRequest: %v", err)
+	}
+	if !strings.Contains(inflated, testSPEntity) || !strings.Contains(inflated, testACS) {
+		t.Fatal("the escaped round trip lost the SP identity or the ACS")
+	}
+	// The addresses a request carries: `Destination` is the IdP's endpoint (the
+	// recipient), `AssertionConsumerServiceURL` is ours (where the answer comes back).
+	// Keycloak refuses a request addressed to anything but its own endpoint, and per
+	// the profile it is right to.
+	dest := re(t, `Destination="([^"]+)"`, inflated)
+	if dest != f.Cfg.IdpSSOURL {
+		t.Fatalf("the request is addressed to %q, want the IdP's SSO location %q", dest, f.Cfg.IdpSSOURL)
+	}
+	acs := re(t, `AssertionConsumerServiceURL="([^"]+)"`, inflated)
+	if acs != testACS {
+		t.Fatalf("the assertion is asked to come back to %q, want %q", acs, testACS)
+	}
+}
+
+// re pulls one attribute out of the request document, failing the test when it is
+// not there rather than returning an empty string that reads as a passing check.
+func re(t *testing.T, pattern, text string) string {
+	t.Helper()
+	m := regexp.MustCompile(pattern).FindStringSubmatch(text)
+	if m == nil {
+		t.Fatalf("no %q in the request:\n%s", pattern, text[:min(len(text), 400)])
+	}
+	return m[1]
+}
+
+// pemDecode is the one PEM step this test needs, kept local so the test reads as a
+// verifier and not as a helper catalogue.
+func pemDecode(text string) ([]byte, *pem.Block) {
+	block, _ := pem.Decode([]byte(text))
+	return nil, block
 }
 
 // TestSAMLLoginRoundTripIsARealAssertionTheSPAccepts is the happy path, and the

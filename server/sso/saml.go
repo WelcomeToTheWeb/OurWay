@@ -390,6 +390,14 @@ func verifySignature(t *samlTree, el *etree.Element, cfg SAMLConfig, cert *x509.
 	// whose assertions nobody can trust any more, which is a fact the operator has
 	// to be told, not a login that fails with a parse error.
 	ctx.Clock = dsig.NewFakeClockAt(now)
+	// Exclusive canonicalization of a signed subtree carries the namespaces that are
+	// **in scope for it**, not merely the ones its own element declares. Keycloak
+	// declares `xmlns:saml` on the Response and signs an assertion whose every element
+	// is prefixed through it; canonicalizing that subtree on its own drops the
+	// declaration, the bytes are not the ones the IdP digested, and the signature is
+	// refused over a document that is perfectly valid. So the in-scope declarations go
+	// onto the element before the digest is taken.
+	t.declareInScopeNamespaces(el)
 	if _, err := ctx.Validate(el); err != nil {
 		return refuse(ReasonSAMLSignature,
 			"the %s signature does not verify against provider %s's pinned certificate (%s): %v",
@@ -401,6 +409,36 @@ func verifySignature(t *samlTree, el *etree.Element, cfg SAMLConfig, cert *x509.
 // findSignature reports whether the element carries a ds:Signature child.
 func (t *samlTree) findSignature(el *etree.Element) *etree.Element {
 	return t.child(el, nsDS, "Signature")
+}
+
+// declareInScopeNamespaces copies the namespace declarations in scope for el (its
+// own plus every ancestor's) onto el. It is the subtree-only view exclusive
+// canonicalization takes: the signed bytes an IdP computed for a subtree include the
+// namespaces that subtree was sitting in, so a verifier that canonicalizes the subtree
+// alone has to put them back. Redundant declarations are legal XML, and they are the
+// difference between verifying Keycloak's assertion and refusing it.
+func (t *samlTree) declareInScopeNamespaces(el *etree.Element) {
+	for prefix, uri := range t.scope[el] {
+		declared := false
+		for _, attr := range el.Attr {
+			if prefix == "" && attr.Space == "" && attr.Key == "xmlns" {
+				declared = true
+				break
+			}
+			if prefix != "" && attr.Space == "xmlns" && attr.Key == prefix {
+				declared = true
+				break
+			}
+		}
+		if declared || uri == "" {
+			continue
+		}
+		if prefix == "" {
+			el.CreateAttr("xmlns", uri)
+			continue
+		}
+		el.CreateAttr("xmlns:"+prefix, uri)
+	}
 }
 
 // checkSignatureReference is the XML-signature-wrapping check: the signed element
@@ -685,48 +723,69 @@ func SAMLAuthnRequest(cfg SAMLConfig, requestID string, issue time.Time) string 
 	return fmt.Sprintf(
 		`<samlp:AuthnRequest xmlns:samlp="%s" xmlns:saml="%s" ID="%s" Version="2.0" IssueInstant="%s" Destination="%s" ProtocolBinding="%s" AssertionConsumerServiceURL="%s">`+
 			`<saml:Issuer>%s</saml:Issuer>%s</samlp:AuthnRequest>`,
-		nsProtocol, nsAssertion, requestID, issue.UTC().Format(samlTimeLayout), xmlEscape(cfg.ACSURL),
+		// `Destination` names the *recipient* — the IdP's SSO location the request is
+		// addressed to — while `AssertionConsumerServiceURL` names where the assertion
+		// must come back to. A conformant IdP checks the first against its own endpoint
+		// and refuses the request when it names something else, which is exactly what
+		// Keycloak did to us (`invalid_destination`): the ACS is the answer's address,
+		// not the question's.
+		nsProtocol, nsAssertion, requestID, issue.UTC().Format(samlTimeLayout), xmlEscape(cfg.IdpSSOURL),
 		bindingPOST, xmlEscape(cfg.ACSURL), xmlEscape(cfg.SPEntityID), nameIDPolicy)
 }
 
 // SPInitiatedRedirect deflates, base64-encodes and (when the provider has an SP key)
 // signs an AuthnRequest, and returns the IdP URL to send the browser to.
 //
-// The signature is over the same bytes the redirect carries — the encoded request —
-// which is what an IdP that requires signed requests verifies.
+// The signed bytes are the **transmitted** query string, not the parameter values
+// before encoding. A conformant IdP rebuilds the signing string from the octets of the
+// URL it received and verifies against those, so signing the pre-escape base64 yields a
+// request a real IdP refuses: base64 carries `+`, `/` and `=`, and it is the escaped
+// form that crosses the wire. (Found the hard way against Keycloak, which answers
+// `invalid_signature`; OurWay's own peer-IdP fixture never notices, because it reads
+// the decoded parameters.)
 func SPInitiatedRedirect(requestXML string, cfg SAMLConfig) (redirect string, err error) {
 	encoded, err := DeflateSAMLRequest(requestXML)
 	if err != nil {
 		return "", err
-	}
-	query := url.Values{}
-	query.Set("SAMLRequest", encoded)
-	query.Set("RelayState", cfg.SPEntityID)
-	if cfg.SignRequests {
-		key, keyErr := parsePEMPrivateKey(cfg.SPKeyPEM)
-		if keyErr != nil {
-			return "", fmt.Errorf("provider %s requires signed requests: %v", cfg.ProviderName, keyErr)
-		}
-		signature, signErr := signRSASHA256(key, []byte(buildRedirectToSign(encoded, query.Get("RelayState"), sigAlgRSA_SHA256)))
-		if signErr != nil {
-			return "", signErr
-		}
-		query.Set("SigAlg", sigAlgRSA_SHA256)
-		query.Set("Signature", base64.StdEncoding.EncodeToString(signature))
 	}
 	base := cfg.IdpSSOURL
 	separator := "?"
 	if strings.Contains(base, "?") {
 		separator = "&"
 	}
-	return base + separator + query.Encode(), nil
+	// The request, the relay state and the algorithm, escaped exactly as they are
+	// transmitted: this string is the prefix of the URL the browser is sent to, which
+	// is the point of building it here rather than signing the decoded parameters.
+	query := buildRedirectToSign(encoded, cfg.SPEntityID, sigAlgRSA_SHA256)
+	if !cfg.SignRequests {
+		return base + separator + query, nil
+	}
+	key, keyErr := parsePEMPrivateKey(cfg.SPKeyPEM)
+	if keyErr != nil {
+		return "", fmt.Errorf("provider %s requires signed requests: %v", cfg.ProviderName, keyErr)
+	}
+	// A signed request names its algorithm: a receiver that found a Signature and no
+	// SigAlg has nothing to verify it with, and guessing is not a rule.
+	signature, signErr := signRSASHA256(key, []byte(query))
+	if signErr != nil {
+		return "", fmt.Errorf("provider %s requires signed requests: %v", cfg.ProviderName, signErr)
+	}
+	// The signature is appended to the string it covers, so the URL the browser is
+	// sent to begins with exactly the bytes that were signed.
+	return base + separator + query + "&Signature=" + url.QueryEscape(base64.StdEncoding.EncodeToString(signature)), nil
 }
 
 // buildRedirectToSign is the HTTP-Redirect signing string the SAML profile defines:
-// the encoded request, the relay state, the signature algorithm — concatenated, in
-// that order, with no separators.
+// the deflated-and-encoded request and the relay state, percent-encoded as they are
+// transmitted, concatenated in that order with no separators. Appending the algorithm
+// (and then the signature) gives the whole redirect query, which is why the signed
+// string and the transmitted string cannot drift apart.
 func buildRedirectToSign(encodedRequest, relayState, alg string) string {
-	return encodedRequest + "&RelayState=" + url.QueryEscape(relayState) + "&SigAlg=" + url.QueryEscape(alg)
+	query := "SAMLRequest=" + url.QueryEscape(encodedRequest) + "&RelayState=" + url.QueryEscape(relayState)
+	if alg == "" {
+		return query
+	}
+	return query + "&SigAlg=" + url.QueryEscape(alg)
 }
 
 // DeflateSAMLRequest deflates and base64-encodes a request, as the HTTP-Redirect
