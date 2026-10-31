@@ -799,6 +799,37 @@ Three facts about how vendors write SAML came out of that pass, each pinned by a
   profile it is right to.
 - **A signed request signs the transmitted bytes.** See step 5 above.
 
+The **OIDC** half ran the same day against the same realm, and it is the plainest
+argument for configuring OIDC by issuer: Keycloak publishes its issuer from the
+`Forwarded` headers the proxy sends it, so `https://kc.sso.test/realms/ourway` is what
+its own `.well-known/openid-configuration` names. The provider was saved typing
+**that issuer alone** — every endpoint OurWay uses came from the IdP's document — and a
+browser flow (`/api/auth/sso/<provider>/authorize` → the realm login page → the callback
+→ `/login?sso_code=…` → `POST /api/auth/sso/exchange`) issued access and refresh
+tokens.
+
+The contract fired on the way there, which is the part worth reading: the first login
+asserted an email that already belonged to a local account, so the callback **refused**
+(`403`, `identity_pending`), the identity was written as a pending identity, the admin
+list `GET /api/users/pending` named it with its link target, and only after
+`POST /api/users/:id/approve` did the same login issue a session. Nothing about that is
+Keycloak-specific — it is 2.4-3 meeting a vendor's claims for the first time.
+
+Two probes keep both proofs honest, skipping when nothing is configured so the suite
+stays hermetic:
+
+| Probe | Fed by |
+|---|---|
+| `server/sso/capture_vendor_saml_test.go` | `OURWAY_SAML_CAPTURE`, `OURWAY_SAML_CERT`, `OURWAY_SAML_REQUEST_ID`, `OURWAY_SAML_AT` (+ entity/ACS/attribute overrides) |
+| `server/sso/capture_vendor_oidc_test.go` | `OURWAY_OIDC_CAPTURE` (the IdP's minted `id_token`), `OURWAY_OIDC_JWKS`, `OURWAY_OIDC_NONCE`, `OURWAY_OIDC_ISSUER`, `OURWAY_OIDC_AUDIENCE`, `OURWAY_OIDC_AT` |
+
+Each one asserts the capture's shape first (the SAML probe refuses an assertion that
+declares its own prefixed namespaces; the OIDC probe refuses a token with no `kid`, no
+`nonce`, no `azp` or a path-less issuer), then validates it, then refuses one tampered
+byte and an unsigned/foreign-audience variant. Both name the expiry window the capture
+asserts, because a capture is a **time-boxed** document: run the probe with the clock
+inside the window the document states, and re-capture after it closes.
+
 The probe that keeps this honest is `server/sso/capture_vendor_saml_test.go`: it runs
 the IdP's **own** captured document through the verifier — shape guard (the assertion
 declares no prefixed namespaces), canonicalization method, expiry window, then the
