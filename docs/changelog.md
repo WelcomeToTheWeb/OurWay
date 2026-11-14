@@ -5,6 +5,23 @@ All notable changes to the OurWay RMM project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - Unreleased
+
+A security PATCH on the 2.3 line. It carries nothing else, on purpose:
+`docs/versioning.md` rule 5 says a security fix ships without bundling features,
+so an operator on 2.3.x can take it without taking the 2.4 release.
+
+### Security
+- **`golang-jwt/jwt/v5` v5.2.1 → v5.2.2**, closing **CVE-2025-30204**
+  (GHSA-mh63-6h87-95cp): unbounded memory allocation while parsing a token's
+  header, so an attacker-supplied token can exhaust the server's memory. Every
+  authenticated request parses a token — `server/auth/jwt.go` calls
+  `jwt.ParseWithClaims` — and so does 2.4's SSO path (`server/sso/jwks.go`), which
+  means the exposure is the whole API surface, not one route. v5.2.2 is the
+  smallest release that fixes it, which is what a PATCH takes.
+- No other dependency moves. The full module refresh (gin, `x/net`, `x/crypto`,
+  the console) lands in 2.4.0, where the features are.
+
 ## [2.3.0] - Unreleased
 
 ### Added
