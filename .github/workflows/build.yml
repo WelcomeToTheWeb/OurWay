@@ -298,7 +298,26 @@ jobs:
           # Image tags carry the v prefix, matching the git tag and the
           # v1.5.x / v2.0.x tags already published in the registry.
           if [ "$CHANNEL" = stable ]; then
-            tags="$base:v$VERSION"$'\n'"$base:$MINOR"$'\n'"$base:latest"
+            tags="$base:v$VERSION"$'\n'"$base:$MINOR"
+            # `latest` belongs to the newest line alone. A maintenance PATCH
+            # (docs/versioning.md rule 5) ships on an older line, and moving
+            # :latest onto it would point every docker-compose.prod.yml
+            # install - and every stable agent that auto-updates - at an
+            # older release. Newest line = greatest X.Y of the visible tags
+            # (checkout uses fetch-depth: 0, so all of them are here).
+            newest=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
+            newest_line=$(printf '%s' "${newest#v}" | cut -d. -f1,2)
+            owns_latest=$(printf '%s\n%s\n' "$MINOR" "$newest_line" |
+              sort -V | tail -1)
+            if [ -z "$newest" ]; then
+              echo "::warning::no tags visible; publishing :latest"
+              tags="$tags"$'\n'"$base:latest"
+            elif [ "$owns_latest" = "$MINOR" ]; then
+              tags="$tags"$'\n'"$base:latest"
+            else
+              echo "$MINOR is older than $newest_line: maintenance release"
+              echo "  :latest stays on ${newest#v}"
+            fi
           else
             tags="$base:edge"$'\n'"$base:main-$COMMIT"
           fi
@@ -356,7 +375,21 @@ jobs:
           # Image tags carry the v prefix, matching the git tag and the
           # v1.5.x / v2.0.x tags already published in the registry.
           if [ "$CHANNEL" = stable ]; then
-            tags="$base:v$VERSION"$'\n'"$base:$MINOR"$'\n'"$base:latest"
+            tags="$base:v$VERSION"$'\n'"$base:$MINOR"
+            # Same rule as the server job: an older line never moves :latest.
+            newest=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
+            newest_line=$(printf '%s' "${newest#v}" | cut -d. -f1,2)
+            owns_latest=$(printf '%s\n%s\n' "$MINOR" "$newest_line" |
+              sort -V | tail -1)
+            if [ -z "$newest" ]; then
+              echo "::warning::no tags visible; publishing :latest"
+              tags="$tags"$'\n'"$base:latest"
+            elif [ "$owns_latest" = "$MINOR" ]; then
+              tags="$tags"$'\n'"$base:latest"
+            else
+              echo "$MINOR is older than $newest_line: maintenance release"
+              echo "  :latest stays on ${newest#v}"
+            fi
           else
             tags="$base:edge"$'\n'"$base:main-$COMMIT"
           fi

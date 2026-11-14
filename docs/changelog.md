@@ -340,6 +340,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     server-side backup of `RECORDINGS_DIR` (the directory is media storage; exports are
     audited).
 
+### Changed
+- **`scripts/release.sh` can cut a PATCH from a release line.** `--from
+  release/2.3.x` releases that branch instead of `main`, and the number is
+  checked against the newest tag reachable **from that branch**, so a maintenance
+  PATCH is no longer refused for sitting behind main's newest release - which is
+  precisely what `docs/versioning.md` rule 5 asks for. `--maintenance` is required
+  when the line is older than the newest published release.
+- **An older line never moves `:latest`.** The publish jobs tag `vX.Y.Z` and
+  `X.Y` and leave `:latest` on the newest release. `:latest` is what
+  `docker-compose.prod.yml` pins and what stable agents auto-update to, so
+  pointing it backwards would silently downgrade every install that follows; the
+  guard reads the tag itself, so a forgotten flag costs a red publish rather than
+  a downgrade. `CONTRIBUTING.md` gains "A PATCH on an older line" and
+  `docs/versioning.md` states the channel rule.
+
 ### Fixed
 - `auditOKOnce` / `auditRefusedOnce` marked the request as recorded **before** writing,
   so `recordAudit`'s duplicate-row guard swallowed the row: those helpers wrote nothing.
