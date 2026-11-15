@@ -468,6 +468,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `react-router-dom`'s open redirect (moderate), held at the v7 major with the
   rest.
 
+## [2.3.1] - 2026-11-14
+
+A security PATCH, cut from `release/2.3.x` at `v2.3.0` and carrying nothing else —
+`docs/versioning.md` rule 5: a security fix ships without bundling features, so an
+operator on 2.3.x can take it without taking 2.4.
+
+### Security
+- **`golang-jwt/jwt/v5` v5.2.1 → v5.2.2**, closing **CVE-2025-30204**
+  (GHSA-mh63-6h87-95cp): unbounded memory allocation while parsing a token's
+  header, so an attacker-supplied token can exhaust the server's memory. Every
+  authenticated request parses a token — `server/auth/jwt.go` calls
+  `jwt.ParseWithClaims` — so the exposure was the whole API surface, not one
+  route. v5.2.2 is the smallest release that fixes it, which is what a PATCH
+  takes. `govulncheck` against that tree: 3 findings on jwt before, 0 after.
+- No other dependency moved. The full module refresh belongs to 2.4.0, where the
+  features are.
+
+Cut with `scripts/release.sh --from release/2.3.x 2.3.1` (see "A PATCH on an
+older line" in `CONTRIBUTING.md`). Published as `v2.3.1` and `2.3` on GHCR; it
+took `:latest` with it, correctly, because `v2.3.0` was still the newest
+published release — `2.4.0` had not been tagged, so 2.3 was the newest line.
+
 ## [2.3.0] - 2026-10-28
 
 ### Added
