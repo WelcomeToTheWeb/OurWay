@@ -47,6 +47,12 @@ Rules that keep the numbers meaningful:
 
 - `latest` is **only ever a stable release**, and only moves to a stable
   release. This is what `docker-compose.prod.yml` pins.
+- `latest` is **only the newest line's**. A PATCH cut from a maintenance line
+  (`2.3.x` after `2.4.0` shipped, per rule 5) publishes `vX.Y.Z` and `X.Y` and
+  leaves `latest` where it is - moving it backwards would downgrade every
+  install that follows it, including stable agents that auto-update.
+  `scripts/release.sh --from <line> --maintenance` and the publish job both
+  enforce this; see "A PATCH on an older line" in `CONTRIBUTING.md`.
 - Image tags keep the `v` prefix of the git tag (`v2.1.0`), matching the
   `v1.5.x` and `v2.0.x` tags already in `ghcr.io/welcometotheweb/ourway/server`.
   The floating minor does not: it reads `2.1`, Docker-style.

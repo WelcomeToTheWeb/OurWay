@@ -362,6 +362,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `go 1.24.0` — working only because `GOTOOLCHAIN=auto` fetched a newer
   toolchain mid-build, slowly and invisibly — and its runtime base was
   `alpine:latest`, so one commit produced a different rootfs week to week.
+- **`scripts/release.sh` can cut a PATCH from a release line.** `--from
+  release/2.3.x` releases that branch instead of `main`, and the number is
+  checked against the newest tag reachable **from that branch**, so a maintenance
+  PATCH is no longer refused for sitting behind main's newest release - which is
+  precisely what `docs/versioning.md` rule 5 asks for. `--maintenance` is required
+  when the line is older than the newest published release.
+- **An older line never moves `:latest`.** The publish jobs tag `vX.Y.Z` and
+  `X.Y` and leave `:latest` on the newest release. `:latest` is what
+  `docker-compose.prod.yml` pins and what stable agents auto-update to, so
+  pointing it backwards would silently downgrade every install that follows; the
+  guard reads the tag itself, so a forgotten flag costs a red publish rather than
+  a downgrade. `CONTRIBUTING.md` gains "A PATCH on an older line" and
+  `docs/versioning.md` states the channel rule.
 
 ### Fixed
 - **The e2e suite stopped comparing a live count against a cached surface.** The

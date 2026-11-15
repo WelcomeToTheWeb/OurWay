@@ -344,11 +344,43 @@ scripts/release.sh --check 2.1.0   # every check + the full gate, publishes noth
 scripts/release.sh 2.1.0           # commit, tag v2.1.0, push main and the tag
 ```
 
-It refuses a dirty tree, a non-`main` branch, a HEAD that is not the pushed
-tip, a number that is not greater than the latest tag, and a red gate.
+It refuses a dirty tree, a branch that is not the one being released, a HEAD
+that is not the pushed tip, a number that is not greater than the newest tag
+**on that line**, and a red gate.
 
 The pipeline then runs in order: agents → installers → Docker images (GHCR) →
 GitHub Release with all binaries attached. A tag publishes `vX.Y.Z`, the
 floating `X.Y`, and `latest`; a `main` push publishes `edge` only (the old
 scheme published a per-commit sha tag; `edge` replaces it). Verify the
 release run is green before announcing a version.
+
+### A PATCH on an older line
+
+`docs/versioning.md` rule 5 says a security fix ships as a PATCH without
+bundling features, so an operator can take the fix without taking the release.
+Once the next minor is out, that means cutting from a maintenance line rather
+than `main`:
+
+```sh
+git checkout -b release/2.3.x v2.3.0      # the line, from its last release
+# cherry-pick the fix onto it - and the release tooling too, because a branch
+# cut from an old tag carries the OLD scripts/release.sh and the OLD build.yml,
+# and the guard that protects :latest lives in build.yml on the tag's own tree.
+git cherry-pick <fix> <tooling>
+scripts/release.sh --check --from release/2.3.x --maintenance 2.3.1
+scripts/release.sh       --from release/2.3.x --maintenance 2.3.1
+```
+
+`--maintenance` is required, not decorative: publishing any `vX.Y.Z` tag moves
+`:latest`, and `:latest` is what `docker-compose.prod.yml` pins and what stable
+agents auto-update to. Moving it to an older line would downgrade every install
+that follows it. The script refuses without the flag when the line is older than
+the newest published release, and `build.yml` applies the same rule independently
+from the tag, so a forgotten flag costs a red publish rather than a silent
+downgrade. After a maintenance release, confirm
+`ghcr.io/welcometotheweb/ourway/server:latest` still resolves to the newest
+version.
+
+Name maintenance lines `release/<major>.<minor>.x`. The `ourway/<phase>-<slug>`
+convention is for phase work; a maintenance line is a durable branch, not a
+delivery.
