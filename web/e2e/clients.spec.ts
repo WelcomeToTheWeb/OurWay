@@ -74,6 +74,13 @@ test('the Clients ledger creates a tenant, assigns a unit, and grants it', async
   const row = page.getByRole('button', { name: new RegExp(`open ${CLIENT_NAME} detail`, 'i') });
   await expect(row).toBeVisible({ timeout: 15_000 });
 
+  const clientId = async () => {
+    const res = await request.get(`${apiBase()}/api/clients`, { headers: { Authorization: `Bearer ${token}` } });
+    const body = await res.json().catch(() => null);
+    const list = (body?.clients ?? body ?? []) as { id: string; name: string }[];
+    return list.find((cl) => cl.name === CLIENT_NAME)?.id ?? '';
+  };
+
   // The new client owns no units yet, and the ledger says so.
   await row.click();
   const panel = page.getByLabel(`${CLIENT_NAME} detail`);
@@ -87,6 +94,23 @@ test('the Clients ledger creates a tenant, assigns a unit, and grants it', async
   });
   await panel.getByRole('button', { name: /save units/i }).click();
 
+  // Each write is stated by the server at the point it is made, rather than
+  // inferred from a DOM twelve steps later. When the technician's ledger came up
+  // empty on CI there was no way to say which save had failed to land; now the
+  // suite says so, and "the grant is missing" stops being a hypothesis about
+  // timing.
+  const created = await clientId();
+  expect(created, 'the client the console created is on the server').not.toBe('');
+  const assignedTo = async () => {
+    const res = await request.get(`${apiBase()}/api/devices`, { headers: { Authorization: `Bearer ${token}` } });
+    const body = await res.json().catch(() => null);
+    const devices = (body?.devices ?? []) as { id: string; client_id?: string | null }[];
+    return devices.find((d) => d.id === seeded.id)?.client_id ?? null;
+  };
+  await expect
+    .poll(assignedTo, { message: 'the unit the panel saved is assigned on the server', timeout: 20_000 })
+    .toBe(created);
+
   // The ledger's unit count for this client becomes 1.
   await expect(row).toBeVisible();
   await expect(page.getByText('No clients yet')).toHaveCount(0);
@@ -95,6 +119,20 @@ test('the Clients ledger creates a tenant, assigns a unit, and grants it', async
   const access = panel.getByRole('button', { name: /save access/i });
   await panel.getByText(TECH_USER).click();
   await access.click();
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`${apiBase()}/api/clients/${created}/users`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = await res.json().catch(() => null);
+        const users = (body?.users ?? []) as { username?: string }[];
+        return users.some((u) => u.username === TECH_USER);
+      },
+      { message: 'the technician the panel granted is granted on the server', timeout: 20_000 }
+    )
+    .toBe(true);
 
   // The technician signs in from scratch: a new session, a new scope.
   //
