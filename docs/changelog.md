@@ -341,6 +341,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     audited).
 
 ### Fixed
+- **The e2e suite stopped comparing a live count against a cached surface.** The
+  dashboard's alert tile comes from `useFleet`, which is invalidated by mutations
+  and refreshed on mount and never polls, so `alerts.spec.ts` was pinning that tile
+  to a number it had read from the API earlier: the two could only agree by luck.
+  They agreed at a desk. On CI a seeded alert auto-resolves between the two reads
+  (measured: 3 open at +43s, 2 open from +49s) and the spec failed identically on
+  every run — `Expected "Active Alerts2"`, `Received "Active Alerts3"`, the tile
+  steady across 15s of retries. It now asserts what 2.2-4 actually promised: that
+  the API, the tile and the ledger agree, each read fresh (the tile by remounting
+  the dashboard), with the post-resolve figure derived from a fresh read instead of
+  a baseline captured before the population moved. `sessions.spec.ts` waits for the
+  server to stop reporting a session as open before asking the ledger to drop the
+  row, and `clients.spec.ts` establishes the technician's scope through the API
+  before looking for the unit in their ledger. All three are timing races that
+  predate this release and were surfaced by dependency timing, not caused by it.
 - `auditOKOnce` / `auditRefusedOnce` marked the request as recorded **before** writing,
   so `recordAudit`'s duplicate-row guard swallowed the row: those helpers wrote nothing.
   Found by 2.4-2's login refusals, their first callers.
@@ -730,5 +745,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure cookie options for frontend
 - TLS support for agent communication (configurable)
 
-[unreleased]: https://github.com/your-org/ourway-rmm/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/your-org/ourway-rmm/releases/tag/v1.0.0
