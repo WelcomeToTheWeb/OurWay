@@ -10,7 +10,7 @@ ARG VERSION=0.1.0
 ARG GIT_COMMIT=unknown
 
 # Stage 1: Build the Go server binary
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 ARG VERSION
 ARG GIT_COMMIT
@@ -78,7 +78,7 @@ RUN for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "w
 COPY install.ps1 install.sh /app/dist/agents/
 
 # Stage 2: Minimal production image
-FROM alpine:3.20
+FROM alpine:3.24
 
 ARG VERSION
 

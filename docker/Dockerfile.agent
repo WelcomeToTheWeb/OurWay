@@ -13,7 +13,7 @@
 # agent/go.mod demanded 1.24.0 and CI built with 1.26: the image only worked
 # because GOTOOLCHAIN=auto downloaded a newer toolchain mid-build, which is slow,
 # invisible in review, and silently different from what CI ships.
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /app
 
@@ -29,7 +29,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ourway-ag
 # Final image - pinned to the line the server image already uses
 # (docker/Dockerfile.server: alpine:3.20). `alpine:latest` made the agent image
 # un-reproducible: one commit built a different rootfs from week to week.
-FROM alpine:3.20
+FROM alpine:3.24
 
 # Create non-root user
 RUN addgroup -S ourway && adduser -S -G ourway ourway
