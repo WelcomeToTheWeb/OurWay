@@ -261,6 +261,37 @@ against 14 before 2.1.0; a unit view opened from it costs 2 reads, both about
 that unit; two surfaces open sit at roughly 15 reads/min against the documented
 100 req/min default (`RATE_LIMIT_PER_MINUTE`, 2.2-3).
 
+## Dependencies
+
+`.github/dependabot.yml` watches four ecosystems — `gomod` (`server` and `agent`
+separately, because they are separate modules), `npm` (`web`), `docker` (the
+images and both compose files), and `github-actions` — weekly, with minors and
+patches grouped into one PR per ecosystem. Nothing auto-merges: a dependency PR
+passes the same gate as any other change.
+
+Majors arrive only where no decision defers them. The `ignore` blocks in that
+file are decisions, not gaps, and each names its reason. **Taking a deferred
+major is its own change**: delete the `ignore` entry, upgrade, and land it with
+the gate and the e2e suite green. `react` 19, `vite` 8, `vitest` 5,
+`tailwindcss` 4, `typescript` 7, `react-router-dom` 7 and `recharts` 3 each move
+either the console's runtime or its build, so none of them is a ride-along. A
+`postgres`/`redis` major is an operator upgrade path and belongs in
+`docs/upgrade-guide.md` first.
+
+Bumping a Go dependency by hand: edit the requirement, run `go mod tidy` in that
+module, and expect transitive lines to move with it — the 2026-11 refresh took
+`gin` to v1.12.0 and `golang.org/x/net` v0.62.0 and `x/text` v0.44.0 came along,
+which was most of the audit's advisory count. Then run `govulncheck` in the
+module you touched:
+
+```sh
+cd server && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+```
+
+It reports only what the call graph can actually reach, which is why "40 modules
+are outdated" and "nothing is reachable" were both true of the same tree — read
+the finding's trace depth, not the count. It needs `vuln.go.dev` reachable.
+
 ## Conventions
 
 - **Commit messages** use conventional-commit prefixes: `fix:`, `feat:`,

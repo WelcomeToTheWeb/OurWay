@@ -167,6 +167,23 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   await row.getByRole('button', { name: /^end$/i }).click();
   await expect(sheet).toBeVisible();
   await sheet.getByRole('button', { name: /end session/i }).click();
+  // Read the source before the projection. The hub ends a session the moment the
+  // viewer socket closes, so the ledger drops the row a beat after the verb
+  // returns: asserting the row first measures how fast the runner renders, not
+  // whether the write landed.
+  await expect
+    .poll(
+      async () => {
+        const ended = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
+        const res = await fetch(`${apiBase()}/api/sessions`, { headers: { authorization: `Bearer ${ended}` } });
+        const body = await res.json();
+        const live = (body.sessions as { id: string; status: string }[]).find((x) => x.id === sessionID);
+        return !live || (live.status !== 'pending' && live.status !== 'active');
+      },
+      { message: 'the server stopped reporting the session as open', timeout: 30_000 }
+    )
+    .toBe(true);
+
   await page.reload();
   await expect(row, 'the verb is the only thing that writes').toHaveCount(0, { timeout: 10_000 });
 });

@@ -1,7 +1,10 @@
 package collector
 
 import (
+	"errors"
 	"testing"
+
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 func TestCPUCollector(t *testing.T) {
@@ -319,6 +322,37 @@ func TestProcessCollector(t *testing.T) {
 			t.Errorf("expected name 'processes', got %q", c.Name())
 		}
 	})
+}
+
+// TestProcessCollectorCPUReadFailure covers the failure gopsutil only raises when
+// a process dies mid-scan, which no live-system test can arrange on demand: the
+// collect must still answer, with the unreadable CPU at zero.
+func TestProcessCollectorCPUReadFailure(t *testing.T) {
+	c := NewProcessCollector()
+	c.cpuPercent = func(*process.Process) (float64, error) {
+		return 0, errors.New("process exited mid-scan")
+	}
+
+	data, err := c.Collect()
+	if err != nil {
+		t.Fatalf("one unreadable CPU must not fail the collect: %v", err)
+	}
+
+	topCPU, ok := data["top_cpu"].([]ProcessInfo)
+	if !ok {
+		t.Fatal("expected 'top_cpu' field to be []ProcessInfo")
+	}
+	if len(topCPU) == 0 {
+		t.Fatal("a CPU read failure must not drop the process list")
+	}
+	for _, p := range topCPU {
+		if p.CPU != 0 {
+			t.Errorf("pid %d reports CPU %.2f after a failed read, want 0", p.PID, p.CPU)
+		}
+	}
+	if _, ok := data["top_mem"].([]ProcessInfo); !ok {
+		t.Error("expected 'top_mem' to survive a CPU read failure")
+	}
 }
 
 func TestCollectorManager(t *testing.T) {
