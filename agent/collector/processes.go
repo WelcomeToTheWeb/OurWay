@@ -16,14 +16,21 @@ type ProcessCollector struct {
 	// stored on the handle, so a fresh handle every cycle would always
 	// report 0% CPU.
 	handles map[int32]*process.Process
+	// cpuPercent reads one handle's CPU percent. It exists as a seam because
+	// the only way gopsutil fails this call is the process dying mid-scan — a
+	// race, not a scenario. Nothing below can run on a live system on demand,
+	// and a collector that mishandles that failure would drop units silently,
+	// so the path is exercised by test instead of by luck.
+	cpuPercent func(*process.Process) (float64, error)
 }
 
 // NewProcessCollector creates a new process collector.
 func NewProcessCollector() *ProcessCollector {
 	return &ProcessCollector{
-		topN:     10,
-		interval: 500 * time.Millisecond,
-		handles:  make(map[int32]*process.Process),
+		topN:       10,
+		interval:   500 * time.Millisecond,
+		handles:    make(map[int32]*process.Process),
+		cpuPercent: (*process.Process).CPUPercent,
 	}
 }
 
@@ -61,7 +68,7 @@ func (c *ProcessCollector) Collect() (map[string]interface{}, error) {
 			c.handles[p.Pid] = p
 		}
 
-		cpuPercent, err := p.CPUPercent()
+		cpuPercent, err := c.cpuPercent(p)
 		if err != nil {
 			cpuPercent = 0
 		}

@@ -340,6 +340,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     server-side backup of `RECORDINGS_DIR` (the directory is media storage; exports are
     audited).
 
+### Changed
+- **Dependencies refreshed**, each with the gate green: `gin` v1.10.0 → v1.12.0
+  (which carries `golang.org/x/net` v0.25.0 → v0.62.0 and `golang.org/x/text`
+  v0.29.0 → v0.44.0 — most of the audit's advisory count came in through gin),
+  `golang-jwt/jwt/v5` v5.2.1 → v5.3.1, `beevik/etree` v1.7.0 → v1.8.1,
+  `redis/go-redis/v9` v9.22.0 → v9.23.0, `nhooyr.io/websocket` v1.8.10 → v1.8.17,
+  `golang.org/x/crypto` v0.26.0 → v0.59.0. Agent: `gopsutil/v4` v4.26.8 →
+  v4.26.10, `golang.org/x/sys` v0.41.0 → v0.50.0, `websocket` → v1.8.17.
+  Console: `axios` 1.20.0 → 1.21.1, `zustand` 5.0.15 → 5.1.0, `react-window`
+  2.3.3 → 2.5.3, `i18next` 26.4.2 → 26.7.2, `react-i18next` 17.0.15 → 17.1.13,
+  `@playwright/test` 1.64.1 → 1.65.1, plus `postcss`/`autoprefixer`/`jsdom`
+  patches. Deferred majors are listed under Security below.
+- **`.github/dependabot.yml` is now the dependency watcher** — `gomod` (server
+  and agent separately, because they are separate modules), `npm`, `docker`, and
+  `github-actions`, weekly, with minors and patches grouped per ecosystem and
+  majors only where no decision defers them. Nothing auto-merges. The rules for
+  taking a deferred major are in `CONTRIBUTING.md`.
+- `docker/Dockerfile.agent` builds on `golang:1.26-alpine` and runs on
+  `alpine:3.20`. It built on `golang:1.21-alpine` while `agent/go.mod` requires
+  `go 1.24.0` — working only because `GOTOOLCHAIN=auto` fetched a newer
+  toolchain mid-build, slowly and invisibly — and its runtime base was
+  `alpine:latest`, so one commit produced a different rootfs week to week.
+
 ### Fixed
 - **The e2e suite stopped comparing a live count against a cached surface.** The
   dashboard's alert tile comes from `useFleet`, which is invalidated by mutations
@@ -408,6 +431,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Deflate, encode, then sign, in that order.
 
 ---
+
+### Security
+- `golang.org/x/net` reaches **v0.62.0** and `golang.org/x/text` **v0.44.0**
+  through the gin upgrade, and `golang.org/x/crypto` reaches **v0.59.0**, closing
+  the 156 advisory rows the 2026-11-14 audit counted against the old pins
+  (`x/net` 122, `x/crypto` 22, `x/text` 12). `govulncheck` in symbol mode
+  reported **no reachable vulnerable symbol** before the refresh and none after:
+  these are version-hygiene closures, not live holes in this release.
+- `golang-jwt/jwt/v5` leaves v5.2.1, the version carrying **CVE-2025-30204**
+  (unbounded memory allocation during header parsing; fixed upstream in v5.2.2).
+  The same fix reaches the released line on its own as **v2.3.1**, because a
+  security fix is a PATCH and ships without bundling features
+  (`docs/versioning.md` rule 5) — `server/auth/jwt.go` called `ParseWithClaims`
+  on that version at v2.3.0, so operators on the released line are exposed today.
+- **Open, stated rather than buried:** the two **critical** advisories in `web`
+  — `tinypool` prototype-pollution → RCE, reached through `vitest`, and the
+  Vitest UI arbitrary file read — need the `vitest` 5 and `vite` 8 majors, which
+  `.github/dependabot.yml` defers. Both are dev/CI-time: `follow-redirects` and
+  `undici` (the other high-severity rows) appear in **no** shipped bundle,
+  verified against `web/dist/assets/*.js`, and axios's `browser` map nulls the
+  Node adapter that would pull them in. The one advisory that does ship is
+  `react-router-dom`'s open redirect (moderate), held at the v7 major with the
+  rest.
 
 ## [2.3.0] - 2026-10-28
 
