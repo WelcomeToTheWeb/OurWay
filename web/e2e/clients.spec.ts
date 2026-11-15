@@ -13,7 +13,7 @@
  * by. So the assertions here are on visible rows.
  */
 import { test, expect } from '@playwright/test';
-import { ADMIN_PASSWORD, ADMIN_USER, apiBase, manifest, reFor, RUN_SUFFIX, uiLogin } from './fixtures.js';
+import { ADMIN_PASSWORD, ADMIN_USER, apiBase, apiLogin, manifest, reFor, RUN_SUFFIX, uiLogin } from './fixtures.js';
 
 // The tenant name carries the run id, like the seeded fleet does. A fixed name
 // is a fixture that collides with its own previous run: two runs on one
@@ -117,6 +117,23 @@ test('the Clients ledger creates a tenant, assigns a unit, and grants it', async
   // assertion on an unfiltered ledger measures the page's window, and every run
   // that shares a database adds units to it. The scope claim is "this unit's
   // row is there", which the filtered ledger answers exactly.
+  // The grant is a write made on the admin's session and read on the
+  // technician's, and the console answers from the fleet cache: the unit is in
+  // their ledger once their scope has been recomputed, not once the POST
+  // returned. Put that precondition on the API before asking the DOM, so a slow
+  // invalidation is a poll instead of a 15s hunt for a row that cannot appear.
+  await expect
+    .poll(
+      async () => {
+        const tech = await apiLogin(TECH_USER, TECH_PASSWORD);
+        const res = await request.get(`${apiBase()}/api/devices`, { headers: { Authorization: `Bearer ${tech}` } });
+        const body = await res.json().catch(() => null);
+        return ((body?.devices ?? []) as { id: string }[]).some((d) => d.id === seeded.id);
+      },
+      { message: 'the technician can see the unit they were granted', timeout: 30_000 }
+    )
+    .toBe(true);
+
   await page.goto('/devices?view=table');
   await page.getByLabel('Search devices').fill(seeded.hostname);
   await expect(page.getByRole('row', { name: reFor(seeded.name) })).toBeVisible({ timeout: 15_000 });
