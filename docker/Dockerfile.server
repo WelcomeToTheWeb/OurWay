@@ -78,7 +78,7 @@ RUN for platform in "linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "w
 COPY install.ps1 install.sh /app/dist/agents/
 
 # Stage 2: Minimal production image
-FROM alpine:3.20
+FROM alpine:3.24
 
 ARG VERSION
 
