@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Server, RefreshCw, LayoutGrid, List, X, RotateCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDevices } from '../hooks/useDevices';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuth } from '../auth/context';
-import { DeviceCard } from '../components/DeviceCard';
+import { DeviceCard, DEVICE_CARD_GUTTER, DEVICE_CARD_H } from '../components/DeviceCard';
 import { InstallerPanel } from '../components/InstallerPanel';
 import { Stamp } from '../components/Stamp';
 import { GuideWordsHead, useGuideWords } from '../components/GuideWords';
@@ -13,6 +13,7 @@ import { Grid } from 'react-window';
 import { applyDeviceFilters, collectTags, defaultFilters, devicesViewFromSearch, devicesViewToParams, isFiltered, type DeviceFilters, type SortKey } from '../utils/deviceList';
 import { clientNameForSlug, clientSlugOfDevice } from '../utils/clientFilter';
 import { ClientFacet } from '../components/ClientFacet';
+import { FetchError } from '../components/FetchError';
 import { bulkTags } from '../api/tags';
 import { deployNow, scanDevices } from '../api/patching';
 import { useFleet } from '../hooks/useFleet';
@@ -65,6 +66,39 @@ export function Devices() {
   // dashboard link, a bookmark, or a browser back must come back the same
   // shape. localStorage only supplies the initial default.
   const view: View = params.get('view') === 'table' ? 'table' : params.get('view') === 'cards' ? 'cards' : readView();
+
+  /**
+   * The virtualised card window is measured, not assumed. Four 300px columns at
+   * a fixed 1200px would clip the fourth column on any viewport where the panel
+   * is narrower than that — the cards would simply be cut in half at the panel
+   * edge. So the panel's width decides the column count, and the columns share
+   * the width evenly: nothing is ever clipped, and a card is the same height in
+   * the window as in the responsive grid below it.
+   */
+  const CARD_MIN = 300;
+  const gridW = useRef(0);
+  const gridEl = useRef<HTMLDivElement | null>(null);
+  const gridRo = useRef<ResizeObserver | null>(null);
+  const [, rerender] = useState(0);
+  const measureGrid = useCallback((el: HTMLDivElement | null) => {
+    gridRo.current?.disconnect();
+    gridRo.current = null;
+    gridEl.current = el;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (gridW.current !== el.clientWidth) {
+        gridW.current = el.clientWidth;
+        rerender((n) => n + 1);
+      }
+    });
+    ro.observe(el);
+    gridRo.current = ro;
+    gridW.current = el.clientWidth;
+  }, []);
+  const width = gridW.current || CARD_MIN * 4;
+  const cardCols = Math.max(1, Math.floor(width / CARD_MIN));
+  const cardColW = Math.floor(width / cardCols);
+
   function writeView(next: Partial<DeviceFilters & { sort: SortKey; desc: boolean }>, nextView?: View) {
     setParams(devicesViewToParams({ ...view$, ...next }, params, nextView ?? view), { replace: true });
   }
@@ -153,11 +187,13 @@ export function Devices() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('devices.title')}</h1>
+          <h1 className="ow-display text-[22px]">{t('devices.title')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
-            {filtersActive
-              ? `${filtered.length} of ${devices.length} units in view`
-              : t('devices.count', { count: devices.length })}
+            {error
+              ? t('devices.countUnavailable')
+              : filtersActive
+                ? `${filtered.length} of ${devices.length} units in view`
+                : t('devices.count', { count: devices.length })}
           </p>
         </div>
         <button onClick={refresh} className="btn">
@@ -239,28 +275,28 @@ export function Devices() {
           onClick={() => setDesc((d) => !d)}
           aria-label={desc ? 'Descending order' : 'Ascending order'}
           aria-pressed={desc}
-          className="btn px-2.5 py-[9px]"
+          className="btn px-2.5"
         >
           <span className="ow-num">{desc ? '↓' : '↑'}</span>
         </button>
         {filtersActive && (
-          <button onClick={() => setFilters(defaultFilters)} className="cap-sm cap text-[var(--service)] hover:underline">
+          <button
+            onClick={() => setFilters(defaultFilters)}
+            className="cap-sm cap rounded px-1 text-service hover:underline"
+          >
             Clear filters
           </button>
         )}
-        <div role="group" aria-label="View" className="ml-auto flex">
+        {/* One segmented control, one track: the active segment is a raised white
+            chip, so the current view is legible before anyone reads the icons. */}
+        <div role="group" aria-label="View" className="segmented ml-auto">
           {([['cards', LayoutGrid, 'Card view'], ['table', List, 'Table view']] as const).map(([v, Icon, label]) => (
             <button
               key={v}
               onClick={() => setView(v)}
               aria-label={label}
               aria-pressed={view === v}
-              className="btn border-rule-strong px-2.5 py-[9px]"
-              style={{
-                marginLeft: v === 'table' ? -1 : 0,
-                background: view === v ? 'var(--ink)' : 'var(--bg-card)',
-                color: view === v ? 'var(--bg-card)' : 'var(--text-secondary)',
-              }}
+              className="segmented-item h-7 w-8"
             >
               <Icon className="h-4 w-4" />
             </button>
@@ -363,9 +399,7 @@ export function Devices() {
           <RefreshCw className="h-6 w-6 animate-spin text-[var(--service)]" aria-hidden="true" />
         </div>
       ) : error ? (
-        <p role="alert" className="text-[13px] text-[var(--error)]">
-          {error}
-        </p>
+        <FetchError detail={error} onRetry={refresh} />
       ) : filtered.length === 0 ? (
         <div className="panel flex flex-col items-center gap-3 px-6 py-16 text-center text-text-secondary">
           <Server className="h-8 w-8 text-text-muted" aria-hidden="true" />
@@ -478,22 +512,22 @@ export function Devices() {
           </div>
         </div>
       ) : filtered.length > 20 ? (
-        <div className="panel overflow-hidden">
+        <div className="panel overflow-hidden" ref={measureGrid}>
           <Grid
             className="overflow-y-auto outline-none"
             style={{ height: 640, width: '100%' }}
-            rowHeight={152}
-            columnWidth={300}
-            rowCount={Math.ceil(filtered.length / 4)}
-            columnCount={4}
-            overscanCount={10}
+            rowHeight={DEVICE_CARD_H + DEVICE_CARD_GUTTER * 2}
+            columnWidth={cardColW}
+            rowCount={Math.ceil(filtered.length / cardCols)}
+            columnCount={cardCols}
+            overscanCount={4}
             cellProps={{}}
             cellComponent={(props) => {
-              const index = props.rowIndex * 4 + props.columnIndex;
+              const index = props.rowIndex * cardCols + props.columnIndex;
               const device = filtered[index];
               if (!device) return null;
               return (
-                <div style={{ ...props.style, padding: '6px' }}>
+                <div style={{ ...props.style, padding: DEVICE_CARD_GUTTER }}>
                   <DeviceCard
                     device={device}
                     compliance={complianceById.get(device.id)}

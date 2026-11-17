@@ -17,6 +17,14 @@
     "webhooks": "Webhooks"
   },
   "common": {
+    "loadFailed": "Impossible de charger cette vue.",
+    "countUnavailable": "Nombre indisponible",
+    "retry": "Réessayer",
+    "notFoundTitle": "Aucune page à cette adresse",
+    "notFoundBody": "La console ne propose aucune vue à cette adresse. Elle a peut-être été renommée, ou le lien est obsolète.",
+    "backHome": "Retour au tableau de bord",
+    "deniedTitle": "Pas pour votre rôle",
+    "deniedBody": "Cette vue exige l'un de ces rôles : {{roles}}. Contactez un administrateur de la console si vous en avez besoin.",
     "save": "Enregistrer",
     "cancel": "Annuler",
     "delete": "Supprimer",
@@ -66,6 +74,7 @@
     "activeAlertsHintNone": "aucun seuil dépassé"
   },
   "devices": {
+    "countUnavailable": "Impossible de lire le nombre d'appareils",
     "title": "Appareils",
     "count": "{{count}} appareils surveillés",
     "noMatch": "Aucun appareil ne correspond à votre recherche",
@@ -109,6 +118,7 @@
     "auditLinkAria": "Ouvrir le journal d’audit pour {{name}}"
   },
   "alerts": {
+    "countUnavailable": "Impossible de lire le registre des alertes",
     "title": "Alertes",
     "noAlerts": "Aucune alerte",
     "search": "Rechercher des alertes par appareil ou message...",
@@ -140,7 +150,9 @@
       "subtitle": "Vos informations personnelles",
       "username": "Nom d'utilisateur",
       "email": "E-mail",
-      "save": "Enregistrer le profil"
+      "save": "Enregistrer le profil",
+      "auditLink": "Mes actes dans le journal",
+      "auditLinkAria": "Ouvrir le journal d’audit pour {{name}}"
     },
     "password": {
       "title": "Changer le mot de passe",
@@ -233,9 +245,7 @@
       "clearDataDone": "{{metrics}} mesures et {{alerts}} alertes supprimés.",
       "clearDataFailed": "Échec de l’effacement des données de surveillance.",
       "deleteAccountFailed": "Échec de la suppression du compte."
-    },
-    "profile.auditLink": "Mes actes dans le journal",
-    "profile.auditLinkAria": "Ouvrir le journal d’audit pour {{name}}"
+    }
   },
   "auth": {
     "signOut": "Déconnexion",

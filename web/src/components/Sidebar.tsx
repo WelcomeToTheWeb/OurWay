@@ -21,9 +21,9 @@ import { useAuth } from '../auth/context';
 import { useThemeStore, type Theme } from '../stores/themeStore';
 
 /**
- * The nav rail is the console's plate — the one committed field of colour.
- * Navigation itself is the category standard: labelled groups, text links,
- * an obvious active item.
+ * The nav rail is the console's one committed field of colour: a dark slate
+ * plate that stays dark in both renditions. Navigation is the category
+ * standard — labelled groups, icon + text rows, one obviously active item.
  */
 type GroupItem = {
   to: string;
@@ -91,101 +91,89 @@ export function Sidebar() {
 
   return (
     <aside className="plate flex h-full w-60 flex-col" aria-label="Console navigation">
-      {/* Brand plate */}
-      <div className="border-b px-5 py-4" style={{ borderColor: 'rgba(232,228,216,0.18)' }}>
-        <div className="flex items-center gap-2.5">
-          <span
-            className="flex h-8 w-8 items-center justify-center border"
-            style={{ borderColor: 'rgba(232,228,216,0.4)' }}
-          >
-            <MonitorSmartphone className="h-4 w-4" style={{ color: 'var(--ink-on-plate)' }} aria-hidden="true" />
+      {/* Brand */}
+      <div className="flex items-center gap-2.5 border-b px-4 py-4" style={{ borderColor: 'var(--rail-line)' }}>
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded"
+          style={{ background: 'var(--service)' }}
+        >
+          <MonitorSmartphone className="h-[17px] w-[17px] text-white" aria-hidden="true" />
+        </span>
+        <span className="min-w-0">
+          <span className="ow-display block text-[16px] leading-tight" style={{ color: 'var(--rail-text)' }}>
+            OurWay
           </span>
-          <span>
-            <span className="ow-display block text-[19px] leading-none" style={{ color: 'var(--ink-on-plate)' }}>
-              OurWay
-            </span>
-            <span className="cap-sm cap mt-1 block" style={{ color: 'var(--ink-on-plate-muted)' }}>
-              RMM · self-hosted
-            </span>
-          </span>
-        </div>
+        </span>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4" aria-label="Main navigation">
+      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-2.5 py-3" aria-label="Main navigation">
         {shown.map((group) => (
-          <div key={group.heading} role="group" aria-label={group.heading} className="flex flex-col">
-            <div className="flex items-center gap-2 px-1 pb-1.5">
-              <span className="cap-sm cap" style={{ color: 'var(--ink-on-plate-muted)' }}>
+          <div key={group.heading} role="group" aria-label={group.heading} className="flex flex-col gap-0.5">
+            <div className="px-2 pb-1">
+              <span className="cap-sm cap" style={{ color: 'var(--rail-text-muted)' }}>
                 {group.heading}
               </span>
-              <span className="h-px flex-1" style={{ background: 'rgba(232,228,216,0.16)' }} />
             </div>
-            <div className="flex flex-col">
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === '/'}
-                    className={({ isActive }) =>
-                      [
-                        'group flex items-center gap-2.5 border-b py-2 pl-3 pr-2 text-[13px] no-underline transition-[background-color,color] duration-400 ease-[var(--ease-press)]',
-                        isActive
-                          ? 'font-bold'
-                          : 'font-medium',
-                      ].join(' ')
-                    }
-                    style={({ isActive }) => ({
-                      borderColor: 'rgba(232,228,216,0.10)',
-                      color: isActive ? 'var(--ink)' : 'var(--ink-on-plate)',
-                      background: isActive ? 'var(--ink-on-plate)' : 'transparent',
-                    })}
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <Icon className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
-                        <span className="flex-1">{item.label}</span>
-                        {item.go && (
-                          <span
-                            className="ow-num text-[9.5px] opacity-60"
-                            style={{ color: isActive ? 'var(--ink)' : 'var(--ink-on-plate-muted)' }}
-                          >
-                            {item.go}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </NavLink>
-                );
-              })}
-            </div>
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/'}
+                  className={({ isActive }) =>
+                    [
+                      'flex items-center gap-2.5 rounded px-2.5 py-2 text-[13px] no-underline transition-colors duration-150',
+                      isActive ? 'font-medium' : 'font-normal',
+                    ].join(' ')
+                  }
+                  style={({ isActive }) => ({
+                    color: isActive ? 'var(--rail-text)' : 'var(--rail-text-muted)',
+                    background: isActive ? 'var(--rail-bg-raised)' : 'transparent',
+                  })}
+                >
+                  {({ isActive }) => (
+                    <>
+                      <Icon
+                        className="h-4 w-4 shrink-0"
+                        style={{ color: isActive ? 'var(--rail-text)' : 'inherit' }}
+                        aria-hidden="true"
+                      />
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {item.go && (
+                        <span
+                          className="ow-num text-[10px]"
+                          style={{ color: 'var(--rail-text-muted)', opacity: isActive ? 0.8 : 0.55 }}
+                        >
+                          {item.go}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </NavLink>
+              );
+            })}
           </div>
         ))}
       </nav>
 
-      {/* Light control: the shop's own lamp */}
-      <div
-        className="flex items-center gap-1 border-t px-3 py-3"
-        style={{ borderColor: 'rgba(232,228,216,0.18)' }}
-      >
-        <span className="cap-sm cap mr-1" style={{ color: 'var(--ink-on-plate-muted)' }}>
-          Light
+      {/* Colour scheme */}
+      <div className="border-t px-3 py-3" style={{ borderColor: 'var(--rail-line)' }}>
+        <span className="cap-sm cap mb-1.5 block" style={{ color: 'var(--rail-text-muted)' }}>
+          Appearance
         </span>
-        <div className="flex flex-1" role="group" aria-label="Colour scheme">
+        <div
+          className="segmented segmented--rail w-full"
+          role="group"
+          aria-label="Colour scheme"
+        >
           {THEMES.map((t) => (
             <button
               key={t.value}
               type="button"
               onClick={() => setTheme(t.value)}
               aria-pressed={theme === t.value}
-              className="cap cap-sm flex-1 border px-1 py-1 transition-colors duration-400"
-              style={{
-                borderColor: 'rgba(232,228,216,0.22)',
-                color: theme === t.value ? 'var(--ink)' : 'var(--ink-on-plate)',
-                background: theme === t.value ? 'var(--ink-on-plate)' : 'transparent',
-                marginLeft: t.value === 'light' ? 0 : -1,
-              }}
+              className="segmented-item cap-sm flex-1 px-1 py-1"
             >
               {t.label}
             </button>

@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 import type { Device } from '../types/device';
 
 /**
- * A stamp: the world's state vocabulary. A state is printed — outlined,
- * uppercase, letterpress — never a coloured dot on a tinted pill.
+ * A state badge: the console's state vocabulary. One pill per meaning, tinted
+ * from its own colour so a tone never needs a second class to read correctly.
  */
 export type StampTone =
   | 'online'
@@ -53,7 +53,7 @@ const statusCopy: Record<Device['status'], { label: string; tone: StampTone; mea
   alert: { label: 'Alert', tone: 'alert', meaning: 'A threshold is breached' },
 };
 
-/** Device presence, printed. */
+/** Device presence, as a badge. */
 export function StatusStamp({ status }: { status: Device['status'] }) {
   const { label, tone, meaning } = statusCopy[status] ?? statusCopy.offline;
   return (
@@ -64,7 +64,7 @@ export function StatusStamp({ status }: { status: Device['status'] }) {
 }
 
 /**
- * The live-link indicator for the shift bar: a stamp, with the link's
+ * The live-link indicator for the top bar: a badge, with the link's
  * meaning in its title.
  */
 export function LinkStamp({ connected }: { connected: boolean }) {

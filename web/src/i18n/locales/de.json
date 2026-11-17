@@ -17,6 +17,14 @@
     "webhooks": "Webhooks"
   },
   "common": {
+    "loadFailed": "Diese Ansicht konnte nicht geladen werden.",
+    "countUnavailable": "Anzahl nicht verfügbar",
+    "retry": "Wiederholen",
+    "notFoundTitle": "Keine solche Seite",
+    "notFoundBody": "Die Konsole kennt keine Ansicht unter dieser Adresse. Möglicherweise wurde sie umbenannt, oder der Link ist veraltet.",
+    "backHome": "Zurück zum Dashboard",
+    "deniedTitle": "Nicht für Ihre Rolle",
+    "deniedBody": "Diese Ansicht benötigt eine dieser Rollen: {{roles}}. Bitten Sie eine Console-Administration, falls Sie sie brauchen.",
     "save": "Speichern",
     "cancel": "Abbrechen",
     "delete": "Löschen",
@@ -66,6 +74,7 @@
     "activeAlertsHintNone": "keine Schwellen überschritten"
   },
   "devices": {
+    "countUnavailable": "Geräteanzahl konnte nicht gelesen werden",
     "title": "Geräte",
     "count": "{{count}} überwachte Geräte",
     "noMatch": "Keine Geräte entsprechen Ihrer Suche",
@@ -109,6 +118,7 @@
     "auditLinkAria": "Audit-Logbuch für {{name}} öffnen"
   },
   "alerts": {
+    "countUnavailable": "Alarmliste konnte nicht gelesen werden",
     "title": "Alarme",
     "noAlerts": "Keine Alarme",
     "search": "Alarme nach Gerät oder Nachricht durchsuchen...",
@@ -140,7 +150,9 @@
       "subtitle": "Ihre persönlichen Informationen",
       "username": "Benutzername",
       "email": "E-Mail",
-      "save": "Profil speichern"
+      "save": "Profil speichern",
+      "auditLink": "Meine Handlungen im Logbuch",
+      "auditLinkAria": "Audit-Logbuch für {{name}} öffnen"
     },
     "password": {
       "title": "Passwort ändern",
@@ -233,9 +245,7 @@
       "clearDataDone": "{{metrics}} Messwerte und {{alerts}} Alarme gelöscht.",
       "clearDataFailed": "Das Löschen der Überwachungsdaten ist fehlgeschlagen.",
       "deleteAccountFailed": "Das Löschen des Kontos ist fehlgeschlagen."
-    },
-    "profile.auditLink": "Meine Handlungen im Logbuch",
-    "profile.auditLinkAria": "Audit-Logbuch für {{name}} öffnen"
+    }
   },
   "auth": {
     "signOut": "Abmelden",

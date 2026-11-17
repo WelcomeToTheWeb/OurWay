@@ -14,7 +14,7 @@ interface InfoRowProps {
 export function InfoRow({ label, value, icon: Icon }: InfoRowProps) {
   return (
     <div className="flex items-baseline gap-3 border-b border-rule py-1.5 last:border-b-0">
-      <span className="flex w-32 shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-text-muted">
+      <span className="cap cap-sm flex w-32 shrink-0 items-center gap-1.5">
         {Icon && <Icon className="h-3.5 w-3.5" aria-hidden="true" />}
         {label}
       </span>

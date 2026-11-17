@@ -93,6 +93,18 @@ replacement and locale keys must be updated in lockstep if it is.
 - Name **OurWay** (repo `WelcomeToTheWeb/OurWay`, MIT-licensed).
 - README voice: direct, technical, anti-marketing — "technology over monetization".
 - No logo, brand artwork, colour, typographic, or tone constraint is binding.
+- **Standing visual direction (owner's choice, 2026-11-16): the category standard, played
+  straight.** The owner was shown a roll of derived worlds and deliberately took the standing
+  exit. Convention is therefore the commitment, not a fallback: navigation, controls, table
+  patterns, summary figures and density follow what an RMM operator already knows, executed
+  without irony or smuggled quirk. The craft bar the owner named, and the console is judged
+  against: **NinjaOne / Atera / JumpCloud** for convention and familiarity, **Grafana + Stripe
+  Dashboard** for information design and table/form discipline, **Linear + Vercel** for
+  interaction polish and restraint.
+- **Copy is fixed content for this redesign** (resolving the open decision above). The redesign
+  replaces the visual world, not the product's wording: existing English strings and the
+  `en`/`de`/`fr` locale keys stay as shipped unless a specific string is factually wrong.
+
 
 ## Evidence on Hand
 

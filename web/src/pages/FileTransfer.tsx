@@ -197,7 +197,7 @@ export function FileTransfer() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('fileTransfer.title')}</h1>
+          <h1 className="ow-display text-[22px]">{t('fileTransfer.title')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
             {t('fileTransfer.totalTransfers', { count: transfers.length })} ·{' '}
             {isRateLimited() ? 'polling rests — rate limit' : 'polling every 10 s'}

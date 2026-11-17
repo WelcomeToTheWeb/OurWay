@@ -140,14 +140,16 @@ const collectors: Record<FleetKey, () => Promise<unknown>> = {
   devices: () => getDevices(),
   patchOverview: () => getPatchOverview().catch(() => null),
   patchPolicies: () => listPolicies().catch(() => [] as PatchPolicy[]),
-  sessions: () => listSessions().catch(() => [] as Session[]),
-  recordings: () =>
-    listRecordings().catch(() => ({
-      recordings: [] as RecordingIndex['recordings'],
-      recording_policy: 'off' as RecordingIndex['recording_policy'],
-      retention_days: 0,
-    })),
-  alerts: () => getAlerts().catch(() => [] as Alert[]),
+  /* Alerts, sessions and recordings deliberately do NOT swallow a failed read.
+     A `.catch(() => [])` here made a 500 indistinguishable from a quiet fleet:
+     the alert centre reported "0 open" as fact, which is the one sentence a
+     technician must never be able to misread. `setFleetError` keeps whatever
+     data is already on screen and marks it failed, so the page can say so.
+     The optional collections above stay forgiving — their surfaces treat a
+     missing figure as "not shown", not as "nothing happened". */
+  sessions: () => listSessions(),
+  recordings: () => listRecordings(),
+  alerts: () => getAlerts(),
   clients: () => getClients().catch(() => [] as Client[]),
   clientRollups: () => getClientRollups().catch(() => [] as ClientRollup[]),
 };

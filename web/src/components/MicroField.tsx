@@ -1,7 +1,9 @@
 /**
- * A micro-field: barcode-density history in a narrow strip. Every headline
- * number on this console carries its recent past here, with the onset of a
- * change marked, so a figure that moved reads as having moved.
+ * A micro-field: the recent past of a headline figure in a narrow strip. Every
+ * headline number on this console carries one, so a figure that moved reads as
+ * having moved, and the onset of a state change is marked. It is a measurement,
+ * drawn as a line and its area — never a decorative texture — and it is honest
+ * about a single sample rather than pretending to be a trend.
  */
 export function MicroField({
   values,
@@ -48,46 +50,61 @@ export function MicroField({
     );
   }
 
-  const unit = 3;
-  const width = source.length * unit;
-  const onsetIndex = onset != null && onset >= 0 ? Math.round((onset / Math.max(values.length - 1, 1)) * (source.length - 1)) : null;
+  const w = 100;
+  const span = Math.max(source.length - 1, 1);
+  const y = (v: number) => height - 1 - (Math.max(v, 0) / peak) * (height - 3);
+  const points = source.map((v, i) => [ (i / span) * w, y(v) ] as const);
+  const trace = points.map(([px, py], i) => `${i === 0 ? 'M' : 'L'}${px.toFixed(2)},${py.toFixed(2)}`).join(' ');
+  const onsetIndex = onset != null && onset >= 0 ? Math.round((onset / Math.max(values.length - 1, 1)) * span) : null;
+  const last = points[points.length - 1];
 
   return (
     <svg
       role="img"
       aria-label={label ?? `Recent history, peak ${Math.round(peak)}`}
-      viewBox={`0 0 ${width} ${height}`}
+      viewBox={`0 0 ${w} ${height}`}
       preserveAspectRatio="none"
       width="100%"
       height={height}
       className={`block border-t border-rule pt-1 ${className}`}
       style={{ color }}
     >
-      {source.map((v, i) => {
-        const h = Math.max(1, (Math.max(v, 0) / peak) * height);
-        return (
-          <rect
-            key={i}
-            x={i * unit}
-            y={height - h}
-            width={unit - 1}
-            height={h}
-            fill="currentColor"
-            opacity={0.3 + 0.7 * (v / peak)}
+      {source.length > 1 && (
+        <>
+          <path d={`${trace} L${w},${height} L0,${height} Z`} fill="currentColor" opacity={0.09} stroke="none" />
+          <path
+            d={trace}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.25}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
           />
-        );
-      })}
+        </>
+      )}
       {onsetIndex != null && (
         <line
-          x1={onsetIndex * unit}
-          x2={onsetIndex * unit}
+          x1={(onsetIndex / span) * w}
+          x2={(onsetIndex / span) * w}
           y1={0}
           y2={height}
           stroke="var(--stamp)"
           strokeWidth={1}
           strokeDasharray="2 2"
+          vectorEffect="non-scaling-stroke"
+          opacity={0.7}
         />
       )}
+      {/* The newest sample, so the eye lands on now. */}
+      <circle
+        cx={last[0]}
+        cy={last[1]}
+        r={1.8}
+        fill="currentColor"
+        style={{ transformBox: 'fill-box' }}
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 }

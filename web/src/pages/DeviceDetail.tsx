@@ -384,7 +384,7 @@ export function DeviceDetail() {
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-[26px]">{device.name}</h1>
+              <h1 className="ow-display text-[22px]">{device.name}</h1>
               <Stamp tone={device.status === 'online' ? 'online' : device.status === 'alert' ? 'alert' : 'offline'}>
                 {device.status}
               </Stamp>

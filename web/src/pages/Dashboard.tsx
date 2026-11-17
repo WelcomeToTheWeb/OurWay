@@ -125,8 +125,15 @@ export function Dashboard() {
     // nobody restarts anything.
     const rateLimited = /429/.test(error) || limited;
     return (
-      <div role="alert" className="panel border-[var(--error)] p-4">
-        <p className="cap cap-sm text-[var(--error)]">
+      <div
+        role="alert"
+        className="panel p-4"
+        style={{
+          borderColor: 'var(--error)',
+          background: 'color-mix(in srgb, var(--error) 5%, var(--bg-card))',
+        }}
+      >
+        <p className="text-[13px] font-semibold text-[var(--error)]">
           {rateLimited ? t('sheet.rateLimited') : t('sheet.consoleUnavailable')}
         </p>
         <p className="mt-1 text-sm text-text-secondary">
@@ -145,11 +152,11 @@ export function Dashboard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('dashboard.title')}</h1>
-          <p className="cap cap-sm mt-1 text-text-muted">
-            {devices.length} unit{devices.length === 1 ? '' : 's'} ·{' '}
+          <h1 className="ow-display text-[22px]">{t('dashboard.title')}</h1>
+          <p className="mt-1 text-[12.5px] text-text-muted">
+            <span className="ow-num">{devices.length}</span> unit{devices.length === 1 ? '' : 's'} ·{' '}
             {connected ? 'link live' : 'link down — figures from the last refresh'} ·{' '}
-            {new Date().toISOString().slice(11, 16)} UTC
+            <span className="ow-num">{new Date().toISOString().slice(11, 16)}</span> UTC
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -162,7 +169,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Compliance rail: five stamped numerals, each with its recent past */}
+      {/* Fleet headlines: the five figures an operator scans first, each with its recent past */}
       <section aria-label="Fleet headlines" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <FieldBox
           label={t('dashboard.onlineDevices')}
@@ -213,13 +220,16 @@ export function Dashboard() {
         )}
       </section>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_17rem]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-5">
           {/* Needs-attention ledger, with guide words */}
           <section className="panel overflow-hidden" aria-label="Needs attention">
-            <div className="flex items-baseline justify-between gap-3 px-3 py-2">
+            <div className="panel-head">
               <h2 className="cap cap-lg text-text-muted">{t('sheet.needsAttention')}</h2>
-              <Link to="/alerts" className="cap-sm cap text-[var(--service)] hover:underline">
+              <Link
+                to="/alerts"
+                className="cap-sm cap ml-auto text-[var(--service)] no-underline hover:underline"
+              >
                 {t('sheet.alertCentre')}
               </Link>
             </div>
@@ -251,10 +261,11 @@ export function Dashboard() {
                     <tbody>
                       {attention.map(({ device, reasons }) => (
                         <tr key={device.id} data-guide className="text-[13px]">
-                          <td>
+                          <td className="max-w-0">
                             <Link
                               to={`/devices/${device.id}`}
-                              className="font-semibold text-[var(--service)] hover:underline"
+                              title={device.name}
+                              className="inline-block max-w-[9rem] truncate align-bottom font-semibold text-[var(--service)] hover:underline"
                             >
                               {device.name}
                             </Link>
@@ -263,7 +274,7 @@ export function Dashboard() {
                           <td className="text-text-secondary">{reasons.join(' · ')}</td>
                           <td>
                             <Stamp tone={device.status === 'alert' ? 'alert' : device.status === 'offline' ? 'offline' : 'due'}>
-                              {device.status}
+                              {device.status ? device.status[0].toUpperCase() + device.status.slice(1) : device.status}
                             </Stamp>
                           </td>
                           <td className="ow-num text-right text-[11px] text-text-muted">{device.last_seen.slice(11, 16)}</td>
@@ -409,9 +420,9 @@ export function Dashboard() {
                       </span>
                       <span className="ow-num text-[12px] text-text-primary">{count}</span>
                     </div>
-                    <div className="mt-1 h-[6px] border border-rule bg-[var(--field)]">
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--field-alt)]">
                       <div
-                        className="h-full bg-[var(--service)] transition-[width] duration-400 ease-[var(--ease-press)]"
+                        className="h-full rounded-full bg-[var(--service)] transition-[width] duration-150 ease-press"
                         style={{ width: `${(count / devices.length) * 100}%` }}
                       />
                     </div>

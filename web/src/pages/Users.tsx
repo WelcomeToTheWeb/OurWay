@@ -147,7 +147,7 @@ export function Users() {
       )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('users.title')}</h1>
+          <h1 className="ow-display text-[22px]">{t('users.title')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
             {users.length} account{users.length === 1 ? '' : 's'} · roles decide what each console session may do
           </p>

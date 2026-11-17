@@ -5,6 +5,7 @@ import { RoleRoute } from './components/RoleRoute';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
+import { NotFound } from './pages/NotFound';
 
 const Devices = lazy(() => import('./pages/Devices').then((m) => ({ default: m.Devices })));
 const DeviceDetail = lazy(() => import('./pages/DeviceDetail').then((m) => ({ default: m.DeviceDetail })));
@@ -168,11 +169,14 @@ export function App() {
           <Route
             path="settings"
             element={
-              <RoleRoute roles={['admin']}>
-                <Suspense fallback={<RouteFallback />}>
-                  <Settings />
-                </Suspense>
-              </RoleRoute>
+              /* Personal profile, password and preferences belong to every
+                 authenticated operator — `GET/PUT /api/auth/profile` carries no
+                 role requirement server-side, and the admin-only sections inside
+                 Settings already guard themselves. Gating the whole route at
+                 admin locked a technician out of changing their own password. */
+              <Suspense fallback={<RouteFallback />}>
+                <Settings />
+              </Suspense>
             }
           />
           <Route
@@ -205,6 +209,9 @@ export function App() {
               </RoleRoute>
             }
           />
+          {/* Nothing matched. Before this the shell rendered around an empty
+              `<main>`, so a stale bookmark looked like a crashed report. */}
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -232,7 +232,7 @@ export function Thresholds() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('thresholds.title')}</h1>
+          <h1 className="ow-display text-[22px]">{t('thresholds.title')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">{t('thresholds.subtitle')}</p>
         </div>
         <button onClick={openCreate} className="btn-primary">

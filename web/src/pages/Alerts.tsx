@@ -21,6 +21,7 @@ import { filterAlerts, isAlertOpen } from '../utils/alerts';
 import { useFleet } from '../hooks/useFleet';
 import { useClientScope } from '../hooks/useClientScope';
 import { ClientFacet } from '../components/ClientFacet';
+import { FetchError } from '../components/FetchError';
 import { invalidateFleet } from '../stores/fleet';
 
 const severityTone: Record<AlertSeverity, StampTone> = {
@@ -59,7 +60,7 @@ export function Alerts() {
   // polls. The dashboard's alert tile rides along on the same data, and an
   // alert frame over the WebSocket invalidates it, so the numbers on the two
   // surfaces move together (2.2-4).
-  const { data: alerts, loading } = useFleet('alerts', { owner: true });
+  const { data: alerts, loading, error, refresh } = useFleet('alerts', { owner: true });
   // The tenant facet (2.3-5): an alert names a device, so the tenant filter is
   // a lookup on that tenant's unit set, over the collection already on screen.
   const scope = useClientScope();
@@ -182,9 +183,9 @@ export function Alerts() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('alerts.title')}</h1>
+          <h1 className="ow-display text-[22px]">{t('alerts.title')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
-            {openCount} open · {filtered.length} on the sheet · {alerts.length} in the ledger
+            {error ? t('alerts.countUnavailable') : `${openCount} open · ${filtered.length} on the sheet · ${alerts.length} in the ledger`}
           </p>
         </div>
         <span className="flex items-center gap-2">
@@ -219,15 +220,19 @@ export function Alerts() {
             type="button"
             onClick={() => setStatusFilter(chip.status)}
             aria-pressed={statusFilter === chip.status && chip.status !== 'all'}
-            className={`btn ${statusFilter === chip.status && chip.status !== 'all' ? 'btn-primary' : 'btn-quiet'} px-2 py-1 text-[12px]`}
+            className={`btn ${statusFilter === chip.status && chip.status !== 'all' ? 'btn-primary' : ''} px-2 py-1 text-[12px]`}
             title={chip.title}
           >
-            <span className="ow-num">{chip.count}</span> {chip.label}
+            {error ? chip.label : <><span className="ow-num">{chip.count}</span> {chip.label}</>}
           </button>
         ))}
-        <span className="cap cap-sm text-text-muted">
-          of {searchFiltered.length} matching · {alerts.length} in the ledger
-        </span>
+        {/* With no ledger there is no population to count, and a chip reading
+            "0 Open" is the most dangerous sentence in the console. */}
+        {!error && (
+          <span className="cap cap-sm text-text-muted">
+            of {searchFiltered.length} matching · {alerts.length} in the ledger
+          </span>
+        )}
       </div>
 
       <div className="panel flex flex-col gap-2 px-3 py-2.5 md:flex-row md:items-center">
@@ -279,7 +284,9 @@ export function Alerts() {
         </div>
       )}
 
-      {!loading && filtered.length === 0 && (
+      {error && <FetchError detail={error} onRetry={refresh} />}
+
+      {!loading && !error && filtered.length === 0 && (
         <div className="panel flex flex-col items-center gap-2 px-6 py-14 text-center">
           <span className="flex h-14 w-14 items-center justify-center border border-rule">
             <Bell className="h-6 w-6 text-text-muted" aria-hidden="true" />
@@ -329,14 +336,14 @@ export function Alerts() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       {alert.acknowledged && (
                         <Stamp tone="service" title="Acknowledged by somebody">
                           {t('alerts.acknowledged')}
                         </Stamp>
                       )}
                       {alert.assigned_to && (
-                        <Stamp tone="neutral" title="Assigned owner">
+                        <Stamp tone="neutral" title={`Assigned owner: ${alert.assigned_to}`} className="max-w-[10rem] overflow-hidden text-ellipsis">
                           {alert.assigned_to}
                         </Stamp>
                       )}
@@ -403,7 +410,7 @@ export function Alerts() {
                         <button
                           type="button"
                           onClick={() => handleResolve(alert.id)}
-                          className="btn btn-primary px-2 py-1 text-[11px]"
+                          className="btn px-2 py-1 text-[11px] text-service"
                           title={t('alerts.resolve')}
                         >
                           <Check className="h-3.5 w-3.5" aria-hidden="true" />

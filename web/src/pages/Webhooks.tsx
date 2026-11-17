@@ -275,7 +275,7 @@ export function Webhooks() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('channels.title')}</h1>
+          <h1 className="ow-display text-[22px]">{t('channels.title')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">{t('channels.subtitle')}</p>
         </div>
         <button onClick={showForm ? () => setShowForm(false) : openCreate} className="btn-primary">
@@ -494,7 +494,7 @@ export function Webhooks() {
             first={channels[guide.first]?.name}
             last={channels[guide.last]?.name}
           />
-          <div ref={guide.ref} className="max-h-[30rem] overflow-y-auto">
+          <div ref={guide.ref} className="max-h-[30rem] overflow-y-auto overflow-x-auto">
             <table className="ledger">
               <thead>
                 <tr>

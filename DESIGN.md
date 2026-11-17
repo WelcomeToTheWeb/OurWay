@@ -1,153 +1,212 @@
 # OurWay Console — Design Contract
 
-Direction: **The Fleet Service Decal Sheet** (Impeccable Operate, code-led, seed `f54a5861c7ddb02a`).
-Scope: the whole web console — shell, monitoring, management, administration.
+Direction: **canon** — the category standard, chosen by the owner as the standing exit from a
+rolled hand of seven derived worlds (Impeccable Operate, code-led, seed `e4d24b3c9d1222e5`).
+Rewritten 2026-11-16 against the built console. This replaces the previous contract, which
+described a letterpress "service decal sheet" world (Archivo Narrow, cream plates, stamped ink,
+2px radii) that no longer exists in the codebase.
+Scope: the whole web console — shell, monitoring, management, administration (15 routes).
+
+Craft bar, in the owner's words: **NinjaOne / Atera / JumpCloud** for convention, **Grafana +
+Stripe Dashboard** for information design and table/form discipline, **Linear + Vercel** for
+interaction polish. The ambition of this world is not novelty; it is that nothing in it is rough.
 
 ---
 
 ## 1. Thesis
 
-Every device in this product is a **serviced unit with a stamped record**: last done, next
-due, interval, signed off. The console is the shop's service sheet, not a dashboard of
-gauges. That single idea decides what a screen is for, how dense it may be, and what a
-state looks like.
+The console is the RMM console an operator already knows. Its idea is **finish as the
+differentiator** — conventions embraced completely, executed above the level the peers reach.
+What needs the operator is on the first screen, grouped and ranked; scope and sign-in are always
+stated; every row can be acted on without leaving it.
 
-The category default it replaces was: four rounded stat cards, a device grid of coloured
-dots, a blue accent, and a page of generic cards. Nothing from the incumbent look was
-preserved by obligation; the product's facts were.
+The category default it refuses: four rounded stat cards, a device grid of coloured dots, a blue
+accent doing decorative work, and pages of generic cards.
 
 ## 2. The world
 
-| Role | Day | Night | Notes |
+Day is the reference; night is the same system at night luminance, not a second design. Values
+are `web/src/index.css` — `:root` and `.dark`. If this table and the CSS disagree, the CSS is
+right and this file is a bug.
+
+| Role | Day | Night | Token |
 |---|---|---|---|
-| Ground (label stock / graphite) | `#EFE7CB` | `#16181C` | `--bg-primary` |
-| Sheet (a raised panel) | `#F5EFDD` | `#1D2026` | `--bg-card`, no shadow |
-| Ink (nav rail, primary button) | `#1A1A17` | `#E8E4D8` | `--ink`, `--ink-plate` |
-| Text | `#1A1A17` | `#E8E4D8` | `--text-primary` |
-| Rule (hairline) | `#C9BE9C` | `#33373F` | `--rule`, `--rule-strong` |
-| Field (ruled box fill) | `#E7DFC6` | `#22262D` | `--field` |
-| Stamp red (destructive, breach) | `#C8102E` | `#EF6A61` | `--stamp` |
-| Service blue (acting, links) | `#1B4F9C` | `#7FB2E5` | `--service` |
-| Due amber (scheduled, pending) | `#E0A200` | `#E0A200` | `--due` |
-| Online / offline / warning / error | green / grey / amber / red inks | same, brighter | `--online`, `--offline`, `--warning`, `--error` |
+| Canvas | `#f6f8fa` | `#0e1319` | `--bg-primary` |
+| Sheet / panel | `#ffffff` | `#161d26` | `--bg-card` |
+| Hairline rule | `#e3e8ee` | `#262f3b` | `--rule`, `--border` |
+| Strong rule (inputs, switch track) | `#cbd5e1` | `#384454` | `--rule-strong` |
+| Text — primary | `#0f172a` | `#e6edf3` | `--text-primary` |
+| Text — secondary | `#475569` | `#9fabba` | `--text-secondary` |
+| Text — caption/muted | `#5b6678` | `#8793a3` | `--text-muted` |
+| Nav rail (the one committed field) | `#101725` | `#0a0f16` | `--rail-bg` |
+| Rail text / muted | `#d7dfe9` / `#7d8da0` | same | `--rail-text*` |
+| Rail active item | `#e6edf3` on `#0f172a` text | same | `--rail-active-*` |
+| Action accent (chrome, rings, links) | `#2563eb` | `#4c8dff` | `--accent`, `--focus` |
+| Service blue (primary actions) | `#1d4ed8` | `#5593ff` | `--service` |
+| Error / stamp | `#b91c1c` | `#f36367` | `--error`, `--stamp` |
+| Due / warning | `#92400e` | `#d99a2b` | `--due`, `--warning` |
+| Online | `#166534` | `#3fb96f` | `--online` |
+| Offline | `#94a3b8` | `#8b98a8` | `--offline` |
+| Field fill | `#f8fafc` | `#111820` | `--field` |
+| Row hover / selected | `rgba(15,23,42,.035)` / `rgba(37,99,235,.06)` | `rgba(230,237,243,.045)` / blue wash | `--row-*` |
 
-Rules of the world, non-negotiable:
+Non-negotiable rules of the world:
 
-- **No faux paper.** No textures, no gradients-as-paper, no drop shadows. Depth comes from
-  hairline rules and field fills only.
-- **A state is a stamp, never a dot.** Status is typeset in a bordered, small-caps stamp
-  (`Stamp`, `StatusBadge`, `LinkStamp`); severity, compliance, sign-off and link state all
-  read as stamps.
-- **Numerals are tabular** (JetBrains Mono) everywhere a number is scanned: counts,
-  percentages, bytes, windows, durations, timestamps.
-- **Captions are condensed small caps** (Archivo Narrow) with `0.09em` tracking, used for
-  field labels, table heads, units, and secondary copy.
-- **Times are stated in 24-hour UTC or ISO dates.** No `toLocaleString()` in a ledger.
-- Corners are 2–4px (letterpress), never pill-shaped controls.
+- **State colour is semantic only.** Red, amber, green and their pills mean a device or job
+  state. They never decorate, never tint a card border, never mean "important".
+- **One field of colour.** The nav rail is the only committed dark mass in day mode. Nothing
+  else in the content column gets a coloured background except a selected row, a stamp wash,
+  and a primary button.
+- **Depth is one soft offset elevation** (`--elev-1/2/3`). No zero-blur block shadows, no glass,
+  no blur decoration, no gradients-as-structure.
+- **No coloured border-left above 1px** on any card or row. The 2px tab underline on the active
+  rail item is the single accepted place a coloured edge appears.
+- **Contrast floor.** Text clears 4.5:1 (3:1 at ≥24px). A stamp paints 12% of its own colour
+  behind that same colour, so **every status ink is scored against its own wash**, not against
+  the bare card. Light inks that passed on white failed there; the day values above are the
+  result. Verified by `.impeccable/tmp/audit.mjs` across every route × theme.
 
-## 3. Type
+## 3. Typography
 
-| Use | Face | Where |
-|---|---|---|
-| Body | Barlow 400/600 | prose, buttons, form text |
-| Captions | Archivo Narrow 500/600, small caps | labels, heads, stamps, guide words |
-| Numerals | JetBrains Mono (tabular) | every figure, ledger columns, charts |
-| Display | Barlow 700 (tight) | page titles (26px) |
+- **Public Sans** everywhere, self-hosted (`web/src/assets/fonts/`), no CDN.
+- **Overpass Mono**, self-hosted, only for data: identifiers, IPs, URLs, token prefixes, JSON,
+  durations, timestamps. Never for prose, never for a heading.
+- Numerals are tabular (`--ow-num`, `font-variant-numeric: tabular-nums`) on every scanned
+  number: counts, percentages, bytes, windows, durations, timestamps.
+- Page title: `ow-display text-[22px]` — one weight, tight tracking. Section heads are `panel-head`
+  small caps at 11px with modest tracking. Body copy 13px; captions 11–12px.
+- No kicker/eyebrow line above a heading. No all-caps sentences.
 
-Self-hosted WOFF2 in `web/src/assets/fonts/` (`fonts.css`), latin + latin-ext subsets,
-loaded from Google Fonts; all three faces are SIL Open Font License 1.1. No remote font
-requests at runtime — the console is usually on a LAN with no internet.
+## 4. Geometry, density, motion
 
-## 4. Shell
+- Radii: 4 / 6 / 8px (`--radius-sm/-/--radius-lg`). Pills are 999px. Nothing rounder.
+- Density is **fixed**, not user-selectable — no comfortable/compact switch ships. Row heights
+  32–40px in ledgers, 32px minimum on every control.
+- Rail 240px, top bar 64px, content padding 16px; panels stack on a 16px rhythm.
+- One curve, one length: `--ease-press: cubic-bezier(.2,0,0,1)`, `--motion: .15s`, applied to an
+  already-visible element. The one authored motion moment is the live link's pulse in the top
+  bar; everything else transitions at or below this budget. `prefers-reduced-motion` respected.
 
-- **Ink nav rail** (`Sidebar.tsx`): brand plate, three caption groups — Monitor, Manage,
-  Admin — role-filtered rows, keyboard hints printed on the row (`g h`, `g d`, …), and the
-  DAY / NIGHT / AUTO light control at the foot.
-- **Shift bar** (`Layout.tsx`): what a technician on shift needs before any figure — global
-  fleet search, next maintenance window as a stamped field (policy-derived, `nextWindow`),
-  UTC clock, link state (`LinkStamp`), rate-limit stamp when polling rests, signed-in
-  operator and role, sign out.
-- Keyboard: `g` + letter navigation, `/` to search (see `useKeyboardShortcuts`).
+## 5. Component inventory
 
-## 5. Sheet anatomy
+| Component | Contract |
+|---|---|
+| `.panel` / `.panel-head` | White sheet, hairline rule, 6px radius, `--elev-1`. Head is a bordered strip with the title left, controls right. |
+| `table.ledger` | The workhorse. 11px small-caps heads, 13px rows, hairline row rules, `--row-hover`, right-aligned numerals. Wide ledgers sit in a wrapper with `overflow-y-auto overflow-x-auto` **and** the truncating cell gets `max-w-0`, or an auto-layout table's intrinsic width escapes the scroller and pushes the whole page sideways. |
+| `.stamp` | State, never a dot. 12% wash of its own ink, 999px radius, 11px caps. Tone via `text-[var(--token)]`. |
+| `.btn`, `.btn-primary`, `.btn-quiet` | One shared base so a lone `btn-primary` is never unstyled. Primary = `--service` fill; quiet = transparent until hover. **`.btn-quiet` is declared before `.btn-primary` on purpose**: a control carrying both (a filter chip that is quiet until active) must read as primary, and dark-theme primary ink on a transparent field would be invisible. |
+| `.segmented` / `.segmented-item` | One recessed `--field-alt` track, `2px` padding, the active segment raised as a `--bg-card` chip with `--elev-1`. State comes from `aria-pressed` alone — no conditional classes at the call site. On the rail, add `.segmented--rail`, which swaps to `--rail-bg-raised` / `--rail-active-bg`. Used by the device view switch and the theme switch. |
+| `.switch` | `role="switch"` + `aria-checked`, 2.25rem × 1.25rem, `--rule-strong` track, 14px white knob with a real shadow, track turns `--service` from its own accessible state — never from a Tailwind arbitrary-value opacity, which silently emits nothing. **A switch is an instant-apply setting; a checkbox is a form value committed by Save, or a row selection.** Those are different decisions and the console keeps them visually distinct. |
+| Nav rail / drawer | Static from `lg` up. Below `lg` the same element is a dialog: `role="dialog"`, `aria-modal`, `aria-label`, Escape closes it, focus moves in and returns to the trigger, navigating closes it, and a closed drawer is `visibility: hidden` so it leaves the tab order and the accessibility tree without snapping the slide. |
+| Tabs | `role="tablist"` with roving `tabIndex`, Arrow/Home/End travel, `aria-selected`, and a `role="tabpanel"` that names its tab back via `aria-labelledby`. The 2px underline is the only coloured edge a tab may wear. |
+| `MicroField` | Line + area sparkline (100-unit viewBox, non-scaling stroke, 9% area, dashed onset line, dot on the newest sample). It shows recent history behind a summary figure; it is not decoration. |
+| Filter chips | Bordered `btn`, not `btn-quiet` — a count you can click is a control and must look like one. Active = primary. |
+| Rail | Grouped nav with counts, operator identity at the foot, 2px active tab underline. |
+| Top bar | Search, scope, next maintenance window, UTC clock, live link, operator. Cluster gaps collapse at `md`/`xl`; labels carry `shrink-0 whitespace-nowrap` so nothing wraps or overflows at 1440. |
 
-| Region | Component | Rule |
-|---|---|---|
-| Headline figures | `FieldBox` + `MicroField` | ≤6 ruled fields, each with a session history strip |
-| Triage list | `table.ledger` + `GuideWordsHead` | long lists carry a guide-word head naming first/last row in view |
-| Device grid | `DeviceCard` (decal) | identity line, stamp, tag decals, `ServiceRecord` (last / next / interval) |
-| Unit record | `DeviceDetail` | decal header, `ServiceRecord`, ruled fields, ruled `Gauge`s, charts, ISO times |
-| Sign-off list | `Alerts` | signal · sign-off · actions; "NOBODY ON IT" is a printed state |
-| Admin lists | `Users`, `Webhooks`, `SSO`, `PatchPolicies`, `FileTransfer`, `Patches` | same ledger, stamps, `.btn` family |
+## 6. Copy
 
-Density rules: 13–14px body in ledgers, 11px captions, 26px page titles, 12px tabular
-figures; 4px rhythm inside a sheet, 16px between sheets; tables scroll inside their panel
-with the guide-word head pinned above.
+**Copy is fixed content for this redesign.** User-visible strings, i18n keys (en/de/fr in
+lockstep), `data-*` attributes and DOM order are load-bearing: ~200 assertions depend on them,
+and `table.ledger` / `div.field` are live test selectors. Additive accessibility attributes
+(`aria-label`, `role`, `aria-checked`, `title`) are fixes, not copy changes. Data-derived labels
+(API enums such as `alert` → `Alert`) are formatted at render, never re-authored.
 
-## 6. Buttons and controls
+## 7. Accessibility floor
 
-`.btn` (field fill + hairline), `.btn-primary` (ink plate, bone text), `.btn-quiet`
-(borderless, for row actions), `.input`, `.select`. Destructive actions are stamp-red text
-with a confirm; "Delete" is never a filled block. Focus rings are stamp-red 2px outlines,
-`outline-offset: 2px`; selection, caret and scrollbars are themed.
+4.5:1 text (measured, not assumed — see §2). Every control has an accessible name. Switches
+report state. Focus is a visible ring on `--focus` everywhere, including the rail. Theme choice
+applies to every surface the app renders. Virtualised grids stay keyboard- and screen-reader
+navigable. Anything that behaves like a dialog must say so and behave so: `role="dialog"`,
+`aria-modal`, a label, Escape to dismiss, focus in on open and back to the trigger on close —
+the confirm sheet and the mobile nav drawer are the two reference cases, both verified in a
+browser rather than by reading the markup.
 
-## 7. Motion
+## 8. Truncation is a decision, not an accident
 
-One curve, one length: `cubic-bezier(0.34, 1.56, 0.64, 1)` at 400ms (the press of a stamp).
-`ow-rise` for a sheet entering, `ow-stamp` for a stamp landing. No looping animation, no
-parallax, no scroll-driven storytelling. All motion is killed under
-`prefers-reduced-motion`.
+Device cards and dense rows clip to their fixed heights (`Linux · amd64 · nwl-srv-01`,
+`weekly · 01:30–04:30 America/New_York`). Each clipped element carries a `title` with the full
+value. This matches the density of the named peers; it is deliberate and the automated audit
+lists it as accepted rather than silently failing it.
 
-## 8. State legibility (the operating contract)
+## 9. Failure is a state; zero is a claim
 
-Every screen states: the link (live / down / rate-limited), who is signed in, the UTC clock,
-and the next window. Data states are named, not decorative:
+The console answers questions about a fleet it cannot always reach. A figure is a claim about
+the world, so when the read failed the figure must not be printed. `0 open alerts` and `could
+not read the alert ledger` are opposite sentences; this build previously showed the first.
 
-- `CONSOLE DATA UNAVAILABLE` — with the server's message and a Refresh control.
-- `RATE LIMIT REACHED` — the server allows 100 requests/min/user with a burst of 10; the
-  console shows a countdown in the shift bar, pauses every poll (`isRateLimited`), and says
-  the sheet will refill itself.
-- `NOBODY ON IT` — an unassigned alert.
-- `waits for link`, `not scanned`, `never` — a record that has no data says so.
+- **Never render a count that could not be obtained.** Titles, captions and chips drop the
+  number when their read failed (`devices.countUnavailable`, `alerts.countUnavailable`,
+  `common.countUnavailable`). The control stays clickable; the claim goes away.
+- **Two error weights, not one.** A surface that could not load renders `FetchError`: a panel in
+  `--error` ink naming the failure, the transport's own sentence kept as secondary text (it is
+  the line an operator reads aloud to whoever owns the server), and a Retry that provably
+  re-issues the request. A single field failing inside a working view keeps the small `cap`
+  stamp it has always used.
+- **The store does not lie on a collector's behalf.** `collectors` in `stores/fleet.ts` used to
+  end alerts, sessions and recordings with `.catch(() => [])`, which turned a 500 into an empty
+  but successful-looking read. Genuinely optional collections may still fall back; the three an
+  operator reads as a safety signal do not.
+- **A gate explains itself.** `RoleRoute` bounced the operator to the dashboard in silence. It
+  now names the missing roles in their server spelling and leaves the address in the bar,
+  because that address is the thing they hand to an administrator. `/settings` is not
+  role-gated at all: profile, password and preferences belong to every authenticated operator
+  (`GET/PUT /api/auth/profile` carries no role), and the admin sections inside guard themselves.
+- **An unknown address is a page.** `<Route path="*">` renders `NotFound`. A shell around an
+  empty `<main>` made a stale bookmark indistinguishable from a crashed report.
+- **The shift bar yields in order.** The identity cluster is `shrink-0`; the widest instrument —
+  the next maintenance window — truncates with its full policy in the `title`. When the bar runs
+  out of room it is the window label that gives, never the way out of the console.
 
-History strips are honest: they cover the console session, and the caption on the dashboard
-says exactly that.
+## 10. Debt, stated plainly
 
-## 9. Scale
+- **Rate-limit-aware polling is still per-page.** Not a visual concern, unchanged by this pass.
+- No comfortable/compact density switch ships (§4). The rail's counts are static per fetch.
+- **`text-[var(--token)]` appears inline in 27 files (~130 sites) where a Tailwind colour
+  utility already exists.** Visually identical and token-backed, so this pass deliberately did
+  not churn ~130 call sites for an invisible gain; a follow-up should migrate them to
+  `text-service`, `text-error`, and friends so the utilities are the only spelling.
+- `panel-head` adoption is not yet uniform across the administrative pages, and filter-row
+  rhythm varies by a step or two between pages. Segmented controls and the tab pattern now ship
+  as primitives (§5); the residual work is applying them everywhere the role recurs.
+- Hardcoded English `aria-label` strings (the shift bar's menu button, the session viewer) sit
+  outside `t(...)`, so screen-reader copy is not localised even though visible copy is. Recorded,
+  not fixed here, because adding keys means writing the `de` and `fr` text with someone who
+  reads them.
+- The audit's accepted truncation list (§8) is the only remaining clipped finding, and
+  `webhooks` reports one `wider`: the delivery ledger is wider than its column on purpose and
+  scrolls inside a bordered box, so the State column is reachable. Every contrast,
+  unnamed-control, raw-locale-key, mono-prose and document-overflow finding is at zero across
+  all 35 route × theme checks.
+- **Only four surfaces speak `FetchError`.** Devices, Alerts, Sessions and Recordings state a
+  failed load properly. Audit, Clients, Files, Thresholds, Users, Webhooks and the patch views
+  still print transport text — some in a header stamp, some as a floating line — and none offer
+  the retry. Adopting `FetchError` there is mechanical: pass the message as `detail` and the
+  page's reload as `onRetry`, and make sure the empty state does not also render.
+- **A few counts are still printed from an empty collection** on pages whose read failed but
+  which never asked the store for its `error` (the sessions ledger's dashboard neighbour). The
+  store exposes it; the page has to use it.
 
-- Device grid virtualises past 20 units (`react-window`).
-- Requests are queued 4-at-a-time for reads (`api/client.ts`), so a sheet with eight panels
-  paints fully instead of burning the server's burst and returning 429 panels.
-- Polls respect the rate-limit back-off (`isRateLimited` in every `setInterval`), and unit
-  pages seed a day of recorded history from the server before live samples arrive.
-- Guide words make a thousand-unit list navigable: the head names the first and last unit
-  in view, recomputed on scroll.
+## 11. How to verify a change to this world
 
-## 10. i18n
+```
+node .impeccable/harness/gen-fixtures.mjs     # stubbed /api/* + /ws fixtures
+node .impeccable/harness/server.mjs           # serves web/dist on http://127.0.0.1:4173
+node .impeccable/tmp/audit.mjs                # all routes × light/dark → .impeccable/audit-report.md
+node .impeccable/tmp/shoot.mjs                # 43 captures into .impeccable/shots/
+```
 
-`en`, `de`, `fr` are updated in lockstep (`web/src/i18n/locales/{en,de,fr}.json`); the
-redesign's new copy lives under `record.*` and `sheet.*`. Remaining English literals are
-concentrated in the admin surfaces (`Settings`, `PatchPolicies` form help, session/transfer
-descriptive lines) — carried over from the incumbent console, tracked as debt, not as new
-regressions.
+The failure conditions in §9 are manufactured, not imagined:
 
-## 11. Provenance
+```
+node .impeccable/harness/mutate.mjs --empty   # every list the console reads, emptied
+node .impeccable/harness/mutate.mjs --stress  # 1,200 units, 200 alerts, and names that are
+                                              # long, accented, emoji, CJK and RTL
+$env:OURWAY_HARNESS_FIXTURES=...; $env:OURWAY_HARNESS_PORT=4181; node .impeccable/harness/server.mjs
+node .impeccable/tmp/harden.mjs               # 500/403/401/slow/no-data/hostile-data/roles
+```
 
-- Fonts: Barlow, Archivo Narrow, JetBrains Mono — Google Fonts, OFL 1.1, downloaded as
-  WOFF2 subsets into `web/src/assets/fonts/` (self-hosted, listed in `fonts.css`).
-- Icons: Lucide (ISC). Charts: Recharts (MIT). No raster images ship in the console; every
-  figure is CSS/SVG, so there is nothing unattributed to prove.
-- `web/.impeccable/review/*.png` are **review screenshots taken against synthetic fixture
-  data** seeded into a throwaway PostgreSQL, not product claims; the seed SQL is not part of
-  the repo.
-
-## 12. Open debts
-
-1. Rate-limit-aware polling is per-page; a shared fleet store (one poll for all sheets) is
-   the next step and would remove most of the request pressure.
-2. Alerts are polled per page, not shared; `GET /devices` carries alert state, so the
-   dashboard's "flagged" count is a proxy for the alert ledger's "open" count.
-3. Admin surfaces (`Settings` in particular) carry more hardcoded English than the
-   monitoring surfaces.
-4. History micro-fields show "no history" as an empty ruled slot; a stated `no samples yet`
-   caption would read better at 390px.
+Plus, from `web/`: `tsc --noEmit -p tsconfig.json`, `vitest run`, `vite build`. The repo's CI
+gate (`npm ci`, `npm run build`, `scripts/coverage.sh`, `python3 scripts/i18n-parity.py`) was
+not fully runnable in this environment — no npm and no python3 — so parity holds only because
+no copy was changed; run the real gate before merging.

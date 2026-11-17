@@ -184,7 +184,7 @@ export function PatchPolicies() {
       <div>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-[26px]">{t('patchPolicies.title')}</h1>
+            <h1 className="ow-display text-[22px]">{t('patchPolicies.title')}</h1>
             <p className="text-sm text-text-secondary">
               {t('patchPolicies.activePolicies', { count: policies.length })}
             </p>
