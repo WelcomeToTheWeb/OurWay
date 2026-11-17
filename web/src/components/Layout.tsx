@@ -168,7 +168,7 @@ export function Layout() {
             <Menu className="h-5 w-5" />
           </button>
 
-          <form onSubmit={submitSearch} className="relative w-full max-w-[12rem] shrink lg:max-w-[13rem] xl:max-w-[18rem] 2xl:max-w-[20rem]" role="search">
+          <form onSubmit={submitSearch} className="relative w-full max-w-[12rem] shrink lg:max-w-[13rem] xl:max-w-[16rem] 2xl:max-w-[20rem]" role="search">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
             <input
               type="search"
@@ -186,11 +186,14 @@ export function Layout() {
                 instruments give — in the order their breakpoints shed them —
                 and the operator's own name and the sign-out never do. */}
             <div className="hidden min-w-0 items-center gap-2.5 overflow-hidden md:flex md:gap-3.5">
-            {/* The window instrument is a wide one. It appears only where it can
-                say the whole window; below that the bar carries UTC, the link,
-                the operator and the way out, and the window lives on the
-                dashboard and the policy pages instead. */}
-            <span className="hidden min-w-0 items-center gap-2 xl:flex">
+            {/* The window instrument is the widest one on the bar, so it is the
+                instrument that yields: it appears only at `2xl`, where it can
+                say the whole window. It is never the only place the answer
+                exists — the dashboard and the patch-policy pages both name the
+                next window — but the server version and the request budget are
+                promised to the operator wherever the bar can hold them, so
+                those appear a whole breakpoint earlier. */}
+            <span className="hidden min-w-0 items-center gap-2 2xl:flex">
               <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">Next window</span>
               {upcoming ? (
                 <Stamp
@@ -217,7 +220,7 @@ export function Layout() {
             </span>
 
             <span
-              className="hidden 2xl:flex items-baseline gap-2"
+              className="hidden xl:flex items-baseline gap-2"
               title={t('layout.versionTitle', {
                 server: serverVersion?.version || 'dev',
                 commit: serverVersion?.git_commit || 'dev',
@@ -251,7 +254,7 @@ export function Layout() {
 
             {typeof serverVersion?.rate_limit_per_minute === 'number' && (
               <span
-                className="hidden 2xl:flex items-baseline gap-2"
+                className="hidden xl:flex items-baseline gap-2"
                 title={t('layout.rateBudgetTitle', {
                   perMinute: serverVersion.rate_limit_per_minute,
                   burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,

@@ -138,13 +138,18 @@ reach a column a box could have scrolled.
 - The audit therefore holds **zero** rather than carrying a list of accepted exceptions: it counts a
   titled ellipsis as announced, and it ignores content inside a horizontal scroller, because that
   content is reachable by design.
-- **The shift bar sheds in a stated order.** Identity and the way out never yield. The link
-  indicator holds from `md` — it is the truth about whether the figures on screen are live. Tenant
-  scope appears at `lg`, the UTC clock from `sm`, the next maintenance window only from `xl`
-  because below that it cannot say the whole window, and server version and rate budget are `2xl`
-  instruments. The instruments sit in one shrinkable box, so if everything that can be shed is
-  gone, the last thing clipped is a figure whose full text is in its `title` — never the operator's
-  own name. Measured at 1440 / 1280 / 1024 / 768 / 390.
+- **The shift bar sheds in a stated order.** Identity and the way out never yield. Below them the
+  order is: UTC clock from `sm`; the link indicator from `md`, because it is the truth about whether
+  the figures on screen are live; tenant scope at `lg`; the server version and the per-user request
+  budget from `xl`; and the next maintenance window only at `2xl` — it is the widest instrument and
+  below that it cannot say the whole window. That last one is a real trade, not a free win: the
+  version and the budget are what the console's own end-to-end suite promises an operator at
+  1280×720, and the first cut of this order hid them there and failed that suite. The window is not
+  lost information — the dashboard and the patch-policy pages both name it.
+  The instruments sit in one shrinkable box, so if everything that can be shed is gone, the last
+  thing clipped is a figure whose full text is in its `title` — never the operator's own name.
+  Measured, not estimated, at 1600 / 1536 / 1440 / 1280 / 1024 / 768 / 390 (§11): at every one the
+  instrument box's `scrollWidth` equals its `clientWidth`.
 
 ## 9. Failure is a state; zero is a claim
 
@@ -223,6 +228,18 @@ node .impeccable/tmp/audit.mjs
 
 `SHOTS=1` writes `shots/width-<w>-<theme>-<route>.png`. Read the report, not only the totals: the
 element path and the pixel overhang are what say whether a finding is yours.
+
+The instrument box gets its own measurement, because a page-level audit cannot see an instrument
+box that is quietly eating a chip:
+
+```
+node .impeccable/tmp/bar.mjs   # per width: search width, each instrument's px, px cut, and the
+                               # version / budget / N-per-min assertions e2e/auth.spec.ts makes
+```
+
+The end-to-end suite runs at Playwright's default viewport, 1280×720, which is narrower than the
+size this world was drawn at. `e2e/auth.spec.ts` asserts the server version and the request budget
+are visible there, so that width is part of the contract, not a fallback.
 
 The failure conditions in §9 are manufactured, not imagined:
 
