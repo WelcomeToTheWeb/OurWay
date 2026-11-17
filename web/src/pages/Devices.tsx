@@ -418,7 +418,7 @@ export function Devices() {
             first={filtered[guide.first]?.name}
             last={filtered[guide.last]?.name}
           />
-          <div ref={guide.ref} className="max-h-[36rem] overflow-y-auto">
+          <div ref={guide.ref} className="max-h-[36rem] overflow-y-auto ledger-scroll">
             <table className="ledger">
               <thead>
                 <tr>

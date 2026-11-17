@@ -92,7 +92,8 @@ Non-negotiable rules of the world:
 | Component | Contract |
 |---|---|
 | `.panel` / `.panel-head` | White sheet, hairline rule, 6px radius, `--elev-1`. Head is a bordered strip with the title left, controls right. |
-| `table.ledger` | The workhorse. 11px small-caps heads, 13px rows, hairline row rules, `--row-hover`, right-aligned numerals. Wide ledgers sit in a wrapper with `overflow-y-auto overflow-x-auto` **and** the truncating cell gets `max-w-0`, or an auto-layout table's intrinsic width escapes the scroller and pushes the whole page sideways. |
+| `table.ledger` | The workhorse. 11px small-caps heads, 13px rows, hairline row rules, `--row-hover`, right-aligned numerals. |
+| `.ledger-scroll` | The box a ledger scrolls inside when its columns outnumber the viewport. `position: relative` is load-bearing, not decoration: without it Chromium propagates a scroll container's scrollable overflow to the viewport, and the whole page pans sideways so the same column is reachable two ways at once — measured on `/sso` and `/thresholds`, where the document panned 541px at 390 and 155px at 1024. Apply it to the element that holds the table (a panel that only existed to clip may wear it instead of `overflow-hidden`). |
 | `.stamp` | State, never a dot. 12% wash of its own ink, 999px radius, 11px caps. Tone via `text-[var(--token)]`. |
 | `.btn`, `.btn-primary`, `.btn-quiet` | One shared base so a lone `btn-primary` is never unstyled. Primary = `--service` fill; quiet = transparent until hover. **`.btn-quiet` is declared before `.btn-primary` on purpose**: a control carrying both (a filter chip that is quiet until active) must read as primary, and dark-theme primary ink on a transparent field would be invisible. |
 | `.segmented` / `.segmented-item` | One recessed `--field-alt` track, `2px` padding, the active segment raised as a `--bg-card` chip with `--elev-1`. State comes from `aria-pressed` alone — no conditional classes at the call site. On the rail, add `.segmented--rail`, which swaps to `--rail-bg-raised` / `--rail-active-bg`. Used by the device view switch and the theme switch. |
@@ -102,7 +103,7 @@ Non-negotiable rules of the world:
 | `MicroField` | Line + area sparkline (100-unit viewBox, non-scaling stroke, 9% area, dashed onset line, dot on the newest sample). It shows recent history behind a summary figure; it is not decoration. |
 | Filter chips | Bordered `btn`, not `btn-quiet` — a count you can click is a control and must look like one. Active = primary. |
 | Rail | Grouped nav with counts, operator identity at the foot, 2px active tab underline. |
-| Top bar | Search, scope, next maintenance window, UTC clock, live link, operator. Cluster gaps collapse at `md`/`xl`; labels carry `shrink-0 whitespace-nowrap` so nothing wraps or overflows at 1440. |
+| Top bar | Search, scope, next maintenance window, UTC clock, live link, operator. **It sheds in a stated order rather than overflowing** — see §8. Cluster gaps collapse at `md`/`xl`; instrument labels carry `shrink-0 whitespace-nowrap` so nothing wraps mid-word. |
 
 ## 6. Copy
 
@@ -124,10 +125,26 @@ browser rather than by reading the markup.
 
 ## 8. Truncation is a decision, not an accident
 
-Device cards and dense rows clip to their fixed heights (`Linux · amd64 · nwl-srv-01`,
-`weekly · 01:30–04:30 America/New_York`). Each clipped element carries a `title` with the full
-value. This matches the density of the named peers; it is deliberate and the automated audit
-lists it as accepted rather than silently failing it.
+There are two honest outcomes and no third. A value that cannot fit is either **announced** — cut
+with an ellipsis and the full text in the element's `title` — or made **reachable** by a scroller.
+A value cut off with no ellipsis and no title is a defect, and so is a page that pans sideways to
+reach a column a box could have scrolled.
+
+- Device cards, the `In view … → …` guide bar and dense rows clip with a `title` carrying the full
+  value (`Linux · amd64 · nwl-srv-01`, `weekly · 01:30–04:30 America/New_York`). This matches the
+  density of the named peers.
+- A ledger wider than its column scrolls inside `.ledger-scroll` (§5). Columns stay reachable; the
+  document does not grow.
+- The audit therefore holds **zero** rather than carrying a list of accepted exceptions: it counts a
+  titled ellipsis as announced, and it ignores content inside a horizontal scroller, because that
+  content is reachable by design.
+- **The shift bar sheds in a stated order.** Identity and the way out never yield. The link
+  indicator holds from `md` — it is the truth about whether the figures on screen are live. Tenant
+  scope appears at `lg`, the UTC clock from `sm`, the next maintenance window only from `xl`
+  because below that it cannot say the whole window, and server version and rate budget are `2xl`
+  instruments. The instruments sit in one shrinkable box, so if everything that can be shed is
+  gone, the last thing clipped is a figure whose full text is in its `title` — never the operator's
+  own name. Measured at 1440 / 1280 / 1024 / 768 / 390.
 
 ## 9. Failure is a state; zero is a claim
 
@@ -154,9 +171,9 @@ not read the alert ledger` are opposite sentences; this build previously showed 
   (`GET/PUT /api/auth/profile` carries no role), and the admin sections inside guard themselves.
 - **An unknown address is a page.** `<Route path="*">` renders `NotFound`. A shell around an
   empty `<main>` made a stale bookmark indistinguishable from a crashed report.
-- **The shift bar yields in order.** The identity cluster is `shrink-0`; the widest instrument —
-  the next maintenance window — truncates with its full policy in the `title`. When the bar runs
-  out of room it is the window label that gives, never the way out of the console.
+- **The shift bar yields in order** (§8). When the bar runs out of room it is an instrument that
+  gives — first the trivia, then, below `xl`, the window label itself — never the way out of the
+  console.
 
 ## 10. Debt, stated plainly
 
@@ -173,11 +190,11 @@ not read the alert ledger` are opposite sentences; this build previously showed 
   outside `t(...)`, so screen-reader copy is not localised even though visible copy is. Recorded,
   not fixed here, because adding keys means writing the `de` and `fr` text with someone who
   reads them.
-- The audit's accepted truncation list (§8) is the only remaining clipped finding, and
-  `webhooks` reports one `wider`: the delivery ledger is wider than its column on purpose and
-  scrolls inside a bordered box, so the State column is reachable. Every contrast,
-  unnamed-control, raw-locale-key, mono-prose and document-overflow finding is at zero across
-  all 35 route × theme checks.
+- **The audit holds zero findings, not an accepted list.** Every clipped, contrast,
+  unnamed-control, raw-locale-key, mono-prose, element-overflow and document-overflow count is zero
+  across 35 route × theme checks at 1440 and 90 route × width checks at 1440 / 1280 / 1024 / 768 /
+  390 (§11). What remains unproven by it: mutation dialogs opened while the stress fixtures are
+  loaded have not been driven, only the ledgers behind them.
 - **Only four surfaces speak `FetchError`.** Devices, Alerts, Sessions and Recordings state a
   failed load properly. Audit, Clients, Files, Thresholds, Users, Webhooks and the patch views
   still print transport text — some in a header stamp, some as a floating line — and none offer
@@ -195,6 +212,17 @@ node .impeccable/harness/server.mjs           # serves web/dist on http://127.0.
 node .impeccable/tmp/audit.mjs                # all routes × light/dark → .impeccable/audit-report.md
 node .impeccable/tmp/shoot.mjs                # 43 captures into .impeccable/shots/
 ```
+
+Widths are swept the same way, by environment — the default is 1440 × light+dark:
+
+```
+$env:OURWAY_AUDIT_WIDTHS="1440,1280,1024,768,390"; $env:OURWAY_AUDIT_THEMES="light"
+$env:OURWAY_AUDIT_SHOTS="1"; $env:OURWAY_AUDIT_OUT="../audit-widths.md"
+node .impeccable/tmp/audit.mjs
+```
+
+`SHOTS=1` writes `shots/width-<w>-<theme>-<route>.png`. Read the report, not only the totals: the
+element path and the pixel overhang are what say whether a finding is yours.
 
 The failure conditions in §9 are manufactured, not imagined:
 

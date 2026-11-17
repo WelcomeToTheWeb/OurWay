@@ -94,10 +94,13 @@ export function DeviceCard({
           <Icon className="h-4 w-4 text-text-secondary" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-semibold leading-tight text-text-primary group-hover:text-service">
+          <span className="block truncate text-[14px] font-semibold leading-tight text-text-primary group-hover:text-service" title={device.name}>
             {device.name}
           </span>
-          <span className="mt-0.5 block truncate font-mono text-[12px] leading-snug text-text-muted">
+          <span
+            className="mt-0.5 block truncate font-mono text-[12px] leading-snug text-text-muted"
+            title={`${osLabel(device.os)} · ${device.arch} · ${device.hostname}`}
+          >
             {osLabel(device.os)} · {device.arch} · {device.hostname}
           </span>
           {clientName && (
@@ -136,12 +139,13 @@ export function DeviceCard({
         <div className="flex items-baseline justify-between gap-3">
           <span className="flex min-w-0 items-baseline gap-1.5">
             <span className="field-label shrink-0">{record.lastLabel}</span>
-            <span className="ow-num truncate text-[11.5px] leading-tight text-text-secondary">{record.last}</span>
+            <span className="ow-num truncate text-[11.5px] leading-tight text-text-secondary" title={record.last}>{record.last}</span>
           </span>
           <span className="flex min-w-0 items-baseline gap-1.5">
             <span className="field-label shrink-0">{record.nextLabel}</span>
             <span
               className={`ow-num truncate text-[11.5px] leading-tight ${nextToneClass[record.nextTone]}`}
+              title={record.next}
             >
               {record.next}
             </span>
@@ -149,7 +153,7 @@ export function DeviceCard({
         </div>
         <div className="mt-1 flex items-baseline gap-1.5">
           <span className="field-label shrink-0">{record.intervalLabel}</span>
-          <span className="ow-num truncate text-[11.5px] leading-tight text-text-muted">{record.interval}</span>
+          <span className="ow-num truncate text-[11.5px] leading-tight text-text-muted" title={record.interval}>{record.interval}</span>
         </div>
       </div>
     </Link>

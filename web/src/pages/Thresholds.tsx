@@ -409,7 +409,7 @@ export function Thresholds() {
           first={rules[guide.first]?.scope_name}
           last={rules[guide.last]?.scope_name}
         />
-        <div ref={guide.ref} className="max-h-[24rem] overflow-y-auto overflow-x-auto">
+        <div ref={guide.ref} className="max-h-[24rem] overflow-y-auto ledger-scroll">
           <table className="ledger min-w-[720px]">
             <thead>
               <tr>

@@ -248,7 +248,7 @@ export function Dashboard() {
                   first={attention[guide.first]?.device.name}
                   last={attention[guide.last]?.device.name}
                 />
-                <div ref={guide.ref} className="max-h-[19rem] overflow-y-auto">
+                <div ref={guide.ref} className="max-h-[19rem] overflow-y-auto ledger-scroll">
                   <table className="ledger">
                     <thead>
                       <tr>

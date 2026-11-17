@@ -76,9 +76,9 @@ export function GuideWordsHead({
     <div className="flex items-baseline justify-between gap-4 border-b border-rule-strong bg-bg-card px-3 py-1.5">
       <span className="flex items-baseline gap-2 overflow-hidden">
         <span className="cap-sm cap shrink-0 text-text-muted">In view</span>
-        <span className="cap cap-sm truncate text-text-primary">{first ?? '—'}</span>
+        <span className="cap cap-sm truncate text-text-primary" title={first ?? ''}>{first ?? '—'}</span>
         <span className="text-[11px] text-text-muted">→</span>
-        <span className="cap cap-sm truncate text-text-primary">{last ?? '—'}</span>
+        <span className="cap cap-sm truncate text-text-primary" title={last ?? ''}>{last ?? '—'}</span>
       </span>
       <span className="flex items-baseline gap-3">
         {extra}

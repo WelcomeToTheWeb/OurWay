@@ -336,6 +336,17 @@ h3 {
     border-collapse: separate;
     border-spacing: 0;
   }
+  /* The box a ledger scrolls inside when its columns outnumber the viewport
+     (§8: the columns stay reachable, the page does not stretch).
+     `position: relative` is load-bearing, not decoration. Without it, Chromium
+     propagates a scroll container's scrollable overflow to the viewport, so the
+     entire page pans sideways and the operator can reach the same column two
+     ways at once — measured on /sso and /thresholds at 390 and 1024, where the
+     document panned 541px and 155px while the box itself also scrolled. */
+  .ledger-scroll {
+    position: relative;
+    overflow-x: auto;
+  }
   .ledger thead th {
     font-weight: 600;
     font-size: 11px;

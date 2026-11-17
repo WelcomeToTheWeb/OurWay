@@ -134,7 +134,7 @@ export function Recordings() {
           </p>
         </div>
       ) : (
-        <div className="panel overflow-hidden">
+        <div className="panel ledger-scroll">
           <table className="ledger">
             <thead>
               <tr>

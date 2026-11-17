@@ -913,7 +913,7 @@ export function SSO() {
           />
           <div
             ref={guide.ref}
-            className="max-h-[26rem] overflow-y-auto overflow-x-auto"
+            className="max-h-[26rem] overflow-y-auto ledger-scroll"
           >
             <table className="ledger min-w-[760px]">
               <thead>

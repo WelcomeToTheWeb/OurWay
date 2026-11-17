@@ -389,7 +389,7 @@ export function PatchPolicies() {
               first={policies[guide.first]?.name}
               last={policies[guide.last]?.name}
             />
-            <div ref={guide.ref} className="max-h-[24rem] overflow-y-auto">
+            <div ref={guide.ref} className="max-h-[24rem] overflow-y-auto ledger-scroll">
               <table className="ledger">
                 <thead>
                   <tr>
@@ -485,7 +485,7 @@ export function PatchPolicies() {
               first={deployments.slice(0, 10)[guide.first]?.id.slice(0, 8)}
               last={deployments.slice(0, 10)[guide.last]?.id.slice(0, 8)}
             />
-            <div ref={guide.ref} className="max-h-[26rem] overflow-y-auto">
+            <div ref={guide.ref} className="max-h-[26rem] overflow-y-auto ledger-scroll">
               <table className="ledger">
                 <thead>
                   <tr>

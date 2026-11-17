@@ -298,7 +298,7 @@ export function Audit() {
           first={rows[guide.first]?.action}
           last={rows[guide.last]?.action}
         />
-        <div ref={guide.ref} className="max-h-[36rem] overflow-y-auto overflow-x-auto">
+        <div ref={guide.ref} className="max-h-[36rem] overflow-y-auto ledger-scroll">
           <table className="ledger min-w-[960px]">
             <thead>
               <tr>

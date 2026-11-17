@@ -494,7 +494,7 @@ export function Webhooks() {
             first={channels[guide.first]?.name}
             last={channels[guide.last]?.name}
           />
-          <div ref={guide.ref} className="max-h-[30rem] overflow-y-auto overflow-x-auto">
+          <div ref={guide.ref} className="max-h-[30rem] overflow-y-auto ledger-scroll">
             <table className="ledger">
               <thead>
                 <tr>

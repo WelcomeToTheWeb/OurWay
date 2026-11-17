@@ -253,7 +253,7 @@ export function Patches() {
             first={filtered[guide.first]?.title}
             last={filtered[guide.last]?.title}
           />
-          <div ref={guide.ref} className="max-h-[32rem] overflow-y-auto">
+          <div ref={guide.ref} className="max-h-[32rem] overflow-y-auto ledger-scroll">
             <table className="ledger">
               <thead>
                 <tr>

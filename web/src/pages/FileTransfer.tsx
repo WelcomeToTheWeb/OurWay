@@ -346,7 +346,7 @@ export function FileTransfer() {
             <p className="mt-1 text-sm text-text-muted">{t('fileTransfer.noTransfersDesc')}</p>
           </div>
         ) : (
-          <div ref={guide.ref} className="max-h-[28rem] overflow-y-auto">
+          <div ref={guide.ref} className="max-h-[28rem] overflow-y-auto ledger-scroll">
             <table className="ledger">
               <thead>
                 <tr>

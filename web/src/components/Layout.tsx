@@ -168,7 +168,7 @@ export function Layout() {
             <Menu className="h-5 w-5" />
           </button>
 
-          <form onSubmit={submitSearch} className="relative w-full max-w-[14rem] shrink md:max-w-[16rem] xl:max-w-[20rem]" role="search">
+          <form onSubmit={submitSearch} className="relative w-full max-w-[12rem] shrink lg:max-w-[13rem] xl:max-w-[18rem] 2xl:max-w-[20rem]" role="search">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
             <input
               type="search"
@@ -180,20 +180,24 @@ export function Layout() {
             />
           </form>
 
-          <div className="ml-auto flex items-center gap-2.5 md:gap-3.5">
-            <span className="hidden md:flex min-w-0 items-center gap-2">
+          <div className="ml-auto flex min-w-0 items-center gap-2.5 md:gap-3.5">
+            {/* The instruments are one shrinkable box; the identity cluster and
+                the way out are not. When the bar runs out of room the
+                instruments give — in the order their breakpoints shed them —
+                and the operator's own name and the sign-out never do. */}
+            <div className="hidden min-w-0 items-center gap-2.5 overflow-hidden md:flex md:gap-3.5">
+            {/* The window instrument is a wide one. It appears only where it can
+                say the whole window; below that the bar carries UTC, the link,
+                the operator and the way out, and the window lives on the
+                dashboard and the policy pages instead. */}
+            <span className="hidden min-w-0 items-center gap-2 xl:flex">
               <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">Next window</span>
               {upcoming ? (
                 <Stamp
                   tone="due"
-                  className="max-w-[15rem] min-w-0"
+                  className="max-w-[18rem] min-w-0"
                   title={`${upcoming.policy.name} · ${formatWindow(upcoming.policy)}`}
                 >
-                  {/* The window label is the widest instrument on the bar. When the
-                      bar runs out of room this is the one that yields — with the
-                      full policy already in its title — because the identity
-                      cluster at the right end must never be the thing that gets
-                      clipped. */}
                   <span className="block min-w-0 truncate">
                     {formatWindow(upcoming.policy)} · {untilLabel(upcoming.at, clock)}
                   </span>
@@ -213,7 +217,7 @@ export function Layout() {
             </span>
 
             <span
-              className="hidden lg:flex items-baseline gap-2"
+              className="hidden 2xl:flex items-baseline gap-2"
               title={t('layout.versionTitle', {
                 server: serverVersion?.version || 'dev',
                 commit: serverVersion?.git_commit || 'dev',
@@ -226,7 +230,7 @@ export function Layout() {
 
             {scope !== '' && (
               <span
-                className="hidden xl:flex items-baseline gap-2"
+                className="hidden lg:flex items-baseline gap-2"
                 title={t('layout.scopeTitle', {
                   scope: scopeLabel(scope, clients),
                   tenants: scopeCount(scope),
@@ -247,7 +251,7 @@ export function Layout() {
 
             {typeof serverVersion?.rate_limit_per_minute === 'number' && (
               <span
-                className="hidden lg:flex items-baseline gap-2"
+                className="hidden 2xl:flex items-baseline gap-2"
                 title={t('layout.rateBudgetTitle', {
                   perMinute: serverVersion.rate_limit_per_minute,
                   burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,
@@ -269,9 +273,13 @@ export function Layout() {
               </Stamp>
             )}
 
-            <span className="hidden lg:flex">
+            {/* The link indicator is the one instrument that is never shed while
+                the bar can hold it: it is the truth about whether the figures on
+                screen are live. Trivia goes first — version, budget, scope. */}
+            <span className="hidden md:flex">
               <LinkStamp connected={connected} />
             </span>
+            </div>
 
             {user && (
               <span className="hidden shrink-0 items-center gap-2 sm:flex">
