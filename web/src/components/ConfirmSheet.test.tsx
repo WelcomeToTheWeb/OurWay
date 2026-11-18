@@ -7,8 +7,11 @@ import i18n from '../i18n';
 
 // The real locales, not a stub: a confirmation whose copy is a string
 // concatenation in English is exactly the bug this migration exists to fix.
-const t = ((key: string, options?: Record<string, unknown>) =>
-  i18n.t(key, options)) as Parameters<typeof confirmRequest>[0];
+// `getFixedT`, not a hand-rolled `(key, options) => i18n.t(...)` wrapper: the
+// wrapper's own signature was never a `TFunction`, it just happened to be castable
+// to one, and it accepted an `undefined` options bag. i18next 27's stricter
+// interpolation types say so — take the real thing instead of arguing with it.
+const t = i18n.getFixedT(null, 'translation');
 
 const ACTIONS: ConfirmAction[] = [
   'endSession',
