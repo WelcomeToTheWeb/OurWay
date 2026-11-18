@@ -195,9 +195,10 @@ reach a column a box could have scrolled.
   drawn from `sm` and present in the accessibility tree below it. It measures nothing until each
   width's instrument has drawn its **value**, not its caption — the caption `fleet` and the placeholder
   version `dev` both paint on the first frame, and an unpopulated bar never overflows.
-  What is not guaranteed: the live rate-limited state. CI raises the per-minute budget to 2000, which
-  usually keeps the suite under it — and the suite has tripped it anyway, so the rate instrument is
-  tested as a pair of states rather than by assuming one, and the component test drives the flag.
+  What is not arranged: the live rate-limited state, which would mean making the server refuse a
+  request and CI raises the per-minute budget to 2000 to keep the suite clear of it. The rate
+  instrument is tested as a pair of states so it cannot flake either way, the component test drives
+  the flag, and the warning's geometry was verified by forcing a real 429 against the fixture harness.
   The evaluator is written so that reverting the truncation markup turns it red — a green sweep that
   cannot go red is worth nothing, and this suite has shipped one of those.
 

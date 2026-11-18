@@ -37,11 +37,12 @@ import {
  * caption: the caption `fleet` and the placeholder version `dev` are both on
  * screen before any read has answered.
  *
- * NOT guaranteed here: the live rate-limited state. CI raises the per-minute
- * budget to 2000, which usually keeps the suite under it — but the suite has
- * tripped it anyway, so the rate instrument's tests assert whichever of its two
- * states is on the bar rather than assuming one, and the component test drives
- * the flag directly.
+ * NOT arranged here: the live rate-limited state. Reaching it means making the
+ * server refuse a request, and CI raises the per-minute budget to 2000 so the
+ * suite stays under it. The rate instrument's test therefore asserts whichever
+ * of its two states is actually on the bar, the component test drives the flag
+ * directly, and the warning's geometry was verified by forcing a real 429
+ * against the fixture harness rather than by trusting a media query.
  */
 
 const WIDTHS = [1600, 1536, 1440, 1280, 1024, 768, 390];
@@ -166,7 +167,7 @@ async function settleBar(page: Page, width: number, scopeValue: string): Promise
     // *string* cannot settle anything here: a CI server is built without release
     // ldflags, so it legitimately reports `dev` forever, and an assertion that
     // it stops saying so is a test that can only fail.
-    await expect(page.getByTitle(/request budget|polling rests/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTitle(/request budget|^Rate limited\b/).first()).toBeVisible({ timeout: 15_000 });
   }
   if (width >= 1536) {
     // `formatWindow(policy) · untilLabel(at)`, and untilLabel is always "now" or
@@ -433,14 +434,21 @@ test('the rate instrument is one instrument with two states, and the warning has
   // that replaces it when the server starts refusing us is the one bar
   // instrument with no breakpoint, because the condition it states is the one
   // that makes every other figure stale while the link chip beside it still
-  // reads "Live". Which of the two is on the bar depends on the server, so this
-  // asserts the pair instead of picking a side: exactly one of them is ever
-  // present, the figure never below `xl`, and the warning — if the suite happens
-  // to trip a limit at 390px, which it has done — is visible there too.
+  // reads "Live". Which of the two is on the bar depends on the server, and this
+  // suite does not arrange to be refused, so the test asserts the pair rather
+  // than picking a side: the figure is never below `xl`, and the warning, if it
+  // is up, is visible at every width including this narrow one.
+  //
+  // The selectors are anchored at the start of the title on purpose. The
+  // budget figure's own title is "Per-user request budget: 2000 reads per
+  // minute, instantaneous burst 200. Polling rests when it is spent." — which
+  // contains the warning's sentence, so an unanchored /polling rests/i matched
+  // the *figure*, was correctly reported hidden at 1024px, and made this test
+  // accuse the product of shedding a warning that was never on screen.
   test.setTimeout(180_000);
   await uiLogin(page);
-  const figure = page.getByTitle(/request budget/i);
-  const warning = page.getByTitle(/polling rests/i);
+  const figure = page.getByTitle(/^Per-user request budget/i);
+  const warning = page.getByTitle(/^Rate limited\b/);
   for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: 720 });
     await page.goto('/devices', { waitUntil: 'domcontentloaded' });
