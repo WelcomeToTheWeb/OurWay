@@ -6,7 +6,7 @@ import { startRecording } from '../api/recordings';
 import { invalidateFleet } from '../stores/fleet';
 import { useFleet } from '../hooks/useFleet';
 import { useAuth } from '../auth/context';
-import { Stamp } from './Stamp';
+import { Stamp, type StampTone } from './Stamp';
 import { useTranslation } from 'react-i18next';
 
 interface SessionViewProps {
@@ -19,6 +19,44 @@ interface SessionViewProps {
 }
 
 type SessionMode = 'view' | 'control';
+
+/* --- plate chrome ------------------------------------------------------- */
+/* The session surface is one slate plate in both renditions, so it carries the
+   rail's own ink, rules and raised fill. The state tokens are tuned for the
+   light canvas; on the plate each is composited toward `--rail-text` so a 12px
+   semibold caption still clears 4.5:1 in the day rendition. Token-only: every
+   alpha here is a mix of two tokens, never a literal colour. */
+const PLATE = {
+  text: 'var(--rail-text)',
+  muted: 'var(--rail-text-muted)',
+  line: 'var(--rail-line)',
+  raised: 'var(--rail-bg-raised)',
+  danger: 'color-mix(in srgb, var(--color-danger) 72%, var(--rail-text))',
+  warning: 'color-mix(in srgb, var(--warning) 78%, var(--rail-text))',
+  dangerFill: 'color-mix(in srgb, var(--color-danger) 12%, var(--rail-bg))',
+  dangerLine: 'color-mix(in srgb, var(--color-danger) 32%, var(--rail-line))',
+} as const;
+
+/** A `.stamp` tone lifted onto the plate. Static strings: Tailwind reads them
+    from source, so they must not be built at runtime. */
+const PLATE_STAMP: Record<StampTone, string> = {
+  online: '!text-[color:color-mix(in_srgb,var(--online)_78%,var(--rail-text))]',
+  offline: '!text-[color:var(--rail-text-muted)]',
+  alert: '!text-[color:color-mix(in_srgb,var(--color-danger)_72%,var(--rail-text))]',
+  due: '!text-[color:color-mix(in_srgb,var(--due)_78%,var(--rail-text))]',
+  service: '!text-[color:color-mix(in_srgb,var(--service)_78%,var(--rail-text))]',
+  stamp: '!text-[color:color-mix(in_srgb,var(--stamp)_72%,var(--rail-text))]',
+  neutral: '!text-[color:var(--rail-text-muted)]',
+};
+
+/** Control geometry on the plate: 32px, `rounded`, one 150ms press curve. */
+const BTN = 'btn min-h-8 rounded px-3 text-[12.5px] transition-colors duration-150 ease-press';
+/** The same control painted for the plate. `.btn` lives in the components
+    layer, so these utilities win without `!important`. */
+const BTN_PLATE =
+  'border-[color:var(--rail-line)] bg-[color:var(--rail-bg-raised)] text-[color:var(--rail-text)] ' +
+  'hover:border-[color:color-mix(in_srgb,var(--rail-text)_26%,transparent)] ' +
+  'hover:bg-[color:color-mix(in_srgb,var(--rail-text)_10%,transparent)]';
 
 /**
  * The remote screen: an overlay with a plate header, the state stamped, and
@@ -143,48 +181,52 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
     }
   }, [mode, status]);
 
+  const statusTone: StampTone =
+    status === 'active' ? 'online' : status === 'connecting' ? 'due' : 'alert';
+  const modeTone: StampTone = mode === 'control' ? 'service' : 'neutral';
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: 'var(--ink-plate)' }} role="dialog" aria-label="Remote session">
+    <div className="plate fixed inset-0 z-50 flex flex-col" role="dialog" aria-label="Remote session">
       <header
-        className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2"
-        style={{ borderColor: 'rgba(232,228,216,0.18)' }}
+        className="flex min-h-12 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-4 py-2"
+        style={{ borderColor: PLATE.line, background: PLATE.raised }}
       >
-        <div className="flex items-center gap-3">
-          <Monitor className="h-4 w-4" style={{ color: 'var(--ink-on-plate)' }} aria-hidden="true" />
-          <span className="ow-display text-[15px]" style={{ color: 'var(--ink-on-plate)' }}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Monitor className="h-4 w-4 shrink-0" style={{ color: PLATE.muted }} aria-hidden="true" />
+          <span className="ow-display text-[15px]" style={{ color: PLATE.text }}>
             Remote session
           </span>
-          <span className="cap-sm cap" style={{ color: 'var(--ink-on-plate-muted)' }}>
+          <span className="cap cap-sm ow-num" style={{ color: PLATE.muted }}>
             {session.id.slice(0, 8)}
           </span>
-          <Stamp tone={status === 'active' ? 'online' : status === 'connecting' ? 'due' : 'alert'}>
+          <Stamp tone={statusTone} className={PLATE_STAMP[statusTone]}>
             {status === 'active' ? 'Connected' : status === 'connecting' ? 'Connecting' : 'Ended'}
           </Stamp>
-          <Stamp tone={mode === 'control' ? 'service' : 'neutral'}>{mode === 'control' ? 'Controlling' : 'Watching'}</Stamp>
+          <Stamp tone={modeTone} className={PLATE_STAMP[modeTone]}>{mode === 'control' ? 'Controlling' : 'Watching'}</Stamp>
           {recording ? (
-            <Stamp tone="alert">
+            <Stamp tone="alert" className={PLATE_STAMP.alert}>
               {recording.status === 'recording'
                 ? `Recording · ${recording.frame_count} frames`
                 : 'Recorded'}
             </Stamp>
           ) : (
-            <Stamp tone="neutral">Not recorded</Stamp>
+            <Stamp tone="neutral" className={PLATE_STAMP.neutral}>Not recorded</Stamp>
           )}
         </div>
         <div className="flex items-center gap-2">
           {mode === 'view' ? (
-            <button onClick={() => setMode('control')} className="btn btn-primary px-2.5 py-1.5 text-[12px]">
+            <button onClick={() => setMode('control')} className={BTN}>
               <MousePointer2 className="h-3.5 w-3.5" aria-hidden="true" /> Take control
             </button>
           ) : (
-            <button onClick={() => setMode('view')} className="btn px-2.5 py-1.5 text-[12px]">
+            <button onClick={() => setMode('view')} className={`${BTN} ${BTN_PLATE}`}>
               Release control
             </button>
           )}
           {!recording && policy !== 'off' && (
             <button
               onClick={handleRecord}
-              className="btn px-2.5 py-1.5 text-[12px]"
+              className={`${BTN} ${BTN_PLATE}`}
               title="Start recording this session. Nothing in the product stops a recording once it has started."
             >
               Record session
@@ -193,25 +235,36 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
           <button
             onClick={() => setShowSettings((s) => !s)}
             aria-expanded={showSettings}
-            className="btn px-2.5 py-1.5 text-[12px]"
+            className={`${BTN} ${BTN_PLATE}`}
           >
             <Settings className="h-3.5 w-3.5" aria-hidden="true" /> Quality
           </button>
-          <button onClick={handleClose} className="btn px-2.5 py-1.5 text-[12px] text-[var(--error)]">
+          <button
+            onClick={handleClose}
+            className={`${BTN} ${BTN_PLATE}`}
+            style={{ color: PLATE.danger }}
+          >
             <X className="h-3.5 w-3.5" aria-hidden="true" /> End session
           </button>
         </div>
       </header>
 
       {recordingError && (
-        <p role="alert" className="mx-4 mt-2 text-[12px] text-[var(--error)]">
+        <p
+          role="alert"
+          className="mx-4 mt-2 flex items-center gap-2 rounded border px-3 py-2 text-[12.5px]"
+          style={{ color: PLATE.danger, background: PLATE.dangerFill, borderColor: PLATE.dangerLine }}
+        >
           {recordingError}
         </p>
       )}
 
       {showSettings && (
-        <div className="mx-4 mt-2 flex items-center gap-3 border border-rule px-3 py-2" style={{ background: 'var(--bg-card)' }}>
-          <label className="cap-sm cap text-text-muted" htmlFor="session-quality">
+        <div
+          className="mx-4 mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded border px-3 py-2"
+          style={{ background: PLATE.raised, borderColor: PLATE.line }}
+        >
+          <label className="cap cap-sm" htmlFor="session-quality" style={{ color: PLATE.muted }}>
             Frame quality
           </label>
           <input
@@ -227,10 +280,10 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
               // capture loop (JPEG quality).
               setSessionQuality(session.id, q).catch(console.error);
             }}
-            className="flex-1"
+            className="h-8 min-w-40 flex-1"
             style={{ accentColor: 'var(--service)' }}
           />
-          <span className="ow-num w-10 text-right text-[12px] text-text-primary">{quality}%</span>
+          <span className="ow-num w-10 text-right text-[12.5px]" style={{ color: PLATE.text }}>{quality}%</span>
         </div>
       )}
 
@@ -241,8 +294,8 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
             src={frame}
             alt="Remote session"
             tabIndex={mode === 'control' ? 0 : -1}
-            className="max-h-full max-w-full border outline-none"
-            style={{ borderColor: 'rgba(232,228,216,0.25)' }}
+            className="max-h-full max-w-full rounded-sm border shadow-elev2"
+            style={{ borderColor: mode === 'control' ? 'var(--service)' : PLATE.line }}
             onMouseMove={handleMouseMove}
             onMouseDown={handleClick}
             onWheel={handleScroll}
@@ -251,7 +304,7 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
             onContextMenu={(e) => e.preventDefault()}
           />
         ) : (
-          <p className="cap cap-lg" style={{ color: 'var(--ink-on-plate-muted)' }}>
+          <p className="cap cap-lg" style={{ color: PLATE.muted }}>
             {status === 'connecting' ? 'Connecting to the unit…' : 'Waiting for the first frame…'}
           </p>
         )}
@@ -259,8 +312,8 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
 
       {mode === 'control' && (
         <footer
-          className="flex flex-wrap items-center gap-4 border-t px-4 py-2 text-[11px]"
-          style={{ borderColor: 'rgba(232,228,216,0.18)', color: 'var(--ink-on-plate-muted)' }}
+          className="flex min-h-10 flex-wrap items-center gap-x-5 gap-y-2 border-t px-4 py-2 text-[11.5px]"
+          style={{ borderColor: PLATE.line, color: PLATE.muted, background: PLATE.raised }}
         >
           <span className="flex items-center gap-1.5">
             <MousePointer2 className="h-3 w-3" aria-hidden="true" /> Pointer moves the unit's cursor
@@ -271,11 +324,13 @@ export function SessionView({ session, onClose, inputCapability }: SessionViewPr
           <span>Right-click opens the context menu</span>
           {/* The unit's own report, stated where the technician is about to
               type: on macOS without the Accessibility grant, every keystroke
-              is discarded and the session looks fully live. */}
+              is discarded and the session looks fully live. Printed as a stamp
+              in the plate-lifted state colour, so it holds on the slate. */}
           {inputCapability && inputCapability !== 'granted' && (
             <span
-              className="flex items-center gap-1.5 font-mono uppercase tracking-[0.1em] text-[var(--color-danger)]"
+              className="stamp ow-rise"
               role="status"
+              style={{ color: inputCapability === 'denied' ? PLATE.danger : PLATE.warning }}
             >
               {t(`devices.input${inputCapability === 'unknown' ? 'Unknown' : inputCapability === 'denied' ? 'Denied' : 'Unavailable'}`)}
               {inputCapability === 'denied'

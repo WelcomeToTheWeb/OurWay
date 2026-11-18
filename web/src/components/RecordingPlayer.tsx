@@ -151,7 +151,7 @@ export function RecordingPlayer({ recordingId, onClose }: RecordingPlayerProps) 
     >
       <header
         className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2"
-        style={{ borderColor: 'rgba(232,228,216,0.18)' }}
+        style={{ borderColor: 'var(--rail-line)' }}
       >
         <div className="flex flex-wrap items-center gap-3">
           <span className="ow-display text-[15px]" style={{ color: 'var(--ink-on-plate)' }}>
@@ -172,7 +172,7 @@ export function RecordingPlayer({ recordingId, onClose }: RecordingPlayerProps) 
             <button
               onClick={() => void downloadRecordingManifest(recordingId)}
               className="btn px-2.5 py-1.5 text-[12px]"
-              style={{ color: 'var(--ink-on-plate)', borderColor: 'rgba(232,228,216,0.3)' }}
+              style={{ color: 'var(--ink-on-plate)', borderColor: 'color-mix(in srgb, var(--rail-text) 30%, transparent)' }}
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" /> Manifest
             </button>
@@ -181,7 +181,7 @@ export function RecordingPlayer({ recordingId, onClose }: RecordingPlayerProps) 
             <button
               onClick={() => void downloadRecordingFile(recordingId)}
               className="btn px-2.5 py-1.5 text-[12px]"
-              style={{ color: 'var(--ink-on-plate)', borderColor: 'rgba(232,228,216,0.3)' }}
+              style={{ color: 'var(--ink-on-plate)', borderColor: 'color-mix(in srgb, var(--rail-text) 30%, transparent)' }}
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" /> Sequence file
             </button>
@@ -189,7 +189,7 @@ export function RecordingPlayer({ recordingId, onClose }: RecordingPlayerProps) 
           <button
             onClick={onClose}
             className="btn px-2.5 py-1.5 text-[12px] text-[var(--error)]"
-            style={{ borderColor: 'rgba(232,228,216,0.3)' }}
+            style={{ borderColor: 'color-mix(in srgb, var(--rail-text) 30%, transparent)' }}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" /> Close
           </button>
@@ -198,7 +198,7 @@ export function RecordingPlayer({ recordingId, onClose }: RecordingPlayerProps) 
 
       <div
         className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 text-[12px]"
-        style={{ color: 'var(--ink-on-plate-muted)', background: 'rgba(0,0,0,0.18)' }}
+        style={{ color: 'var(--ink-on-plate-muted)', background: 'var(--rail-bg-raised)' }}
       >
         <span>{manifest ? clockLabel(manifest.recording.started_at) : '…'} → {manifest?.recording.ended_at ? clockLabel(manifest.recording.ended_at) : 'running'}</span>
         <span>{manifest?.frames?.length ?? 0} frames</span>
@@ -250,7 +250,7 @@ export function RecordingPlayer({ recordingId, onClose }: RecordingPlayerProps) 
             src={frameUrl}
             alt={`Recording frame ${index + 1} of ${frames.length}`}
             className="max-h-full max-w-full border outline-none"
-            style={{ borderColor: 'rgba(232,228,216,0.25)' }}
+            style={{ borderColor: 'color-mix(in srgb, var(--rail-text) 25%, transparent)' }}
           />
         ) : (
           <p className="cap cap-lg" style={{ color: 'var(--ink-on-plate-muted)' }}>
@@ -262,7 +262,7 @@ export function RecordingPlayer({ recordingId, onClose }: RecordingPlayerProps) 
       {playable && (
         <footer
           className="flex flex-wrap items-center gap-3 border-t px-4 py-3"
-          style={{ borderColor: 'rgba(232,228,216,0.18)' }}
+          style={{ borderColor: 'var(--rail-line)' }}
         >
           <button
             onClick={() => setPlaying((p) => !p)}

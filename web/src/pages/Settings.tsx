@@ -116,8 +116,15 @@ export function Settings() {
   }
 
   useEffect(() => {
+    // API keys are an admin surface. Asking for them from another role only
+    // produces a 403 that the page then has to explain to someone who did
+    // nothing wrong, so the request is not made.
+    if (!hasRole('admin')) {
+      setLoadingKeys(false);
+      return;
+    }
     loadAPIKeys();
-  }, []);
+  }, [hasRole]);
 
   async function handleCreateKey() {
     if (!newKeyName) return;
@@ -217,7 +224,7 @@ export function Settings() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-[26px]">{t('settings.title')}</h1>
+        <h1 className="ow-display text-[22px]">{t('settings.title')}</h1>
         <p className="text-sm text-text-secondary">{t('settings.subtitle')}</p>
       </div>
 
@@ -246,7 +253,7 @@ export function Settings() {
               {profileError}
             </p>
           )}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-text-secondary">{t('settings.profile.username')}</label>
               <input
@@ -339,6 +346,7 @@ export function Settings() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary"
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -376,12 +384,13 @@ export function Settings() {
             </div>
             <button
               type="button"
+              role="switch"
+              aria-checked={emailAlerts}
+              aria-label={t('settings.notifications.emailAlerts')}
               onClick={() => setEmailAlerts(!emailAlerts)}
-              className={`relative h-6 w-11 border transition-colors ${emailAlerts ? 'border-[var(--service)] bg-[var(--service)]/25' : 'border-rule bg-[var(--field)]'}`}
+              className="switch"
             >
-              <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 bg-[var(--text-primary)] transition-transform ${emailAlerts ? 'translate-x-5' : ''}`}
-              />
+              <span />
             </button>
           </div>
           <div className="flex items-center justify-between">
@@ -391,9 +400,12 @@ export function Settings() {
             </div>
             <button
               type="button"
-              className="relative h-6 w-11 border border-[var(--service)] bg-[var(--service)]/25"
+              role="switch"
+              aria-checked
+              aria-label={t('settings.notifications.inAppNotifications')}
+              className="switch"
             >
-              <span className="absolute left-0.5 top-0.5 h-5 w-5 bg-[var(--text-primary)] transition-transform translate-x-5" />
+              <span />
             </button>
           </div>
           <div className="flex items-center justify-between">
@@ -403,12 +415,13 @@ export function Settings() {
             </div>
             <button
               type="button"
+              role="switch"
+              aria-checked={criticalOnly}
+              aria-label={t('settings.notifications.criticalOnly')}
               onClick={() => setCriticalOnly(!criticalOnly)}
-              className={`relative h-6 w-11 border transition-colors ${criticalOnly ? 'border-[var(--service)] bg-[var(--service)]/25' : 'border-rule bg-[var(--field)]'}`}
+              className="switch"
             >
-              <span
-                className={`absolute left-0.5 top-0.5 h-5 w-5 bg-[var(--text-primary)] transition-transform ${criticalOnly ? 'translate-x-5' : ''}`}
-              />
+              <span />
             </button>
           </div>
         </div>
@@ -670,7 +683,7 @@ export function Settings() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="border border-[var(--service)] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.09em] text-[var(--service)]">
+                  <span className="cap cap-sm border border-[var(--service)] px-1.5 py-0.5 text-[var(--service)]">
                     {parseScopes(key.scopes)}
                   </span>
                   {key.expires_at && (

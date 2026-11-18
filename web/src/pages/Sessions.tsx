@@ -8,6 +8,7 @@ import { useFleet } from '../hooks/useFleet';
 import { useClientScope } from '../hooks/useClientScope';
 import { clientNameForSlug } from '../utils/clientFilter';
 import { ClientFacet } from '../components/ClientFacet';
+import { FetchError } from '../components/FetchError';
 import { invalidateFleet } from '../stores/fleet';
 import { Stamp } from '../components/Stamp';
 import { ConfirmSheet } from '../components/ConfirmSheet';
@@ -19,7 +20,7 @@ export function Sessions() {
   const { t } = useTranslation();
   // The session ledger is a fleet collection (2.2-2): the dashboard reads the
   // same list, so opening this page next to it costs no second read.
-  const { data: sessions, loading, refresh } = useFleet('sessions', { owner: true });
+  const { data: sessions, loading, refresh, error: loadError } = useFleet('sessions', { owner: true });
   // 2.4-8: the recording ledger is a collection of the same read model, so the
   // session ledger can state which sessions **are** being recorded without adding
   // a read of its own. Joining by `session_id` is the whole join.
@@ -78,10 +79,13 @@ export function Sessions() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('sheet.sessionsTitle')}</h1>
+          <h1 className="ow-display text-[22px]">{t('sheet.sessionsTitle')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
-            {visibleSessions.length} open remote session{visibleSessions.length === 1 ? '' : 's'}
-            {scope.slug !== '' && ` · ${clientNameForSlug(scope.clients, scope.slug)}` }
+            {loadError
+              ? t('common.countUnavailable')
+              : `${visibleSessions.length} open remote session${visibleSessions.length === 1 ? '' : 's'}${
+                  scope.slug !== '' ? ` · ${clientNameForSlug(scope.clients, scope.slug)}` : ''
+                }`}
           </p>
         </div>
         <ClientFacet
@@ -96,11 +100,8 @@ export function Sessions() {
         </button>
       </div>
 
-      {error && (
-        <p role="alert" className="text-[13px] text-[var(--error)]">
-          {error}
-        </p>
-      )}
+      {loadError && <FetchError detail={loadError} onRetry={load} />}
+      {error && <FetchError detail={error} onRetry={load} />}
 
       {loading ? (
         <div className="flex h-40 items-center justify-center">
@@ -118,7 +119,7 @@ export function Sessions() {
           </p>
         </div>
       ) : (
-        <div className="panel overflow-hidden">
+        <div className="panel ledger-scroll">
           <table className="ledger">
             <thead>
               <tr>

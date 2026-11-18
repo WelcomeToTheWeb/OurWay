@@ -361,7 +361,7 @@ export function SSO() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t("sso.title")}</h1>
+          <h1 className="ow-display text-[22px]">{t("sso.title")}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">{t("sso.subtitle")}</p>
         </div>
         <button onClick={() => openCreate()} className="btn-primary">
@@ -913,7 +913,7 @@ export function SSO() {
           />
           <div
             ref={guide.ref}
-            className="max-h-[26rem] overflow-y-auto overflow-x-auto"
+            className="max-h-[26rem] overflow-y-auto ledger-scroll"
           >
             <table className="ledger min-w-[760px]">
               <thead>
@@ -940,7 +940,7 @@ export function SSO() {
                         {p.saml ? p.saml.sp_entity_id : p.client_id}
                       </span>
                     </td>
-                    <td>
+                    <td className="max-w-0">
                       <span
                         className="ow-num block truncate text-[12px]"
                         title={p.saml ? p.saml.idp_entity_id : p.issuer}

@@ -320,7 +320,7 @@ export function Clients() {
           first={visible[guide.first]?.name}
           last={visible[guide.last]?.name}
         />
-        <div ref={guide.ref} className="max-h-[34rem] overflow-y-auto overflow-x-auto">
+        <div ref={guide.ref} className="max-h-[34rem] overflow-y-auto ledger-scroll">
           <table className="ledger min-w-[880px]">
             <thead>
               <tr>

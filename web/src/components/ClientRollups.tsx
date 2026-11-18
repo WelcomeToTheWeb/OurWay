@@ -20,7 +20,7 @@ export function ClientRollups({ rollups }: { rollups: ClientRollup[] }) {
   const { t } = useTranslation();
 
   return (
-    <section className="panel overflow-hidden" aria-label={t('clients.dashboardTitle')}>
+    <section className="panel ledger-scroll" aria-label={t('clients.dashboardTitle')}>
       <div className="panel-head">
         <h2 className="cap cap-lg text-text-muted">{t('clients.dashboardTitle')}</h2>
         <Link to="/clients" className="cap-sm cap text-[var(--service)] hover:underline">

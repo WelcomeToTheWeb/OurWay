@@ -5,85 +5,138 @@
 @tailwind utilities;
 
 /* =====================================================================
-   OurWay — the Fleet Service Decal Sheet
-   Day rendition: label stock, letterpress rules, rubber-stamp state.
-   Night rendition: the workshop after lights-out — bone ink on graphite.
-   The world lends type, palette, density and one signature move (the
-   service record); navigation and controls stay the category standard.
+   OurWay — console design system
+   Day: cool neutral canvas, white sheets, one dark rail, one action hue.
+   Night: the same system at night luminance, not a second design.
+   State colour is semantic only. Depth is one soft offset elevation.
    ===================================================================== */
 
 :root {
-  /* label stock */
-  --bg-primary: #efe7cb;
-  --bg-secondary: #e7dec0;
-  --bg-card: #f5efdc;
-  --bg-border: #c9be9c;
-  --text-primary: #1a1a17;
-  --text-secondary: #45443b;
-  --text-muted: #5c5a4c;
+  /* canvas + sheets */
+  --bg-primary: #f6f8fa;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-border: #e3e8ee;
 
-  /* ink roles */
-  --ink: #1a1a17;
-  --ink-plate: #1a1a17;
-  --ink-on-plate: #e8e4d8;
-  --ink-on-plate-muted: #a9a494;
-  --scrim: rgba(26, 26, 23, 0.55);
-  --rule: #c9be9c;
-  --rule-strong: #8f866b;
+  /* ink */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  /* Caption and secondary text carry the same contrast floor as body copy, on
+     the canvas as on a card; the earlier slate failed on --bg-primary. */
+  --text-muted: #5b6678;
 
-  /* state inks — a state reads as a stamp, never as a coloured dot */
-  --stamp: #c8102e;
-  --service: #1b4f9c;
-  --due: #8a5e00;
-  --online: #1b6b35;
-  --offline: #5c5a4c;
-  --warning: #8a5e00;
-  --error: #c8102e;
-  --accent: #1b4f9c;
-  --focus: #1b4f9c;
+  /* action ink — the dark fill on segmented controls, plates and headings */
+  --ink: #0f172a;
+  --ink-on-plate: #e6edf3;
+  --ink-on-plate-muted: #8b98a7;
+  --scrim: rgba(15, 23, 42, 0.5);
 
-  /* field fills */
-  --field: rgba(255, 255, 255, 0.42);
-  --field-alt: rgba(255, 255, 255, 0.22);
-  --row-hover: rgba(255, 255, 255, 0.38);
+  /* the nav rail is the one committed field of colour, in both renditions */
+  --ink-plate: #101725;
+  --rail-bg: #101725;
+  --rail-bg-raised: #18212f;
+  --rail-text: #d7dfe9;
+  --rail-text-muted: #7d8da0;
+  --rail-active-bg: #e6edf3;
+  --rail-active-text: #0f172a;
+  --rail-line: rgba(214, 226, 240, 0.1);
+  --rail-hover: rgba(214, 226, 240, 0.06);
 
-  /* One curve for the whole console: a firm deceleration, like a stamp
-     landing and settling. No overshoot — the sheets are instruments. */
-  --ease-press: cubic-bezier(0.22, 1, 0.36, 1);
-  --motion: 0.4s;
+  /* rules */
+  --rule: #e3e8ee;
+  --rule-strong: #cbd5e1;
+  --border: #e3e8ee;
+
+  /* state — semantic only, never decorative.
+     A stamp paints its own colour at 12% behind that same colour, so each ink
+     must clear 4.5:1 against its own tint; the brighter hues only reached ~4.2
+     there. The accent stays brighter for chrome — rings, rails, live links. */
+  --error: #b91c1c;
+  --stamp: #b91c1c;
+  --stamp-ink: #b42318;
+  --color-danger: #b91c1c;
+  --warning: #92400e;
+  --due: #92400e;
+  --online: #166534;
+  --offline: #94a3b8;
+  --service: #1d4ed8;
+  --accent: #2563eb;
+  --focus: #2563eb;
+  --info: #2563eb;
+
+  /* fills */
+  --field: #f8fafc;
+  --field-alt: #f1f5f9;
+  --row-hover: rgba(15, 23, 42, 0.035);
+  --row-selected: rgba(37, 99, 235, 0.06);
+
+  /* elevation — offset plus blur, never a flat halo */
+  --elev-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 1px rgba(15, 23, 42, 0.04);
+  --elev-2: 0 4px 12px rgba(15, 23, 42, 0.09), 0 1px 2px rgba(15, 23, 42, 0.05);
+  --elev-3: 0 12px 32px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.08);
+
+  /* geometry */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+
+  /* one curve, one length: a firm deceleration on an already-visible element */
+  --ease-press: cubic-bezier(0.2, 0, 0, 1);
+  --motion: 0.15s;
 }
 
 .dark {
-  /* graphite, lit by a desk lamp */
-  --bg-primary: #16181c;
-  --bg-secondary: #101216;
-  --bg-card: #1d2026;
-  --bg-border: #33373f;
-  --text-primary: #e8e4d8;
-  --text-secondary: #b9b4a4;
-  --text-muted: #8c887b;
+  --bg-primary: #0e1319;
+  --bg-secondary: #131920;
+  --bg-card: #161d26;
+  --bg-border: #262f3b;
 
-  --ink: #e8e4d8;
-  --scrim: rgba(0, 0, 0, 0.66);
-  --ink-plate: #0b0d10;
-  --ink-on-plate: #e8e4d8;
-  --ink-on-plate-muted: #9a9586;
-  --rule: #33373f;
-  --rule-strong: #4e535c;
+  --text-primary: #e6edf3;
+  --text-secondary: #9fabba;
+  --text-muted: #8793a3;
 
-  --stamp: #ef6a61;
-  --service: #7fb2e5;
-  --due: #e8b341;
-  --online: #57c08a;
-  --offline: #8c887b;
-  --warning: #e8b341;
-  --error: #ef6a61;
-  --accent: #7fb2e5;
-  --focus: #7fb2e5;
+  --ink: #e6edf3;
+  --ink-on-plate: #e6edf3;
+  --ink-on-plate-muted: #8b98a7;
+  --scrim: rgba(2, 6, 12, 0.66);
 
-  --field: rgba(255, 255, 255, 0.04);
-  --field-alt: rgba(255, 255, 255, 0.02);
-  --row-hover: rgba(255, 255, 255, 0.05);
+  --ink-plate: #0a0f16;
+  --rail-bg: #0a0f16;
+  --rail-bg-raised: #121a24;
+  --rail-text: #d7dfe9;
+  --rail-text-muted: #7d8da0;
+  --rail-active-bg: #e6edf3;
+  --rail-active-text: #0f172a;
+  --rail-line: rgba(214, 226, 240, 0.1);
+  --rail-hover: rgba(214, 226, 240, 0.07);
+
+  --rule: #262f3b;
+  --rule-strong: #384454;
+  --border: #262f3b;
+
+  /* Dark inks are scored against the wash they paint behind themselves; these
+     clear 4.7:1 on the card rather than the 4.4 the brighter hues managed. */
+  --error: #f36367;
+  --stamp: #f36367;
+  --stamp-ink: #f36367;
+  --color-danger: #f36367;
+  --warning: #d99a2b;
+  --due: #d99a2b;
+  --online: #3fb96f;
+  --offline: #8b98a8;
+  --service: #5593ff;
+  --accent: #4c8dff;
+  --focus: #4c8dff;
+  --info: #4c8dff;
+
+  --field: #111820;
+  --field-alt: #1a222c;
+  --row-hover: rgba(230, 237, 243, 0.045);
+  --row-selected: rgba(76, 141, 255, 0.1);
+
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elev-2: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --elev-3: 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 
 html {
@@ -97,106 +150,172 @@ html.dark {
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  font-family: 'Barlow', ui-sans-serif, sans-serif;
+  font-family: 'Public Sans', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.15s var(--ease-press), color 0.15s var(--ease-press);
 }
 
 /* --- type voices ------------------------------------------------------- */
-/* Archivo Narrow carries the lettering: captions, plate heads, numerals. */
+/* Captions: uppercase, lightly tracked — table heads and field labels. */
 .cap,
 caption,
 .ow-cap {
-  font-family: 'Archivo Narrow', 'Barlow', sans-serif;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.09em;
-  font-size: 10.5px;
-  line-height: 1.3;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
 }
 .cap-lg {
-  font-size: 13px;
-  letter-spacing: 0.08em;
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
 }
 .cap-sm {
-  font-size: 9.5px;
-  letter-spacing: 0.11em;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
 }
+/* Figures: tabular everywhere a number is scanned. */
 .ow-num {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  font-feature-settings: 'tnum' 1;
 }
 .ow-display {
-  font-family: 'Archivo Narrow', 'Barlow', sans-serif;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.01em;
-  line-height: 1.12;
+  line-height: 1.2;
   text-wrap: balance;
 }
 
 h1,
 h2,
 h3 {
-  font-family: 'Archivo Narrow', 'Barlow', sans-serif;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.012em;
-  line-height: 1.15;
+  line-height: 1.25;
   color: var(--text-primary);
   margin: 0;
 }
 
 @layer components {
-  /* --- the plate: the nav rail, the one committed field of colour ------ */
+  /* --- the rail -------------------------------------------------------- */
   .plate {
-    background-color: var(--ink-plate);
-    color: var(--ink-on-plate);
+    background-color: var(--rail-bg);
+    color: var(--rail-text);
   }
 
-  /* --- the stamp: a state, printed, not coloured --------------------- */
+  /* Below `lg` the rail is a drawer. A drawer slid off screen is still in the
+     tab order and still announced, so a closed one is hidden — but only after
+     the slide has played, or the transform would snap. The transition is owned
+     here rather than by utilities so the two never race. */
+  .rail-shell {
+    transition: transform var(--motion) var(--ease-press),
+      visibility 0s linear var(--motion);
+  }
+  .rail-shell[data-open='true'] {
+    transition: transform var(--motion) var(--ease-press);
+  }
+  @media (max-width: 1023.98px) {
+    .rail-shell[data-open='false'] {
+      visibility: hidden;
+    }
+  }
+
+  /* --- segmented control: one recessed track, one raised active chip ----
+     Two implementations existed (the device view switch, the theme switch on
+     the rail) with the same job and different markup. State comes from
+     aria-pressed, so the markup carries no conditional classes. */
+  .segmented {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--radius);
+    background: var(--field-alt);
+  }
+  .segmented-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-weight: 500;
+    transition: color var(--motion) var(--ease-press),
+      background-color var(--motion) var(--ease-press),
+      box-shadow var(--motion) var(--ease-press);
+  }
+  .segmented-item:hover {
+    color: var(--text-secondary);
+  }
+  .segmented-item[aria-pressed='true'] {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: var(--elev-1);
+  }
+  .segmented--rail {
+    background: var(--rail-bg-raised);
+  }
+  .segmented--rail .segmented-item {
+    color: var(--rail-text-muted);
+  }
+  .segmented--rail .segmented-item:hover {
+    color: var(--rail-text);
+  }
+  .segmented--rail .segmented-item[aria-pressed='true'] {
+    background: var(--rail-active-bg);
+    color: var(--rail-active-text);
+    box-shadow: none;
+  }
+
+  /* --- state badge: a pill, tinted from its own meaning ---------------- */
   .stamp {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    font-family: 'Archivo Narrow', 'Barlow', sans-serif;
-    font-weight: 700;
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    line-height: 1.4;
-    padding: 2px 7px 1px;
-    border: 1px solid currentColor;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
-    border-radius: 2px;
-    background: transparent;
+    font-weight: 600;
+    font-size: 12px;
+    line-height: 1.35;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 2px 9px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, currentColor 12%, transparent);
     white-space: nowrap;
   }
 
-  /* --- ruled field box ------------------------------------------------ */
+  /* --- stat field ------------------------------------------------------ */
   .field {
-    background: var(--field);
+    background: var(--bg-card);
     border: 1px solid var(--rule);
-    border-radius: 2px;
-    padding: 0.5rem 0.65rem;
+    border-radius: var(--radius);
+    padding: 0.625rem 0.75rem;
   }
   .field-label {
-    font-family: 'Archivo Narrow', 'Barlow', sans-serif;
     font-weight: 600;
-    font-size: 9.5px;
-    letter-spacing: 0.11em;
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--text-muted);
-    line-height: 1.2;
+    line-height: 1.3;
   }
 
-  /* --- decal: a serviced unit, ruled block + record ------------------ */
+  /* --- unit card -------------------------------------------------------- */
   .decal {
     background: var(--bg-card);
     border: 1px solid var(--rule);
-    border-radius: 3px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-1);
     position: relative;
+    transition: border-color var(--motion) var(--ease-press),
+      box-shadow var(--motion) var(--ease-press);
+  }
+  .decal:hover {
+    border-color: var(--rule-strong);
+    box-shadow: var(--elev-2);
   }
   .decal-record {
     display: grid;
@@ -204,34 +323,47 @@ h3 {
     border-top: 1px solid var(--rule);
   }
   .decal-record > div {
-    padding: 0.35rem 0.55rem;
+    padding: 0.4rem 0.6rem;
     border-right: 1px solid var(--rule);
   }
   .decal-record > div:last-child {
     border-right: 0;
   }
 
-  /* --- ledger: hairline rows, tabular numerals ----------------------- */
+  /* --- data table ------------------------------------------------------- */
   .ledger {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  /* The box a ledger scrolls inside when its columns outnumber the viewport
+     (§8: the columns stay reachable, the page does not stretch).
+     `position: relative` is load-bearing, not decoration. Without it, Chromium
+     propagates a scroll container's scrollable overflow to the viewport, so the
+     entire page pans sideways and the operator can reach the same column two
+     ways at once — measured on /sso and /thresholds at 390 and 1024, where the
+     document panned 541px and 155px while the box itself also scrolled. */
+  .ledger-scroll {
+    position: relative;
+    overflow-x: auto;
   }
   .ledger thead th {
-    font-family: 'Archivo Narrow', 'Barlow', sans-serif;
     font-weight: 600;
-    font-size: 9.5px;
-    letter-spacing: 0.11em;
+    font-size: 11px;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
     text-align: left;
-    padding: 0.6rem 0.75rem;
-    border-bottom: 1px solid var(--rule-strong);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--rule);
     background: var(--bg-card);
+    white-space: nowrap;
   }
   .ledger tbody td {
-    padding: 0.6rem 0.75rem;
+    padding: 0.55rem 0.75rem;
     border-bottom: 1px solid var(--rule);
     font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
   }
   .ledger tbody tr:last-child td {
     border-bottom: 0;
@@ -240,66 +372,137 @@ h3 {
     background: var(--row-hover);
   }
 
-  /* --- controls: the category standard, printed in this world -------- */
-  .btn {
+  /* --- controls --------------------------------------------------------- */
+  /* The base is on all three classes, not only `.btn`: a call site that writes
+     `btn-primary` alone is a primary button, not an unstyled element. */
+  .btn,
+  .btn-primary,
+  .btn-quiet {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.45rem;
-    font-family: 'Barlow', sans-serif;
-    font-weight: 600;
-    font-size: 12.5px;
-    letter-spacing: 0.01em;
-    border-radius: 2px;
+    gap: 0.4rem;
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 13px;
+    line-height: 1;
+    border-radius: var(--radius);
     border: 1px solid var(--rule-strong);
     background: var(--bg-card);
     color: var(--text-primary);
-    padding: 0.4rem 0.8rem;
+    padding: 0.45rem 0.75rem;
+    min-height: 32px;
+    white-space: nowrap;
     transition: background-color var(--motion) var(--ease-press),
-      color var(--motion) var(--ease-press), border-color 0.2s ease;
+      border-color var(--motion) var(--ease-press),
+      color var(--motion) var(--ease-press), box-shadow var(--motion) var(--ease-press);
     cursor: pointer;
   }
   .btn:hover:not(:disabled) {
-    background: var(--field);
-    border-color: var(--ink);
+    background: var(--field-alt);
+    border-color: var(--text-muted);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(0.5px);
   }
   .btn:disabled {
-    opacity: 0.45;
+    opacity: 0.5;
     cursor: not-allowed;
   }
-  .btn-primary {
-    background: var(--ink);
-    border-color: var(--ink);
-    color: var(--bg-card);
-  }
-  .btn-primary:hover:not(:disabled) {
-    background: var(--service);
-    border-color: var(--service);
-    color: #fff;
-  }
-  .dark .btn-primary:hover:not(:disabled) {
-    color: #0b0d10;
-  }
+  /* `.btn-quiet` is declared before `.btn-primary` on purpose: a call site that
+     writes both — a filter chip that is quiet until it is the active one — must
+     read as primary when active, and a dark-theme primary ink on a transparent
+     background would otherwise be invisible. */
   .btn-quiet {
     border-color: transparent;
     background: transparent;
     color: var(--text-secondary);
   }
   .btn-quiet:hover:not(:disabled) {
-    background: var(--field);
+    background: var(--row-hover);
     color: var(--text-primary);
-    border-color: var(--rule);
+    border-color: transparent;
+  }
+  .btn-primary {
+    background: var(--service);
+    border-color: transparent;
+    color: #ffffff;
+    box-shadow: var(--elev-1);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--service) 88%, #000000);
+    border-color: transparent;
+    color: #ffffff;
+  }
+  .dark .btn-primary {
+    color: #061019;
+  }
+  .dark .btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--service) 85%, #ffffff);
+    color: #061019;
+  }
+
+  /* A switch whose look is driven by its accessible state, so appearance and
+     semantics cannot disagree. */
+  .switch {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    width: 2.25rem;
+    height: 1.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: var(--rule-strong);
+    cursor: pointer;
+    transition: background-color var(--motion) var(--ease-press);
+  }
+  .switch > span {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.3);
+    transition: transform var(--motion) var(--ease-press);
+  }
+  .switch:hover:not(:disabled) {
+    background: var(--text-muted);
+  }
+  .switch[aria-checked='true'] {
+    background: var(--service);
+  }
+  .switch[aria-checked='true']:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--service) 88%, #000000);
+  }
+  .switch[aria-checked='true'] > span {
+    transform: translateX(1rem);
   }
 
   .input,
   .select {
-    font-family: 'Barlow', sans-serif;
-    font-size: 13px;
+    font-family: inherit;
+    font-size: 13.5px;
     color: var(--text-primary);
-    background: var(--field);
-    border: 1px solid var(--rule);
-    border-radius: 2px;
-    padding: 0.45rem 0.6rem;
+    background: var(--bg-card);
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--radius);
+    padding: 0.4rem 0.6rem;
+    min-height: 32px;
+    transition: border-color var(--motion) var(--ease-press),
+      box-shadow var(--motion) var(--ease-press);
+  }
+  .input:hover,
+  .select:hover {
+    border-color: var(--text-muted);
+  }
+  .input:focus,
+  .select:focus {
+    border-color: var(--service);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--service) 18%, transparent);
+    outline: none;
   }
   .input::placeholder {
     color: var(--text-muted);
@@ -309,27 +512,29 @@ h3 {
     appearance: none;
     background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
       linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-    background-position: calc(100% - 13px) center, calc(100% - 8px) center;
+    background-position: calc(100% - 14px) center, calc(100% - 9px) center;
     background-size: 5px 5px, 5px 5px;
     background-repeat: no-repeat;
-    padding-right: 1.75rem;
+    padding-right: 1.9rem;
   }
 
-  /* --- panels: ruled, never card-stacked ------------------------------ */
+  /* --- panels ----------------------------------------------------------- */
   .panel {
     background: var(--bg-card);
     border: 1px solid var(--rule);
-    border-radius: 3px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-1);
   }
   .panel-head {
     display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    padding: 0.6rem 0.85rem;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 44px;
+    padding: 0.6rem 1rem;
     border-bottom: 1px solid var(--rule);
   }
 
-  /* --- rules ----------------------------------------------------------- */
+  /* --- rules ------------------------------------------------------------ */
   .rule {
     border: 0;
     border-top: 1px solid var(--rule);
@@ -342,20 +547,21 @@ h3 {
     border-left: 1px solid var(--rule);
   }
 
-  /* --- skip link ------------------------------------------------------ */
+  /* --- skip link -------------------------------------------------------- */
   .skip-link {
     position: absolute;
     top: -48px;
     left: 0;
     z-index: 1000;
-    background: var(--ink);
-    color: var(--bg-card);
+    background: var(--service);
+    color: #ffffff;
     padding: 8px 14px;
+    border-radius: var(--radius);
     font-weight: 600;
-    transition: top 0.2s ease;
+    transition: top 0.15s var(--ease-press);
   }
   .skip-link:focus {
-    top: 0;
+    top: 8px;
   }
 }
 
@@ -363,11 +569,11 @@ h3 {
 *:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-  border-radius: 1px;
+  border-radius: 2px;
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--service) 26%, transparent);
+  background: color-mix(in srgb, var(--service) 24%, transparent);
   color: var(--text-primary);
 }
 
@@ -376,9 +582,13 @@ textarea {
   caret-color: var(--service);
 }
 
+a {
+  text-underline-offset: 2px;
+}
+
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -386,29 +596,25 @@ textarea {
 ::-webkit-scrollbar-thumb {
   background: var(--rule-strong);
   border: 3px solid var(--bg-primary);
-  border-radius: 0;
+  border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 
-/* --- motion: one authored curve, one place that uses it --------------- */
+/* --- motion: one authored entrance, used once per sheet --------------- */
 @keyframes ow-stamp {
-  0% {
+  from {
     opacity: 0;
-    transform: scale(1.16);
+    transform: translateY(1px) scale(0.98);
   }
-  60% {
+  to {
     opacity: 1;
-    transform: scale(0.985);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
+    transform: none;
   }
 }
 .ow-stamped {
-  animation: ow-stamp 0.4s var(--ease-press) both;
+  animation: ow-stamp 0.15s var(--ease-press) both;
 }
 
 @keyframes ow-rise {
@@ -422,7 +628,7 @@ textarea {
   }
 }
 .ow-rise {
-  animation: ow-rise 0.4s var(--ease-press) both;
+  animation: ow-rise 0.18s var(--ease-press) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

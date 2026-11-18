@@ -49,7 +49,7 @@ export function Gauge({ value, label, unit = '%', sublabel, history }: GaugeProp
           ))}
         </div>
         <div
-          className="h-full transition-[width] duration-400 ease-[var(--ease-press)]"
+          className="h-full transition-[width] duration-150 ease-press"
           style={{ width: `${clamped}%`, background: color }}
         />
       </div>

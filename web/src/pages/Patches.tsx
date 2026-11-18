@@ -164,7 +164,7 @@ export function Patches() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('patches.managementTitle')}</h1>
+          <h1 className="ow-display text-[22px]">{t('patches.managementTitle')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
             {t('patches.subtitle', { detected: detectedCount, failed: failedCount })}
           </p>
@@ -253,7 +253,7 @@ export function Patches() {
             first={filtered[guide.first]?.title}
             last={filtered[guide.last]?.title}
           />
-          <div ref={guide.ref} className="max-h-[32rem] overflow-y-auto">
+          <div ref={guide.ref} className="max-h-[32rem] overflow-y-auto ledger-scroll">
             <table className="ledger">
               <thead>
                 <tr>

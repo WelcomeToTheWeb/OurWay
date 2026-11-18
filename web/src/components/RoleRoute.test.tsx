@@ -52,7 +52,7 @@ describe('RoleRoute', () => {
     expect(await screen.findByText('Users admin page')).toBeInTheDocument();
   });
 
-  it('redirects to / when the user lacks the required role', async () => {
+  it('states the denial, naming the roles, instead of bouncing the operator home', async () => {
     localStorage.setItem(
       'ourway_user',
       JSON.stringify({ id: 'u2', username: 'viewer', email: 'v@b.c', created_at: '' })
@@ -79,11 +79,14 @@ describe('RoleRoute', () => {
       </AuthProvider>
     );
 
-    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+    expect(await screen.findByText('Not for your role')).toBeInTheDocument();
+    expect(screen.getByText(/needs one of these roles: admin/i)).toBeInTheDocument();
     expect(screen.queryByText('Users admin page')).not.toBeInTheDocument();
+    // The address they asked for stays put: it is the thing they hand to an admin.
+    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
   });
 
-  it('redirects when there are no roles at all', async () => {
+  it('states the denial when there are no roles at all', async () => {
     localStorage.setItem('ourway_access_token', 'tok');
     localStorage.setItem('ourway_refresh_token', 'ref');
 
@@ -105,7 +108,7 @@ describe('RoleRoute', () => {
       </AuthProvider>
     );
 
-    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+    expect(await screen.findByText('Not for your role')).toBeInTheDocument();
   });
 });
 

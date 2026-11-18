@@ -206,7 +206,7 @@ export function FleetPatches() {
         </div>
       </div>
 
-      <section className="panel overflow-hidden" aria-label="Outstanding updates">
+      <section className="panel ledger-scroll" aria-label="Outstanding updates">
         <div className="panel-head">
           <h2 className="cap cap-lg text-text-muted">Outstanding updates</h2>
           <span className="cap cap-sm ml-auto text-text-muted">{visible.length} of {updates.length}</span>
@@ -291,7 +291,7 @@ export function FleetPatches() {
         )}
       </section>
 
-      <section className="panel overflow-hidden" aria-label="Device compliance">
+      <section className="panel ledger-scroll" aria-label="Device compliance">
         <div className="panel-head">
           <h2 className="cap cap-lg text-text-muted">Units not clear</h2>
           <Link to="/patch-policies" className="cap cap-sm ml-auto text-[var(--service)] hover:underline">

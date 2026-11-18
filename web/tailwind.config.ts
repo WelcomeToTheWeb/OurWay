@@ -17,11 +17,20 @@ const config: Config = {
           secondary: 'var(--text-secondary)',
           muted: 'var(--text-muted)',
         },
-        /* the world's ink roles */
+        /* action ink and the nav rail */
         ink: {
           DEFAULT: 'var(--ink)',
-          plate: 'var(--ink-plate)',
-          onPlate: 'var(--ink-on-plate)',
+          plate: 'var(--rail-bg)',
+          onPlate: 'var(--rail-text)',
+        },
+        rail: {
+          DEFAULT: 'var(--rail-bg)',
+          raised: 'var(--rail-bg-raised)',
+          text: 'var(--rail-text)',
+          muted: 'var(--rail-text-muted)',
+          line: 'var(--rail-line)',
+          active: 'var(--rail-active-bg)',
+          activeText: 'var(--rail-active-text)',
         },
         accent: {
           DEFAULT: 'var(--service)',
@@ -34,7 +43,7 @@ const config: Config = {
           warning: 'var(--warning)',
           error: 'var(--error)',
         },
-        stamp: 'var(--stamp)',
+        stamp: 'var(--error)',
         service: 'var(--service)',
         due: 'var(--due)',
         rule: {
@@ -43,28 +52,34 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['Barlow', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
-        cap: ['"Archivo Narrow"', 'Barlow', 'sans-serif'],
+        sans: ['"Public Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"Overpass Mono"', 'ui-monospace', 'monospace'],
+        cap: ['"Public Sans"', 'ui-sans-serif', 'sans-serif'],
       },
-      /* Letterpress corners: rules meet at right angles, never balloons. */
+      /* Console geometry: comfortable radii, never near-square, never a pill. */
       borderRadius: {
         none: '0',
-        sm: '2px',
-        DEFAULT: '2px',
-        md: '2px',
-        lg: '3px',
-        xl: '3px',
-        '2xl': '4px',
-        '3xl': '6px',
+        sm: '4px',
+        DEFAULT: '6px',
+        md: '6px',
+        lg: '8px',
+        xl: '10px',
+        '2xl': '12px',
+        '3xl': '16px',
         full: '9999px',
       },
+      boxShadow: {
+        elev1: 'var(--elev-1)',
+        elev2: 'var(--elev-2)',
+        elev3: 'var(--elev-3)',
+      },
       letterSpacing: {
-        cap: '0.09em',
-        stamp: '0.14em',
+        cap: '0.04em',
+        stamp: '0em',
       },
       transitionTimingFunction: {
-        overshoot: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+        press: 'cubic-bezier(0.2, 0, 0, 1)',
+        overshoot: 'cubic-bezier(0.2, 0, 0, 1)',
       },
     },
   },

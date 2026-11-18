@@ -17,6 +17,14 @@
     "webhooks": "Webhooks"
   },
   "common": {
+    "loadFailed": "This view could not be loaded.",
+    "countUnavailable": "Count unavailable",
+    "retry": "Retry",
+    "notFoundTitle": "No such page",
+    "notFoundBody": "The console has no view at this address. It may have been renamed, or the link may be out of date.",
+    "backHome": "Back to the dashboard",
+    "deniedTitle": "Not for your role",
+    "deniedBody": "This view needs one of these roles: {{roles}}. Ask a console administrator if you need it.",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -66,6 +74,7 @@
     "activeAlertsHintNone": "no thresholds breached"
   },
   "devices": {
+    "countUnavailable": "Could not read the device count",
     "title": "Devices",
     "count": "{{count}} monitored devices",
     "noMatch": "No devices match your search",
@@ -109,6 +118,7 @@
     "auditLinkAria": "Open the audit ledger for {{name}}"
   },
   "alerts": {
+    "countUnavailable": "Could not read the alert ledger",
     "title": "Alerts",
     "noAlerts": "No alerts",
     "search": "Search alerts by device or message...",
@@ -140,7 +150,9 @@
       "subtitle": "Your personal information",
       "username": "Username",
       "email": "Email",
-      "save": "Save Profile"
+      "save": "Save Profile",
+      "auditLink": "My acts in the ledger",
+      "auditLinkAria": "Open the audit ledger for {{name}}"
     },
     "password": {
       "title": "Change Password",
@@ -233,9 +245,7 @@
       "clearDataDone": "Cleared {{metrics}} metrics and {{alerts}} alerts.",
       "clearDataFailed": "Clearing the monitoring data failed.",
       "deleteAccountFailed": "Deleting the account failed."
-    },
-    "profile.auditLink": "My acts in the ledger",
-    "profile.auditLinkAria": "Open the audit ledger for {{name}}"
+    }
   },
   "auth": {
     "signOut": "Sign out",

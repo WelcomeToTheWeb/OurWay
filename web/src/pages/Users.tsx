@@ -147,7 +147,7 @@ export function Users() {
       )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">{t('users.title')}</h1>
+          <h1 className="ow-display text-[22px]">{t('users.title')}</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
             {users.length} account{users.length === 1 ? '' : 's'} · roles decide what each console session may do
           </p>
@@ -173,7 +173,7 @@ export function Users() {
           {identities.length === 0 ? (
             <div className="cap cap-sm px-4 py-3 text-text-muted">{t('users.pendingNone')}</div>
           ) : (
-            <div className="max-h-[18rem] overflow-y-auto overflow-x-auto">
+            <div className="max-h-[18rem] overflow-y-auto ledger-scroll">
               <table className="ledger min-w-[660px]">
                 <thead>
                   <tr>
@@ -263,7 +263,7 @@ export function Users() {
           first={users[guide.first]?.username}
           last={users[guide.last]?.username}
         />
-        <div ref={guide.ref} className="max-h-[32rem] overflow-y-auto overflow-x-auto">
+        <div ref={guide.ref} className="max-h-[32rem] overflow-y-auto ledger-scroll">
           <table className="ledger min-w-[600px]">
             <thead>
               <tr>

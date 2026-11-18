@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import type { Device } from '../types/device';
 import type { DeviceCompliance, PatchPolicy } from '../types/patch';
 import { StatusStamp } from './Stamp';
-import { ServiceRecord } from './ServiceRecord';
 import { deviceRecord, policyForDevice } from '../utils/policyScope';
 
 const osIcons: Record<string, typeof Monitor> = {
@@ -27,8 +26,30 @@ export function osLabel(os: string): string {
 }
 
 /**
- * A device decal: the unit's identity, its state stamp, and its service
- * record — last seen, next due, interval — printed in one ruled block.
+ * The card is a fixed box, and the box is the contract: `Devices.tsx` sizes the
+ * virtualised window from this number (rowHeight = DEVICE_CARD_H + 2 × the cell
+ * gutter), so a row in the window and a card in the responsive grid are the same
+ * height to the pixel. Everything inside is single-line and clipped, and the
+ * record line is pinned to the bottom edge with `mt-auto`, so a unit with no
+ * tenant and no tags still closes at the same place as one with both.
+ */
+export const DEVICE_CARD_H = 148;
+
+/** The card's gutter inside a virtualised cell. Devices.tsx adds it to DEVICE_CARD_H. */
+export const DEVICE_CARD_GUTTER = 6;
+
+/** The metric line's tone: the patch threshold's own colour, never a decoration. */
+const nextToneClass = {
+  default: 'text-text-primary',
+  due: 'text-due',
+  alert: 'text-error',
+  ok: 'text-online',
+} as const;
+
+/**
+ * A device card: the unit's identity, its state, and the three figures a
+ * technician reads before opening it — last seen, next due, interval — set as
+ * one quiet metric line under a hairline.
  */
 export function DeviceCard({
   device,
@@ -40,7 +61,7 @@ export function DeviceCard({
   compliance?: DeviceCompliance;
   policies?: PatchPolicy[];
   /**
-   * The tenant this unit belongs to (2.3-5). Printed on the decal because a
+   * The tenant this unit belongs to (2.3-5). Printed on the card because a
    * technician working two tenants must know which fleet a card is in before
    * they click it; the fleet is filtered server-side, so the card is the last
    * place the answer can be seen.
@@ -60,39 +81,42 @@ export function DeviceCard({
   return (
     <Link
       to={`/devices/${device.id}`}
-      className="decal group flex h-full flex-col no-underline"
+      data-device-card={device.id}
+      style={{ height: DEVICE_CARD_H }}
+      className="decal group flex flex-col overflow-hidden no-underline"
       aria-label={`${device.name} — ${device.status}`}
     >
-      <div className="flex items-start justify-between gap-2 px-3 pt-3">
-        <div className="flex min-w-0 items-start gap-2.5">
+      <div className="flex items-start gap-2 px-3 pt-2.5">
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-rule bg-[var(--field)]"
+          aria-hidden="true"
+        >
+          <Icon className="h-4 w-4 text-text-secondary" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-semibold leading-tight text-text-primary group-hover:text-service" title={device.name}>
+            {device.name}
+          </span>
           <span
-            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center border border-rule"
-            aria-hidden="true"
+            className="mt-0.5 block truncate font-mono text-[12px] leading-snug text-text-muted"
+            title={`${osLabel(device.os)} · ${device.arch} · ${device.hostname}`}
           >
-            <Icon className="h-4 w-4 text-text-secondary" />
+            {osLabel(device.os)} · {device.arch} · {device.hostname}
           </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[14px] font-semibold text-text-primary group-hover:text-[var(--service)]">
-              {device.name}
+          {clientName && (
+            <span
+              className="cap-sm cap mt-1 block truncate text-service"
+              title={clientName}
+              aria-label={`Tenant ${clientName}`}
+            >
+              {clientName}
             </span>
-            <span className="cap-sm cap block truncate text-text-muted">
-              {osLabel(device.os)} · {device.arch} · {device.hostname}
-            </span>
-            {clientName && (
-              <span
-                className="cap-sm cap block truncate text-[var(--service)]"
-                title={clientName}
-                aria-label={`Tenant ${clientName}`}
-              >
-                {clientName}
-              </span>
-            )}
-          </span>
-        </div>
+          )}
+        </span>
         <span className="flex shrink-0 flex-col items-end gap-1">
           <StatusStamp status={device.status} />
           {device.reboot_pending && (
-            <span className="flex items-center gap-1 text-[10px] text-[var(--due)]" title="Reboot pending">
+            <span className="flex items-center gap-1 text-[10px] text-due" title="Reboot pending">
               <RotateCw className="h-3 w-3" aria-hidden="true" />
               <span className="cap-sm cap">Reboot</span>
             </span>
@@ -101,9 +125,9 @@ export function DeviceCard({
       </div>
 
       {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 px-3 pt-2">
+        <div className="flex h-[17px] flex-wrap gap-1 overflow-hidden px-3 pt-1.5">
           {tags.slice(0, 4).map((tag) => (
-            <span key={tag} className="cap-sm cap border border-rule px-1.5 py-0.5 text-text-secondary">
+            <span key={tag} className="cap-sm cap rounded-sm border border-rule px-1.5 text-text-secondary">
               {tag}
             </span>
           ))}
@@ -111,8 +135,27 @@ export function DeviceCard({
         </div>
       )}
 
-      <div className="mt-2 flex-1" />
-      <ServiceRecord {...record} />
+      <div className="mt-auto border-t border-rule px-3 pb-2 pt-2">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="field-label shrink-0">{record.lastLabel}</span>
+            <span className="ow-num truncate text-[11.5px] leading-tight text-text-secondary" title={record.last}>{record.last}</span>
+          </span>
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="field-label shrink-0">{record.nextLabel}</span>
+            <span
+              className={`ow-num truncate text-[11.5px] leading-tight ${nextToneClass[record.nextTone]}`}
+              title={record.next}
+            >
+              {record.next}
+            </span>
+          </span>
+        </div>
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <span className="field-label shrink-0">{record.intervalLabel}</span>
+          <span className="ow-num truncate text-[11.5px] leading-tight text-text-muted" title={record.interval}>{record.interval}</span>
+        </div>
+      </div>
     </Link>
   );
 }

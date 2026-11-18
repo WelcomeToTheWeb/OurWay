@@ -41,7 +41,7 @@ export function MetricCard({ label, value, unit = '%', history, threshold }: Met
 
       <div className="relative mt-2 h-[7px] border border-rule bg-[var(--field)]" aria-hidden="true">
         <div
-          className="h-full transition-[width] duration-400 ease-[var(--ease-press)]"
+          className="h-full transition-[width] duration-150 ease-press"
           style={{ width: `${widthPct}%`, background: color }}
         />
         {threshold != null && threshold < limit && (

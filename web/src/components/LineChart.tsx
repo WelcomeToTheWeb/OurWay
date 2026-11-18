@@ -79,13 +79,13 @@ export function LineChart({
       <RechartsLineChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 4 }}>
         <XAxis
           dataKey={xKey}
-          tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
+          tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'Public Sans, sans-serif' }}
           tickLine={false}
           axisLine={{ stroke: 'var(--rule-strong)' }}
           interval="preserveStartEnd"
         />
         <YAxis
-          tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
+          tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'Public Sans, sans-serif' }}
           tickLine={false}
           axisLine={{ stroke: 'var(--rule-strong)' }}
           domain={yDomain}

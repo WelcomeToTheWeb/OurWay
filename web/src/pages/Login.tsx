@@ -1,6 +1,6 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { MonitorSmartphone } from "lucide-react";
+import { AlertCircle, MonitorSmartphone } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../auth/context";
 import {
@@ -121,10 +121,10 @@ export function Login() {
 
   if (hasUsers === null) {
     return (
-      <main className="plate flex min-h-screen items-center justify-center">
+      <main className="plate flex min-h-screen items-center justify-center px-5">
         <span
           className="cap cap-lg"
-          style={{ color: "var(--ink-on-plate-muted)" }}
+          style={{ color: "var(--rail-text-muted)" }}
         >
           Opening the console…
         </span>
@@ -135,31 +135,34 @@ export function Login() {
   const origin = typeof window !== "undefined" ? window.location.host : "";
 
   return (
-    <main className="grid min-h-screen grid-cols-1 lg:grid-cols-[22rem_minmax(0,1fr)]">
-      {/* The plate */}
-      <section className="plate flex flex-col justify-between px-6 py-8">
+    <main className="flex min-h-screen flex-col lg:grid lg:grid-cols-[24rem_minmax(0,1fr)]">
+      {/* The plate: a compact header on a phone, a full-height field on a desk */}
+      <section className="plate flex flex-row items-center justify-between gap-4 px-5 py-3.5 lg:flex-col lg:items-stretch lg:justify-between lg:gap-0 lg:px-8 lg:py-10">
         <div>
           <div className="flex items-center gap-2.5">
             <span
-              className="flex h-9 w-9 items-center justify-center border"
-              style={{ borderColor: "rgba(232,228,216,0.4)" }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded border"
+              style={{
+                borderColor: "color-mix(in srgb, var(--rail-text) 26%, transparent)",
+                background: "var(--rail-bg-raised)",
+              }}
             >
               <MonitorSmartphone
                 className="h-4 w-4"
-                style={{ color: "var(--ink-on-plate)" }}
+                style={{ color: "var(--rail-text)" }}
                 aria-hidden="true"
               />
             </span>
             <span>
               <span
-                className="ow-display block text-[22px] leading-none"
-                style={{ color: "var(--ink-on-plate)" }}
+                className="ow-display block text-[22px] leading-tight"
+                style={{ color: "var(--rail-text)" }}
               >
                 {t("app.name")}
               </span>
               <span
                 className="cap-sm cap mt-1 block"
-                style={{ color: "var(--ink-on-plate-muted)" }}
+                style={{ color: "var(--rail-text-muted)" }}
               >
                 {t("app.tagline")}
               </span>
@@ -167,44 +170,44 @@ export function Login() {
           </div>
 
           <p
-            className="mt-8 text-[13px] leading-relaxed"
-            style={{ color: "var(--ink-on-plate)" }}
+            className="hidden max-w-[36ch] text-[13px] leading-relaxed lg:mt-8 lg:block"
+            style={{ color: "var(--rail-text)" }}
           >
             Monitoring, patching, remote control and file transfer for Windows,
             Linux and macOS units — on a server you run.
           </p>
         </div>
 
-        <dl className="mt-8 space-y-2">
+        <dl className="hidden lg:mt-8 lg:block lg:space-y-2">
           <div
             className="flex items-baseline justify-between gap-3 border-b pb-1.5"
-            style={{ borderColor: "rgba(232,228,216,0.16)" }}
+            style={{ borderColor: "var(--rail-line)" }}
           >
             <dt
               className="cap-sm cap"
-              style={{ color: "var(--ink-on-plate-muted)" }}
+              style={{ color: "var(--rail-text-muted)" }}
             >
               Server
             </dt>
             <dd
-              className="ow-num text-[12px]"
-              style={{ color: "var(--ink-on-plate)" }}
+              className="ow-num truncate text-[12px]"
+              style={{ color: "var(--rail-text)" }}
             >
               {origin}
             </dd>
           </div>
           <div
             className="flex items-baseline justify-between gap-3 border-b pb-1.5"
-            style={{ borderColor: "rgba(232,228,216,0.16)" }}
+            style={{ borderColor: "var(--rail-line)" }}
           >
             <dt
               className="cap-sm cap"
-              style={{ color: "var(--ink-on-plate-muted)" }}
+              style={{ color: "var(--rail-text-muted)" }}
             >
               Hosting
             </dt>
             <dd>
-              <span className="stamp" style={{ color: "var(--ink-on-plate)" }}>
+              <span className="stamp" style={{ color: "var(--rail-text)" }}>
                 Self-hosted
               </span>
             </dd>
@@ -212,13 +215,13 @@ export function Login() {
           <div className="flex items-baseline justify-between gap-3">
             <dt
               className="cap-sm cap"
-              style={{ color: "var(--ink-on-plate-muted)" }}
+              style={{ color: "var(--rail-text-muted)" }}
             >
               Licence
             </dt>
             <dd
               className="ow-num text-[12px]"
-              style={{ color: "var(--ink-on-plate)" }}
+              style={{ color: "var(--rail-text)" }}
             >
               MIT
             </dd>
@@ -227,9 +230,11 @@ export function Login() {
       </section>
 
       {/* The door */}
-      <section className="flex items-center justify-center px-5 py-10">
-        <div className="w-full max-w-[26rem] panel p-5">
-          <h1 className="text-[24px]">{hasUsers ? "Sign in" : "First run"}</h1>
+      <section className="flex flex-1 items-center justify-center px-5 py-8 lg:px-8 lg:py-10">
+        <div className="panel ow-rise w-full max-w-[26rem] p-5 shadow-elev1 lg:p-6">
+          <h1 className="ow-display text-[22px] leading-tight">
+            {hasUsers ? "Sign in" : "First run"}
+          </h1>
           <p className="cap cap-sm mt-1 border-b border-rule pb-3 text-text-muted">
             {hasUsers
               ? "Technicians, managers and admins on this console"
@@ -241,13 +246,21 @@ export function Login() {
               {error && (
                 <p
                   role="alert"
-                  className="border border-[var(--error)] px-3 py-2 text-[12.5px] text-[var(--error)]"
+                  className="ow-stamped flex items-start gap-2 rounded border border-[var(--error)] px-3 py-2 text-[13px] leading-relaxed text-[var(--error)]"
+                  style={{
+                    background:
+                      "color-mix(in srgb, var(--error) 7%, transparent)",
+                  }}
                 >
-                  {error}
+                  <AlertCircle
+                    className="mt-px h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{error}</span>
                 </p>
               )}
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 <label className="field-label" htmlFor="login-username">
                   {t("auth.username")}
                 </label>
@@ -256,14 +269,14 @@ export function Login() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="input py-2.5 text-[13px]"
+                  className="input h-[38px] text-[13px]"
                   placeholder={t("auth.usernamePlaceholder")}
                   autoComplete="username"
                   required
                 />
               </div>
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 <label className="field-label" htmlFor="login-password">
                   {t("auth.password")}
                 </label>
@@ -272,7 +285,7 @@ export function Login() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input py-2.5 text-[13px]"
+                  className="input h-[38px] text-[13px]"
                   placeholder={t("auth.passwordPlaceholder")}
                   autoComplete="current-password"
                   required
@@ -282,13 +295,13 @@ export function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="btn btn-primary mt-2 py-2.5 text-[13px]"
+                className="btn btn-primary mt-1 h-[38px] w-full text-[13px]"
               >
                 {loading ? t("auth.signingIn") : t("auth.signIn")}
               </button>
 
               {!providersLoading && providers.length > 0 && (
-                <div className="mt-2 flex flex-col gap-2">
+                <div className="mt-1 flex flex-col gap-2">
                   <div className="flex items-center gap-3">
                     <span className="h-px flex-1 bg-[var(--rule)]" />
                     <span className="cap-sm cap text-text-muted">
@@ -301,7 +314,7 @@ export function Login() {
                       key={p.name}
                       type="button"
                       onClick={() => handleSSO(p)}
-                      className="btn py-2.5 text-[13px]"
+                      className="btn h-[38px] w-full justify-start px-3 text-[13px] duration-150 ease-press"
                     >
                       <ProviderIcon provider={p.name} />
                       {/* The server names the place a person is going (an OIDC issuer
@@ -318,24 +331,32 @@ export function Login() {
           ) : (
             <form
               onSubmit={handleRegister}
-              className="mt-5 flex flex-col gap-3"
+              className="mt-4 flex flex-col gap-3"
             >
               {error && (
                 <p
                   role="alert"
-                  className="border border-[var(--error)] px-3 py-2 text-[12.5px] text-[var(--error)]"
+                  className="ow-stamped flex items-start gap-2 rounded border border-[var(--error)] px-3 py-2 text-[13px] leading-relaxed text-[var(--error)]"
+                  style={{
+                    background:
+                      "color-mix(in srgb, var(--error) 7%, transparent)",
+                  }}
                 >
-                  {error}
+                  <AlertCircle
+                    className="mt-px h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{error}</span>
                 </p>
               )}
 
-              <p className="border border-rule bg-[var(--field)] px-3 py-2 text-[12.5px] text-text-secondary">
+              <p className="rounded border border-rule bg-[var(--field)] px-3 py-2 text-[13px] leading-relaxed text-text-secondary">
                 This account becomes the console's admin: full access to units,
                 users, policies and settings. Enrol agents after it exists —
                 self-registration closes once an account is here.
               </p>
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 <label className="field-label" htmlFor="reg-username">
                   {t("auth.username")}
                 </label>
@@ -344,14 +365,14 @@ export function Login() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="input py-2.5 text-[13px]"
+                  className="input h-[38px] text-[13px]"
                   placeholder={t("auth.usernamePlaceholder")}
                   autoComplete="username"
                   required
                 />
               </div>
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 <label className="field-label" htmlFor="reg-email">
                   {t("auth.email")}
                 </label>
@@ -360,14 +381,14 @@ export function Login() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="input py-2.5 text-[13px]"
+                  className="input h-[38px] text-[13px]"
                   placeholder={t("auth.emailPlaceholder")}
                   autoComplete="email"
                   required
                 />
               </div>
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 <label className="field-label" htmlFor="reg-password">
                   {t("auth.password")}
                 </label>
@@ -376,7 +397,7 @@ export function Login() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input py-2.5 text-[13px]"
+                  className="input h-[38px] text-[13px]"
                   placeholder={t("auth.passwordPlaceholder")}
                   autoComplete="new-password"
                   required
@@ -386,21 +407,21 @@ export function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="btn btn-primary mt-2 py-2.5 text-[13px]"
+                className="btn btn-primary mt-1 h-[38px] w-full text-[13px] duration-150 ease-press"
               >
                 {loading ? t("auth.creatingAccount") : t("auth.getStarted")}
               </button>
             </form>
           )}
 
-          <div className="mt-6 flex items-center gap-2">
+          <div className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-rule pt-3">
             <Stamp
               tone="neutral"
               title="Sessions use short-lived access tokens refreshed over the API"
             >
               JWT session
             </Stamp>
-            <span className="text-[11px] text-text-muted">
+            <span className="text-[12px] leading-snug text-text-muted">
               {hasUsers
                 ? "Access tokens expire and refresh automatically."
                 : "No agents are enrolled on this server yet."}

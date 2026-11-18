@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download, Play, RefreshCw, ScrollText } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import {
   downloadRecordingManifest,
@@ -11,6 +12,7 @@ import { useFleet } from '../hooks/useFleet';
 import { useClientScope } from '../hooks/useClientScope';
 import { clientNameForSlug } from '../utils/clientFilter';
 import { ClientFacet } from '../components/ClientFacet';
+import { FetchError } from '../components/FetchError';
 import { Stamp, type StampTone } from '../components/Stamp';
 import { RecordingPlayer } from '../components/RecordingPlayer';
 
@@ -51,7 +53,8 @@ function bytesLabel(bytes: number): string {
 }
 
 export function Recordings() {
-  const { data, loading, refresh } = useFleet('recordings', { owner: true });
+  const { t } = useTranslation();
+  const { data, loading, refresh, error: loadError } = useFleet('recordings', { owner: true });
   const scope = useClientScope();
   const [playing, setPlaying] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -69,10 +72,13 @@ export function Recordings() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px]">Session recordings</h1>
+          <h1 className="ow-display text-[22px]">Session recordings</h1>
           <p className="cap cap-sm mt-1 text-text-muted">
-            {rows.length} recording{rows.length === 1 ? '' : 's'}
-            {scope.slug !== '' && ` · ${clientNameForSlug(scope.clients, scope.slug)}`}
+            {loadError
+              ? t('common.countUnavailable')
+              : `${rows.length} recording${rows.length === 1 ? '' : 's'}${
+                  scope.slug !== '' ? ` · ${clientNameForSlug(scope.clients, scope.slug)}` : ''
+                }`}
           </p>
         </div>
         <ClientFacet
@@ -109,11 +115,8 @@ export function Recordings() {
         </p>
       </div>
 
-      {error && (
-        <p role="alert" className="text-[13px] text-[var(--error)]">
-          {error}
-        </p>
-      )}
+      {loadError && <FetchError detail={loadError} onRetry={load} />}
+      {error && <FetchError detail={error} onRetry={load} />}
 
       {loading ? (
         <div className="flex h-40 items-center justify-center">
@@ -131,7 +134,7 @@ export function Recordings() {
           </p>
         </div>
       ) : (
-        <div className="panel overflow-hidden">
+        <div className="panel ledger-scroll">
           <table className="ledger">
             <thead>
               <tr>

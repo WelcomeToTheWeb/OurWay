@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Menu, Pause, Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/context';
@@ -14,6 +14,14 @@ import { scopeCount, scopeLabel } from '../utils/clientFilter';
 import { nextWindow, untilLabel } from '../utils/nextWindow';
 import { formatWindow } from '../utils/patchWindow';
 import { useRateLimit } from '../hooks/useRateLimit';
+
+/** Tailwind's `lg`: at or above this width the rail is static furniture; below
+ *  it the same rail is a drawer, which changes what the keyboard owes it. */
+const RAIL_BREAKPOINT = '(min-width: 1024px)';
+const isWideViewport = () =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia(RAIL_BREAKPOINT).matches
+    : true;
 
 /**
  * The shift bar: what a technician on shift needs before they read a single
@@ -67,6 +75,48 @@ export function Layout() {
 
   const upcoming = useMemo(() => nextWindow(policies, clock), [policies, clock]);
 
+  /* Below `lg` the rail is a drawer. A drawer that survives the navigation it
+     caused, that Escape does not close, or that keeps focus when it is slid off
+     screen is a dead end for anyone not using a mouse, so all four are wired
+     here rather than in the Sidebar that rides inside it. */
+  const location = useLocation();
+  const navRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const [isWide, setIsWide] = useState(isWideViewport);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(RAIL_BREAKPOINT);
+    const onChange = (event: MediaQueryListEvent) => {
+      setIsWide(event.matches);
+      if (event.matches) setSidebarOpen(false);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  const navIsModal = sidebarOpen && !isWide;
+
+  useEffect(() => {
+    if (!navIsModal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setSidebarOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    navRef.current?.focus();
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      // Focus goes back where it came from, unless the rail became static first.
+      if (!isWideViewport()) menuButtonRef.current?.focus();
+    };
+  }, [navIsModal]);
+
   const utc = clock.toISOString().slice(11, 19);
   // "dev" is the unstamped local build: docs/versioning.md.
   const consoleVersion = import.meta.env.VITE_APP_VERSION || 'dev';
@@ -85,31 +135,40 @@ export function Layout() {
 
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/60 lg:hidden"
+          className="fixed inset-0 z-30 lg:hidden"
+          style={{ background: 'var(--scrim)' }}
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
       )}
 
       <div
-        className={`fixed inset-y-0 left-0 z-40 w-60 transform transition-transform duration-400 ease-[var(--ease-press)] lg:static lg:translate-x-0 ${
+        id="ourway-nav"
+        ref={navRef}
+        tabIndex={-1}
+        data-open={sidebarOpen ? 'true' : 'false'}
+        className={`rail-shell fixed inset-y-0 left-0 z-40 w-60 transform lg:static lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
+        {...(navIsModal ? { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Navigation' } : {})}
       >
         <Sidebar />
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-rule bg-bg-secondary px-3 md:px-5">
+        <header className="flex h-16 shrink-0 items-center gap-2 border-b border-rule bg-bg-secondary px-3 md:px-5">
           <button
+            ref={menuButtonRef}
             className="rounded p-2 text-text-secondary lg:hidden"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open navigation menu"
+            aria-expanded={sidebarOpen}
+            aria-controls="ourway-nav"
           >
             <Menu className="h-5 w-5" />
           </button>
 
-          <form onSubmit={submitSearch} className="relative w-full max-w-[22rem]" role="search">
+          <form onSubmit={submitSearch} className="relative w-full max-w-[12rem] shrink lg:max-w-[13rem] xl:max-w-[16rem] 2xl:max-w-[20rem]" role="search">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
             <input
               type="search"
@@ -121,12 +180,30 @@ export function Layout() {
             />
           </form>
 
-          <div className="ml-auto flex items-center gap-3 md:gap-5">
-            <span className="hidden md:flex items-center gap-2">
-              <span className="cap-sm cap text-text-muted">Next window</span>
+          <div className="ml-auto flex min-w-0 items-center gap-2.5 md:gap-3.5">
+            {/* The instruments are one shrinkable box; the identity cluster and
+                the way out are not. When the bar runs out of room the
+                instruments give — in the order their breakpoints shed them —
+                and the operator's own name and the sign-out never do. */}
+            <div className="hidden min-w-0 items-center gap-2.5 overflow-hidden md:flex md:gap-3.5">
+            {/* The window instrument is the widest one on the bar, so it is the
+                instrument that yields: it appears only at `2xl`, where it can
+                say the whole window. It is never the only place the answer
+                exists — the dashboard and the patch-policy pages both name the
+                next window — but the server version and the request budget are
+                promised to the operator wherever the bar can hold them, so
+                those appear a whole breakpoint earlier. */}
+            <span className="hidden min-w-0 items-center gap-2 2xl:flex">
+              <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">Next window</span>
               {upcoming ? (
-                <Stamp tone="due" title={`${upcoming.policy.name} · ${formatWindow(upcoming.policy)}`}>
-                  {formatWindow(upcoming.policy)} · {untilLabel(upcoming.at, clock)}
+                <Stamp
+                  tone="due"
+                  className="max-w-[18rem] min-w-0"
+                  title={`${upcoming.policy.name} · ${formatWindow(upcoming.policy)}`}
+                >
+                  <span className="block min-w-0 truncate">
+                    {formatWindow(upcoming.policy)} · {untilLabel(upcoming.at, clock)}
+                  </span>
                 </Stamp>
               ) : (
                 <Stamp tone="neutral" title="No policy maintenance window is scheduled">
@@ -136,33 +213,33 @@ export function Layout() {
             </span>
 
             <span className="hidden sm:flex items-baseline gap-2">
-              <span className="cap-sm cap text-text-muted">UTC</span>
+              <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">UTC</span>
               <time className="ow-num text-[15px] font-semibold text-text-primary" dateTime={clock.toISOString()}>
                 {utc}
               </time>
             </span>
 
             <span
-              className="hidden lg:flex items-baseline gap-2"
+              className="hidden xl:flex items-baseline gap-2"
               title={t('layout.versionTitle', {
                 server: serverVersion?.version || 'dev',
                 commit: serverVersion?.git_commit || 'dev',
                 console: consoleVersion,
               })}
             >
-              <span className="cap-sm cap text-text-muted">srv</span>
+              <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">srv</span>
               <span className="ow-num text-[13px] text-text-primary">{serverVersion?.version || 'dev'}</span>
             </span>
 
             {scope !== '' && (
               <span
-                className="hidden xl:flex items-baseline gap-2"
+                className="hidden lg:flex items-baseline gap-2"
                 title={t('layout.scopeTitle', {
                   scope: scopeLabel(scope, clients),
                   tenants: scopeCount(scope),
                 })}
               >
-                <span className="cap-sm cap text-text-muted">{t('layout.scopeCap')}</span>
+                <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">{t('layout.scopeCap')}</span>
                 <Stamp
                   tone={scope === 'none' ? 'offline' : scope === 'all' ? 'neutral' : 'online'}
                   title={t('layout.scopeTitle', {
@@ -177,13 +254,13 @@ export function Layout() {
 
             {typeof serverVersion?.rate_limit_per_minute === 'number' && (
               <span
-                className="hidden lg:flex items-baseline gap-2"
+                className="hidden xl:flex items-baseline gap-2"
                 title={t('layout.rateBudgetTitle', {
                   perMinute: serverVersion.rate_limit_per_minute,
                   burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,
                 })}
               >
-                <span className="cap-sm cap text-text-muted">budget</span>
+                <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">budget</span>
                 <span className="ow-num text-[13px] text-text-primary">
                   {serverVersion.rate_limit_per_minute}/min
                 </span>
@@ -199,20 +276,33 @@ export function Layout() {
               </Stamp>
             )}
 
-            <span className="hidden lg:flex">
+            {/* The link indicator is the one instrument that is never shed while
+                the bar can hold it: it is the truth about whether the figures on
+                screen are live. Trivia goes first — version, budget, scope. */}
+            <span className="hidden md:flex">
               <LinkStamp connected={connected} />
             </span>
+            </div>
 
             {user && (
-              <span className="hidden flex-col items-end leading-tight sm:flex">
-                <span className="text-[13px] font-semibold text-text-primary">{user.username}</span>
-                <span className="cap-sm cap text-text-muted">{(roles ?? ['viewer'])[0]}</span>
+              <span className="hidden shrink-0 items-center gap-2 sm:flex">
+                <span
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold"
+                  style={{ background: 'var(--field-alt)', color: 'var(--text-secondary)' }}
+                  aria-hidden="true"
+                >
+                  {user.username.slice(0, 2).toUpperCase()}
+                </span>
+                <span className="flex flex-col items-end leading-tight">
+                  <span className="text-[13px] font-semibold text-text-primary">{user.username}</span>
+                  <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">{(roles ?? ['viewer'])[0]}</span>
+                </span>
               </span>
             )}
 
             <button
               onClick={logout}
-              className="btn btn-quiet px-2.5 py-1.5"
+              className="btn btn-quiet shrink-0 px-2.5 py-1.5"
               aria-label="Sign out"
               title={t('common.signOut', 'Sign out')}
             >
