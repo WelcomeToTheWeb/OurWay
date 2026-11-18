@@ -181,15 +181,20 @@ export function Layout() {
           </form>
 
           <div className="ml-auto flex min-w-0 items-center gap-2.5 md:gap-3.5">
-            {/* The instruments are one shrinkable box; the identity cluster and
-                the way out are not. When the bar runs out of room the
-                instruments give — in the order their breakpoints shed them —
-                and the operator's own name and the sign-out never do. The order
-                is load-bearing in a second way: at every width that carries
-                more than the clock and the link, the scope chip is present, and
-                it is the only child allowed to shrink. So the squeeze always
-                lands on an announced ellipsis instead of on the instrument at
-                the right-hand end of the box, which a clipped bar cannot show. */}
+            {/* This box is the only shrinkable thing in the header row: identity
+                and the way out sit outside it and are `shrink-0`, and the name
+                beside the avatar is shed by breakpoint, never cut. Inside the
+                box, every instrument is a flex item with `min-width: auto` and
+                so refuses to shrink below its own text — except the ones that
+                truncate, which carry `min-w-0`. Any deficit the bar runs into is
+                therefore paid by those, as an ellipsis with the full value
+                beside it, and never by the instrument at the right-hand end,
+                which a clipped bar cannot show at all. That is what the shed
+                ladder is for: below `xl` there is nothing here to absorb a
+                squeeze, which is exactly why only the clock and the link are on
+                the bar at those widths. `e2e/responsive.spec.ts` does not trust
+                this reasoning — it measures the link indicator's own right edge
+                against the box at every width the bar is drawn. */}
             <div className="hidden min-w-0 items-center gap-2.5 overflow-hidden md:flex md:gap-3.5">
             {/* The window instrument is the widest one on the bar, so it is the
                 instrument that yields: it appears only at `2xl`, where it can
@@ -292,20 +297,23 @@ export function Layout() {
                 room — from `md` to `lg` the box is exactly full with the clock
                 and the link, so anything that appears only sometimes has to
                 arrive at `xl`, where the scope chip is present to absorb it. */}
+            {/* One rate instrument, two states. When the server is refusing us,
+                the warning replaces the figure. But unlike the figure it is
+                never shed, and it carries no words that could be cut: an icon, a
+                `title`, and a sentence for assistive tech. The figure can wait
+                for `xl` because it is a rate; the condition it warns about is the
+                one that makes every figure on screen stale, and the link chip
+                beside it will still read "Live", because the socket is a separate
+                transport and the poller simply skips its tick. A warning that
+                yielded with the trivia would let this bar assert liveness while
+                nothing was being read. */}
             {limited ? (
-              <span
-                className="hidden xl:flex min-w-0 items-baseline gap-2"
-                title="Server rate limit reached — polling rests until the minute budget refills"
-              >
-                <Stamp
-                  tone="due"
-                  className="max-w-[9rem] min-w-0"
-                  title="Server rate limit reached — polling rests until the minute budget refills"
-                >
-                  <Pause className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span className="block min-w-0 truncate">Limited {secondsLeft}s</span>
-                </Stamp>
-              </span>
+              <Stamp tone="due" className="shrink-0" title={`Rate limited — polling rests for ${secondsLeft}s`}>
+                <Pause className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <span className="sr-only">
+                  Rate limited — polling rests for {secondsLeft}s until the minute budget refills
+                </span>
+              </Stamp>
             ) : (
               typeof serverVersion?.rate_limit_per_minute === 'number' && (
                 <span
@@ -335,7 +343,13 @@ export function Layout() {
             </div>
 
             {user && (
-              <span className="hidden shrink-0 items-center gap-2 sm:flex">
+              /* Identity yields last, and it is never cut. The avatar is here at
+                 every width; the name and role beside it are shed below `sm`,
+                 where the search field and the way out need the room. Shedding is
+                 not losing: the name is spelled out to assistive tech whenever it
+                 is not on screen, so an operator never signs out of someone
+                 else's fleet because the bar ran out of pixels for it. */
+              <span className="flex shrink-0 items-center gap-2">
                 <span
                   className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold"
                   style={{ background: 'var(--field-alt)', color: 'var(--text-secondary)' }}
@@ -343,7 +357,8 @@ export function Layout() {
                 >
                   {user.username.slice(0, 2).toUpperCase()}
                 </span>
-                <span className="flex flex-col items-end leading-tight">
+                <span className="sr-only sm:hidden">{user.username}</span>
+                <span className="hidden flex-col items-end leading-tight sm:flex">
                   <span className="text-[13px] font-semibold text-text-primary">{user.username}</span>
                   <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">{(roles ?? ['viewer'])[0]}</span>
                 </span>
