@@ -1,7 +1,7 @@
 /**
  * 2.2-2 — the shared fleet read model, measured in the browser.
  *
- * The finding this task closes (`.impeccable/review/verdict.md`, debt #1) is a
+ * The finding this task closes (design-time debt #1) is a
  * request-count finding, so the assertions are request counts: what a mount
  * costs, and what opening one more surface on the same data costs (nothing).
  *

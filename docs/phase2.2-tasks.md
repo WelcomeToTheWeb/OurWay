@@ -170,7 +170,7 @@ ledger for the length of the window (the reload test in `e2e/sessions.spec.ts`
 found it), and measuring a mount by navigating *after* signing in counts the
 landing mount too — mount costs are measured on a cold context.
 
-**Finding:** `.impeccable/review/verdict.md`, debt #1 — polling is per-page; a
+**Finding**, recorded as debt #1 at design time — polling is per-page; a
 shared fleet store cuts request pressure roughly in half.
 
 **Do**
@@ -245,7 +245,7 @@ mutations re-read the collection rather than patching a row).
 
 **Finding:**
 
-**Finding:** `.impeccable/review/verdict.md`, debt #2 — `GET /devices` carries
+**Finding**, recorded as debt #2 at design time — `GET /devices` carries
 alert state, so the dashboard's flagged count disagrees with the alert ledger's
 open count whenever severities differ.
 
@@ -271,7 +271,7 @@ open count whenever severities differ.
 
 ## 2.2-5 · i18n: close the gap, then make it un-closeable
 
-**Findings:** `.impeccable/review/verdict.md`, debt #3. Measured on `v2.1.0`:
+**Findings**, recorded as debt #3 at design time. Measured on `v2.1.0`:
 `en` has 383 keys and **`de` and `fr` are each missing exactly 2**
 (`patchPolicies.scopeDevicesHelp`, `patchPolicies.scopeTagsHelp`) — a bug per
 `CONTRIBUTING.md` ("a key missing from any locale is a bug"). Hardcoded English
@@ -296,7 +296,7 @@ JSX text nodes: `Settings.tsx` 5, `DeviceDetail.tsx` 2, `Alerts.tsx` 1,
 
 ## 2.2-6 · Say "no samples yet"
 
-**Finding:** `.impeccable/review/verdict.md`, debt #4 — history micro-fields with
+**Finding**, recorded as debt #4 at design time — history micro-fields with
 fewer than 3 samples render an empty ruled slot with no explanation.
 
 **Do**

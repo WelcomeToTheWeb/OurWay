@@ -19,7 +19,7 @@ import type { Client, ClientRollup } from '../api/clients';
  * sessions, DeviceDetail fetched the policies *again*. Four subscribers to the
  * same four collections meant four pollers, and the finish review measured a
  * dashboard mount at 14 reads with a 429 on arrival
- * (`.impeccable/review/verdict.md`, debt #1).
+ * (design-time debt #1).
  *
  * Here the collections live once, each with **one** poller whose lifetime is
  * ref-counted by its subscribers. A second page subscribing to a collection

@@ -181,10 +181,20 @@ export function Layout() {
           </form>
 
           <div className="ml-auto flex min-w-0 items-center gap-2.5 md:gap-3.5">
-            {/* The instruments are one shrinkable box; the identity cluster and
-                the way out are not. When the bar runs out of room the
-                instruments give — in the order their breakpoints shed them —
-                and the operator's own name and the sign-out never do. */}
+            {/* This box is the only shrinkable thing in the header row: identity
+                and the way out sit outside it and are `shrink-0`, and the name
+                beside the avatar is shed by breakpoint, never cut. Inside the
+                box, every instrument is a flex item with `min-width: auto` and
+                so refuses to shrink below its own text — except the ones that
+                truncate, which carry `min-w-0`. Any deficit the bar runs into is
+                therefore paid by those, as an ellipsis with the full value
+                beside it, and never by the instrument at the right-hand end,
+                which a clipped bar cannot show at all. That is what the shed
+                ladder is for: below `xl` there is nothing here to absorb a
+                squeeze, which is exactly why only the clock and the link are on
+                the bar at those widths. `e2e/responsive.spec.ts` does not trust
+                this reasoning — it measures the link indicator's own right edge
+                against the box at every width the bar is drawn. */}
             <div className="hidden min-w-0 items-center gap-2.5 overflow-hidden md:flex md:gap-3.5">
             {/* The window instrument is the widest one on the bar, so it is the
                 instrument that yields: it appears only at `2xl`, where it can
@@ -232,8 +242,20 @@ export function Layout() {
             </span>
 
             {scope !== '' && (
+              /* Scope is the declared trivia, so it is the instrument that
+                 yields: below `xl` it is not on the bar at all, because from
+                 `md` to `lg` the box holds exactly the clock and the link and
+                 nothing else fits. Above `xl` it does more than sit here — it
+                 is the bar's shock absorber. Every other instrument is a flex
+                 item with `min-width: auto`, so it refuses to shrink below its
+                 own text; this one carries `min-w-0` and truncates inside, so
+                 whatever the bar runs short on lands here, as an ellipsis whose
+                 full value is in the `title`, instead of pushing the link
+                 indicator past the edge of the box and out of reach. The answer
+                 is never lost either way: the sidebar names the scope and the
+                 Clients page lists every tenant. */
               <span
-                className="hidden lg:flex items-baseline gap-2"
+                className="hidden xl:flex min-w-0 items-baseline gap-2"
                 title={t('layout.scopeTitle', {
                   scope: scopeLabel(scope, clients),
                   tenants: scopeCount(scope),
@@ -242,17 +264,53 @@ export function Layout() {
                 <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">{t('layout.scopeCap')}</span>
                 <Stamp
                   tone={scope === 'none' ? 'offline' : scope === 'all' ? 'neutral' : 'online'}
+                  className="max-w-[9rem] min-w-0"
                   title={t('layout.scopeTitle', {
                     scope: scopeLabel(scope, clients),
                     tenants: scopeCount(scope),
                   })}
                 >
-                  {scopeLabel(scope, clients)}
+                  {/* `truncate` belongs on a block container. `.stamp` is an
+                      inline-flex pill, and `text-overflow` does not reach the
+                      anonymous flex item holding the text — put it on the pill
+                      and the value is painted straight through the pill's edge
+                      and clipped by the bar, with no ellipsis to say so. Same
+                      reason the window instrument truncates an inner span. */}
+                  <span className="block min-w-0 truncate">{scopeLabel(scope, clients)}</span>
                 </Stamp>
+                {/* A `title` on a non-focusable span is a description, not a
+                    name, and it only arrives on hover: an ellipsis read aloud is
+                    still an ellipsis. Spell the scope out for assistive tech. */}
+                <span className="sr-only">
+                  {t('layout.scopeTitle', {
+                    scope: scopeLabel(scope, clients),
+                    tenants: scopeCount(scope),
+                  })}
+                </span>
               </span>
             )}
 
-            {typeof serverVersion?.rate_limit_per_minute === 'number' && (
+            {/* One rate instrument, two states. When the server is refusing us,
+                the figure it replaces is the reason: "100/min" becomes
+                "Limited 12s". They are never both on the bar, because a
+                transient state must not be the thing that runs the bar out of
+                room — from `md` to `lg` the box is exactly full with the clock
+                and the link, so anything that appears only sometimes has to
+                arrive at `xl`, where the scope chip is present to absorb it. */}
+            {/* The budget figure is a rate, so it waits for `xl` with the other
+                rates and sheds with them. The warning that replaces it when the
+                server starts refusing us is the opposite case and is rendered
+                outside this box, next to identity: this box is the container
+                whose entire job is to shed, so an instrument declared "never
+                shed" cannot live inside it and mean it. The condition the
+                warning states is the one that makes every figure on screen
+                stale, and the link chip beside it will still read "Live",
+                because the socket is a separate transport and the poller simply
+                skips its tick. A warning that yielded with the trivia would let
+                this bar assert liveness while nothing was being read — and it
+                would carry no words that could be cut: an icon, a `title`, and a
+                sentence for assistive tech. */}
+            {!limited && typeof serverVersion?.rate_limit_per_minute === 'number' && (
               <span
                 className="hidden xl:flex items-baseline gap-2"
                 title={t('layout.rateBudgetTitle', {
@@ -260,20 +318,14 @@ export function Layout() {
                   burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,
                 })}
               >
-                <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">budget</span>
+                {/* No cap label here, unlike its neighbours: "100/min" already
+                    says what it is, and the 55px a "budget" caption costs is the
+                    difference between the tenant scope showing a name and
+                    showing an empty pill at 1280. */}
                 <span className="ow-num text-[13px] text-text-primary">
                   {serverVersion.rate_limit_per_minute}/min
                 </span>
               </span>
-            )}
-
-            {limited && (
-              <Stamp tone="due" title="Server rate limit reached — polling rests until the minute budget refills">
-                <span className="inline-flex items-center gap-1.5">
-                  <Pause className="h-3 w-3" aria-hidden="true" />
-                  Limited {secondsLeft}s
-                </span>
-              </Stamp>
             )}
 
             {/* The link indicator is the one instrument that is never shed while
@@ -284,8 +336,23 @@ export function Layout() {
             </span>
             </div>
 
+            {limited && (
+              <Stamp tone="due" className="shrink-0" title={`Rate limited — polling rests for ${secondsLeft}s`}>
+                <Pause className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <span className="sr-only">
+                  Rate limited — polling rests for {secondsLeft}s until the minute budget refills
+                </span>
+              </Stamp>
+            )}
+
             {user && (
-              <span className="hidden shrink-0 items-center gap-2 sm:flex">
+              /* Identity yields last, and it is never cut. The avatar is here at
+                 every width; the name and role beside it are shed below `sm`,
+                 where the search field and the way out need the room. Shedding is
+                 not losing: the name is spelled out to assistive tech whenever it
+                 is not on screen, so an operator never signs out of someone
+                 else's fleet because the bar ran out of pixels for it. */
+              <span className="flex shrink-0 items-center gap-2">
                 <span
                   className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold"
                   style={{ background: 'var(--field-alt)', color: 'var(--text-secondary)' }}
@@ -293,7 +360,8 @@ export function Layout() {
                 >
                   {user.username.slice(0, 2).toUpperCase()}
                 </span>
-                <span className="flex flex-col items-end leading-tight">
+                <span className="sr-only sm:hidden">{user.username}</span>
+                <span className="hidden flex-col items-end leading-tight sm:flex">
                   <span className="text-[13px] font-semibold text-text-primary">{user.username}</span>
                   <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">{(roles ?? ['viewer'])[0]}</span>
                 </span>
