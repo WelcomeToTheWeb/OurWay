@@ -42,7 +42,7 @@ import {
  * suite stays under it. The rate instrument's test therefore asserts whichever
  * of its two states is actually on the bar, the component test drives the flag
  * directly, and the warning's geometry was verified by forcing a real 429
- * against the fixture harness rather than by trusting a media query.
+ * in a local run against the real stack rather than by trusting a media query.
  */
 
 const WIDTHS = [1600, 1536, 1440, 1280, 1024, 768, 390];

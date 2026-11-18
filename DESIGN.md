@@ -64,7 +64,7 @@ Non-negotiable rules of the world:
 - **Contrast floor.** Text clears 4.5:1 (3:1 at ≥24px). A stamp paints 12% of its own colour
   behind that same colour, so **every status ink is scored against its own wash**, not against
   the bare card. Light inks that passed on white failed there; the day values above are the
-  result. Verified by `.impeccable/tmp/audit.mjs` across every route × theme.
+  result. Verified across every route × theme at design time; the width contract is what CI asserts now.
 
 ## 3. Typography
 
@@ -198,7 +198,7 @@ reach a column a box could have scrolled.
   What is not arranged: the live rate-limited state, which would mean making the server refuse a
   request and CI raises the per-minute budget to 2000 to keep the suite clear of it. The rate
   instrument is tested as a pair of states so it cannot flake either way, the component test drives
-  the flag, and the warning's geometry was verified by forcing a real 429 against the fixture harness.
+  the flag, and the warning's geometry was verified by forcing a real 429 in a local run.
   The evaluator is written so that reverting the truncation markup turns it red — a green sweep that
   cannot go red is worth nothing, and this suite has shipped one of those.
 
@@ -262,31 +262,25 @@ not read the alert ledger` are opposite sentences; this build previously showed 
 
 ## 11. How to verify a change to this world
 
-```
-node .impeccable/harness/gen-fixtures.mjs     # stubbed /api/* + /ws fixtures
-node .impeccable/harness/server.mjs           # serves web/dist on http://127.0.0.1:4173
-node .impeccable/tmp/audit.mjs                # all routes × light/dark → .impeccable/audit-report.md
-node .impeccable/tmp/shoot.mjs                # 43 captures into .impeccable/shots/
-```
-
-Widths are swept the same way, by environment — the default is 1440 × light+dark:
+From `web/`:
 
 ```
-$env:OURWAY_AUDIT_WIDTHS="1440,1280,1024,768,390"; $env:OURWAY_AUDIT_THEMES="light"
-$env:OURWAY_AUDIT_SHOTS="1"; $env:OURWAY_AUDIT_OUT="../audit-widths.md"
-node .impeccable/tmp/audit.mjs
+npm run typecheck    # tsc --noEmit — tsconfig includes e2e/, so the suite is typechecked too
+npm run test:run     # vitest
+npm run build        # tsc && vite build
 ```
 
-`SHOTS=1` writes `shots/width-<w>-<theme>-<route>.png`. Read the report, not only the totals: the
-element path and the pixel overhang are what say whether a finding is yours.
-
-The instrument box gets its own measurement, because a page-level audit cannot see an instrument
-box that is quietly eating a chip:
+The end-to-end suite runs against the real stack — PostgreSQL, the Go server, and the production
+bundle on `vite preview` — through the product's own APIs, with no mocks:
 
 ```
-node .impeccable/tmp/bar.mjs   # per width: search width, each instrument's px, px cut, and the
-                               # version / budget / N-per-min assertions e2e/auth.spec.ts makes
+scripts/e2e-stack.sh test    # fresh database, server and preview, then the Playwright suite
 ```
+
+CI runs that same shape with Redis enabled (`REDIS_ENABLED=true REDIS_URL=…`), because the fleet
+cache, the rate limiter and the WebSocket fan-out live in Redis. The repo gate is `npm ci`,
+`npm run build`, `scripts/coverage.sh` and `python3 scripts/i18n-parity.py`; run it for real before
+merging, not just the jobs you think your change touches.
 
 The end-to-end suite runs at **1280×720** — Playwright's default, now *pinned* in
 `e2e/playwright.config.ts` rather than inherited, because that width is part of the contract:
@@ -299,24 +293,16 @@ attached-but-hidden where it yields, so that an instrument which stopped renderi
 cannot report itself as having shed correctly. It measures the bar as a granted tenant with a long
 client name, because that is the only state where the truncation branch runs. The same spec asserts
 that no route pans the document or the scrolling column, and that a ledger's overflow stays inside its
-own box — the latter on two ledger pages at 390px, which is a sample, not a census: the remaining
-`.ledger-scroll` sites are covered by the §5 audit in `bar.mjs`, not by CI. It waits for the bar's
-instruments before measuring, because the version, the scope and the window arrive from three separate
-reads and a probe run as soon as the page paints measures an empty bar, and an empty bar never
-overflows. Change the bar's breakpoints and that spec in the same commit: it is the machine-readable
-half of §8, and a page-level audit cannot see it.
+own box — the latter on two ledger pages at 390px, which is a sample, not a census: the other
+`.ledger-scroll` sites are not covered by CI. It waits for the bar's instruments before measuring,
+because the version, the scope and the window arrive from three separate reads and a probe run as soon
+as the page paints measures an empty bar, and an empty bar never overflows. Change the bar's
+breakpoints and that spec in the same commit: it is the machine-readable half of §8, and a
+page-level review cannot see it.
 
-The failure conditions in §9 are manufactured, not imagined:
-
-```
-node .impeccable/harness/mutate.mjs --empty   # every list the console reads, emptied
-node .impeccable/harness/mutate.mjs --stress  # 1,200 units, 200 alerts, and names that are
-                                              # long, accented, emoji, CJK and RTL
-$env:OURWAY_HARNESS_FIXTURES=...; $env:OURWAY_HARNESS_PORT=4181; node .impeccable/harness/server.mjs
-node .impeccable/tmp/harden.mjs               # 500/403/401/slow/no-data/hostile-data/roles
-```
-
-Plus, from `web/`: `tsc --noEmit -p tsconfig.json`, `vitest run`, `vite build`. The repo's CI
-gate (`npm ci`, `npm run build`, `scripts/coverage.sh`, `python3 scripts/i18n-parity.py`) was
-not fully runnable in this environment — no npm and no python3 — so parity holds only because
-no copy was changed; run the real gate before merging.
+The failure conditions in §9 were manufactured rather than imagined — every list the console reads
+emptied; 1,200 units, 200 alerts and names that are long, accented, emoji, CJK and RTL; 500s, 403s,
+401s, slow responses and no-data responses. That rig was a design-time one-off kept outside the repo,
+and it is not reproducible from a clone; what the repo carries is what it proved, in the tests under
+`web/src/**/*.test.tsx` and `web/e2e/`. When you change how a page handles a failed read, say which
+of those conditions you actually reproduced, and do not describe a state you only reasoned about.

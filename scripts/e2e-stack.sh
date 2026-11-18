@@ -8,7 +8,8 @@
 #   scripts/e2e-stack.sh stop
 #
 # The rate dial is raised here (as in `.github/workflows/e2e.yml`): the suite is
-# one user making many reads across 25 specs, and a harness that trips the
+# one user making many reads across thirty-two tests in ten spec files, and a
+# stack that trips the
 # server's budget answers 429 mid-run, which reads to the next reader as a missing
 # control. The budget itself is asserted by `web/e2e/fleet.spec.ts` against the
 # documented default (100/min), which is where that claim belongs.
