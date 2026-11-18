@@ -30,6 +30,14 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   use: {
     baseURL: process.env.OURWAY_E2E_BASE_URL ?? 'http://localhost:3000',
+    // Pinned, not inherited. The suite has always run at Playwright's default
+    // 1280×720, and that number is load-bearing: the shift bar carries the
+    // server version and the request budget from `xl` (1280) up, so one pixel
+    // narrower and `auth.spec.ts` asserts controls that the console correctly
+    // does not show. A default that a library may change under us is not a
+    // contract; `web/e2e/responsive.spec.ts` asserts the shed order at the
+    // widths DESIGN.md §8 names.
+    viewport: { width: 1280, height: 720 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

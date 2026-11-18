@@ -232,8 +232,19 @@ export function Layout() {
             </span>
 
             {scope !== '' && (
+              /* Scope is the declared trivia, so it is the instrument that
+                 yields: below `xl` it is not on the bar at all. It used to
+                 arrive at `lg`, and with a real tenant scope that is exactly
+                 where it pushed the link indicator past the edge of the
+                 instrument box — 29px of it cut off at 1024 and 23px at 1280,
+                 silently, because a clipped figure has no way to be reached.
+                 The answer is not lost: the sidebar names the scope and the
+                 Clients page lists every tenant. Its label is capped and
+                 truncated, announced by the same title that already carries
+                 the full answer, so a long client name can never repeat that
+                 squeeze at a wider breakpoint. */
               <span
-                className="hidden lg:flex items-baseline gap-2"
+                className="hidden xl:flex min-w-0 items-baseline gap-2"
                 title={t('layout.scopeTitle', {
                   scope: scopeLabel(scope, clients),
                   tenants: scopeCount(scope),
@@ -242,6 +253,7 @@ export function Layout() {
                 <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">{t('layout.scopeCap')}</span>
                 <Stamp
                   tone={scope === 'none' ? 'offline' : scope === 'all' ? 'neutral' : 'online'}
+                  className="max-w-[9rem] min-w-0 truncate"
                   title={t('layout.scopeTitle', {
                     scope: scopeLabel(scope, clients),
                     tenants: scopeCount(scope),

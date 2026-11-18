@@ -140,16 +140,22 @@ reach a column a box could have scrolled.
   content is reachable by design.
 - **The shift bar sheds in a stated order.** Identity and the way out never yield. Below them the
   order is: UTC clock from `sm`; the link indicator from `md`, because it is the truth about whether
-  the figures on screen are live; tenant scope at `lg`; the server version and the per-user request
-  budget from `xl`; and the next maintenance window only at `2xl` — it is the widest instrument and
+  the figures on screen are live; the server version, the per-user request budget and the tenant
+  scope from `xl`; and the next maintenance window only at `2xl` — it is the widest instrument and
   below that it cannot say the whole window. That last one is a real trade, not a free win: the
   version and the budget are what the console's own end-to-end suite promises an operator at
   1280×720, and the first cut of this order hid them there and failed that suite. The window is not
-  lost information — the dashboard and the patch-policy pages both name it.
+  lost information — the dashboard and the patch-policy pages both name it. Scope moved from `lg` to
+  `xl` for the same reason in the other direction: with a real tenant scope, `lg` is where the bar
+  ran out, and what it cut was not the trivia but the **link indicator** — 29px at 1024, 23px at
+  1280, unreachable, because a clipped figure has nothing to be reached by. Scope is not lost
+  either: the sidebar names it and the Clients page lists the tenants. Its label is capped at
+  `max-w-[9rem]` and truncated, which §8 allows precisely because the same element's `title` already
+  carries the full answer — so a long client name absorbs the pressure instead of evicting a control.
   The instruments sit in one shrinkable box, so if everything that can be shed is gone, the last
   thing clipped is a figure whose full text is in its `title` — never the operator's own name.
-  Measured, not estimated, at 1600 / 1536 / 1440 / 1280 / 1024 / 768 / 390 (§11): at every one the
-  instrument box's `scrollWidth` equals its `clientWidth`.
+  This is no longer a claim measured by hand: `e2e/responsive.spec.ts` asserts that no box on the
+  bar hides content that cannot be reached, at 1440 / 1280 / 1024 / 768 / 390, on seven routes.
 
 ## 9. Failure is a state; zero is a claim
 
@@ -237,9 +243,15 @@ node .impeccable/tmp/bar.mjs   # per width: search width, each instrument's px, 
                                # version / budget / N-per-min assertions e2e/auth.spec.ts makes
 ```
 
-The end-to-end suite runs at Playwright's default viewport, 1280×720, which is narrower than the
-size this world was drawn at. `e2e/auth.spec.ts` asserts the server version and the request budget
-are visible there, so that width is part of the contract, not a fallback.
+The end-to-end suite runs at **1280×720** — Playwright's default, now *pinned* in
+`e2e/playwright.config.ts` rather than inherited, because that width is part of the contract:
+`e2e/auth.spec.ts` asserts the server version and the request budget are visible there. The rest of
+§8 is asserted by `e2e/responsive.spec.ts`, which sweeps 1440 / 1280 / 1024 / 768 / 390 and checks
+the shed order **in both directions** — an instrument present where it is promised, absent where it
+yields — because a half-cut instrument reads as a wrong value rather than a moved one. The same
+spec asserts that no route pans the document and that a ledger's overflow stays inside its own box,
+which is the rule §5 attaches to `.ledger-scroll`. Change the bar's breakpoints and that spec in
+the same commit: it is the machine-readable half of §8, and a page-level audit cannot see it.
 
 The failure conditions in §9 are manufactured, not imagined:
 
