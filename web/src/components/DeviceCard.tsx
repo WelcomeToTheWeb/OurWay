@@ -125,13 +125,30 @@ export function DeviceCard({
       </div>
 
       {tags.length > 0 && (
-        <div className="flex h-[17px] flex-wrap gap-1 overflow-hidden px-3 pt-1.5">
+        /*
+          One line, never a wrap: the box above is the contract (DEVICE_CARD_H),
+          so a second line of chips would be clipped by the card mid-glyph, which
+          is the outcome this row is here to avoid. The row is therefore exactly
+          chip-height and the space above it is a margin, not padding inside the
+          clipped box — padding was counted against the height, so the chip's own
+          border was cut top and bottom. A tag that cannot fit announces itself
+          with an ellipsis and keeps its full text in the title, which means `+N`
+          reports only what the slice hides by count: a chip narrowed by width is
+          never one that vanished silently.
+        */
+        <div className="mt-1.5 flex h-[17px] items-center gap-1 overflow-hidden px-3">
           {tags.slice(0, 4).map((tag) => (
-            <span key={tag} className="cap-sm cap rounded-sm border border-rule px-1.5 text-text-secondary">
+            <span
+              key={tag}
+              title={tag}
+              className="cap-sm cap min-w-0 truncate rounded-sm border border-rule px-1.5 text-text-secondary"
+            >
               {tag}
             </span>
           ))}
-          {tags.length > 4 && <span className="cap-sm cap text-text-muted">+{tags.length - 4}</span>}
+          {tags.length > 4 && (
+            <span className="cap-sm cap shrink-0 text-text-muted">+{tags.length - 4}</span>
+          )}
         </div>
       )}
 

@@ -189,9 +189,12 @@ export function Login() {
             >
               Server
             </dt>
+            {/* The origin an operator is actually signing into, so the cut is
+                announced and the whole value is selectable, not just hoverable. */}
             <dd
-              className="ow-num truncate text-[12px]"
+              className="ow-num cursor-text select-all truncate text-[12px]"
               style={{ color: "var(--rail-text)" }}
+              title={origin}
             >
               {origin}
             </dd>

@@ -265,14 +265,19 @@ export function Patches() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((update) => (
+                {filtered.map((update) => {
+                  /* One string, so the title carries exactly what the line shows:
+                     the composed value is what an operator reads off a failed
+                     patch, and it is the line they quote to whoever owns the feed. */
+                  let detail = update.source;
+                  if (update.version) detail += ` · v${update.version}`;
+                  if (update.kb) detail += ` · ${update.kb}`;
+                  return (
                   <tr key={update.id} data-guide title={update.title}>
                     <td>
                       <span className="cap cap-sm text-text-primary">{update.title}</span>
-                      <span className="cap cap-sm block truncate text-text-muted">
-                        {update.source}
-                        {update.version && ` · v${update.version}`}
-                        {update.kb && ` · ${update.kb}`}
+                      <span className="cap cap-sm block truncate text-text-muted" title={detail}>
+                        {detail}
                       </span>
                       {update.status === 'failed' && update.error_message && (
                         <span className="cap cap-sm block truncate text-[var(--error)]" title={update.error_message}>
@@ -331,7 +336,8 @@ export function Patches() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

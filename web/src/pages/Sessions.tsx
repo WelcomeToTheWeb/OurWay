@@ -14,6 +14,7 @@ import { Stamp } from '../components/Stamp';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { pendingConfirm, type PendingConfirm } from '../utils/confirmSheet';
 import { agoLabel } from '../utils/policyScope';
+import { CopyButton } from '../components/CopyButton';
 
 /** Who is sitting at somebody else's screen right now. */
 export function Sessions() {
@@ -135,13 +136,24 @@ export function Sessions() {
             <tbody>
               {visibleSessions.map((s) => (
                 <tr key={s.id} className="text-[13px]">
-                  <td className="ow-num">{s.id.slice(0, 8)}…</td>
+                  <td>
+                    {/* Printed in full and cut by CSS, never by a slice: the eight
+                        characters that fit are not the value an operator quotes to
+                        support, so the cell also copies the whole id. */}
+                    <span className="flex items-center gap-1">
+                      <span className="ow-num block min-w-0 max-w-[12rem] truncate" title={s.id}>
+                        {s.id}
+                      </span>
+                      <CopyButton text={s.id} className="shrink-0" />
+                    </span>
+                  </td>
                   <td>
                     <Link
                       to={`/devices/${s.device_id}`}
-                      className="ow-num text-[var(--service)] hover:underline"
+                      className="ow-num block max-w-[12rem] truncate text-[var(--service)] hover:underline"
+                      title={s.device_id}
                     >
-                      {s.device_id.slice(0, 8)}…
+                      {s.device_id}
                     </Link>
                   </td>
                   <td className="text-[11px] text-text-secondary">{clientNameForSlug(scope.clients, scope.slugOf(s.device_id))}</td>

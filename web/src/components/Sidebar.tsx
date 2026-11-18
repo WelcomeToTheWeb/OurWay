@@ -139,7 +139,9 @@ export function Sidebar() {
                         style={{ color: isActive ? 'var(--rail-text)' : 'inherit' }}
                         aria-hidden="true"
                       />
-                      <span className="flex-1 truncate">{item.label}</span>
+                      <span className="min-w-0 flex-1 truncate" title={item.label}>
+                        {item.label}
+                      </span>
                       {item.go && (
                         <span
                           className="ow-num text-[10px]"

@@ -156,9 +156,10 @@ export function Recordings() {
                   <td>
                     <Link
                       to={`/devices/${r.device_id}`}
-                      className="ow-num text-[var(--service)] hover:underline"
+                      className="ow-num block max-w-[12rem] truncate text-[var(--service)] hover:underline"
+                      title={r.device_name || r.device_id}
                     >
-                      {r.device_name || `${r.device_id.slice(0, 8)}…`}
+                      {r.device_name || r.device_id}
                     </Link>
                   </td>
                   <td className="text-text-primary">{r.username}</td>

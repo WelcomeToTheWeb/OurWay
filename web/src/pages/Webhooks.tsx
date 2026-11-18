@@ -643,7 +643,10 @@ export function Webhooks() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {/* `ledger-scroll`, not a bare y-scroller: the deliveries ledger is
+                wider than this drawer, and the columns belong inside a scroller of
+                their own rather than cut by the panel edge (§8). */}
+            <div className="min-h-0 flex-1 overflow-y-auto ledger-scroll">
               {deliveries.length === 0 ? (
                 <p className="cap cap-sm text-text-muted">{t('channels.noDeliveries')}</p>
               ) : (
