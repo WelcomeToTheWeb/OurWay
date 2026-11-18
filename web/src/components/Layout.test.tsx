@@ -164,10 +164,12 @@ describe('Layout shift bar - what the bar must never shed (DESIGN.md §8, §9)',
     expect(pill!.className).not.toContain('min-w-0');
     expect(sentence.className).toContain('sr-only');
     expect(pill!.querySelector('svg')).not.toBeNull();
-    // And it must not sit inside the instrument box, which is `overflow-hidden`
-    // and exists to shed: a control declared never-shed cannot be a child of the
-    // container whose whole job is making things go away.
-    expect(pill!.closest('.overflow-hidden'), 'the warning is parented outside the shedding box').toBeNull();
+    // And it must not be a child of the instrument box, which is
+    // `overflow-hidden` and exists to shed: a control declared never-shed cannot
+    // sit inside the container whose whole job is making things go away. The
+    // direct parent only — the page shell is `overflow-hidden` too, and fairly.
+    expect(pill!.parentElement!.className, 'the warning is parented outside the shedding box')
+      .not.toContain('overflow-hidden');
   });
 
   it('keeps the operator identified below the point where the name stops fitting', () => {
