@@ -2,7 +2,7 @@
 
 > **Historical record.** Superseded by [`roadmap-2.x.md`](roadmap-2.x.md).
 > The console was rebuilt in `v2.1.0` as the fleet service decal sheet
-> (`PRODUCT.md`, `DESIGN.md`, `.impeccable/review/verdict.md`): page layout,
+> (`PRODUCT.md`, `DESIGN.md`): page layout,
 > theme, and component names below describe the pre-2.1 surface. Dark mode,
 > responsive layout, keyboard shortcuts, i18n, virtual scrolling and optimistic
 > updates all survive; the file list is a record of the 2.0 change, not a map of
