@@ -1,207 +1,226 @@
-/**
- * The width contract, asserted.
- *
- * Why this file exists: a change to the console once passed a 90-surface
- * geometry audit and still failed `Console end-to-end`, because a geometry audit
- * measures *overflow* while DESIGN.md §8 makes **promises** — the server version
- * and the request budget belong to the operator wherever the bar can hold them,
- * and the operator's own name and the way out never give way to an instrument.
- * A promise needs a test. Measuring pixels cannot find a control that is gone.
- *
- * Two distinct things are asserted here:
- *
- *   1. **Nothing is unreachable.** The page never pans sideways (the Chromium
- *      rule behind `.ledger-scroll`, DESIGN.md §5), and no box on the shift bar
- *      hides content that has no way to reach it. Truncation is allowed where it
- *      is announced by a `title`; a silent cut is not.
- *   2. **Which instruments are on the bar, at which width** — in both
- *      directions: present where promised, and *gone* where they are meant to
- *      yield, because a half-shown instrument is worse than a shed one.
- *
- * The suite runs at 1280×720, now pinned in `playwright.config.ts`. The bar's
- * instruments are the point of those numbers: `srv`, `budget` and the tenant
- * scope arrive at `xl` (1280), `UTC` at `sm` (640), `Next window` only at `2xl`
- * (1536) — the widest instrument yields first, and the search field, the
- * identity cluster and the sign-out never do.
- */
 import { test, expect, type Page } from '@playwright/test';
 import { uiLogin } from './fixtures.js';
 
-/** The widths DESIGN.md §8 names, plus one that clears every breakpoint. */
-const WIDTHS = [1440, 1280, 1024, 768, 390] as const;
+/**
+ * The shift bar's shed order and the shell's overflow contract — the
+ * machine-readable half of DESIGN.md §8, and the reason the hand-run geometry
+ * audits it replaces are not enough.
+ *
+ * Two failure shapes are in scope, and they are opposite:
+ *
+ *   - The bar **pans the document** when an overflow leaks out of a scroller
+ *     that is not positioned (DESIGN.md §5). The page slides sideways under a
+ *     fixed header, and the same column becomes reachable two ways.
+ *   - The bar **clips content with nothing to reach it**. An instrument pushed
+ *     past the edge of the instrument box is not shed, it is gone: there is no
+ *     scroller on the bar and no keyboard path to hidden pixels. A half-cut
+ *     instrument also reads as a wrong value rather than a moved one.
+ *
+ * The suite runs at 1280×720, pinned in `playwright.config.ts`. The bar's
+ * instruments are the point of those numbers: from `xl` the server version, the
+ * rate instrument and the tenant scope arrive; `2xl` adds the next maintenance
+ * window, the widest instrument and therefore the first to yield. UTC and the
+ * live-link indicator hold from `sm`/`md`. The search field, the identity
+ * cluster and the sign-out never yield at any width.
+ */
 
-/** Ledger-heavy surfaces an admin can always reach. /sso and /thresholds are
- *  here deliberately: they are the two ledgers whose columns were found panning
- *  the whole document 541px and 353px before `.ledger-scroll` existed. */
-const ROUTES = ['/', '/devices', '/audit', '/alerts', '/patches', '/thresholds', '/sso'] as const;
+const WIDTHS = [1600, 1536, 1440, 1280, 1024, 768, 390];
+const ROUTES = ['/', '/devices', '/audit', '/alerts', '/patches', '/thresholds', '/sso'];
 
 /**
- * The offset the document moves when asked to scroll sideways. Any number above
- * zero means a scroller is leaking its overflow to the page, so the same column
- * is reachable two ways at once (DESIGN.md §5).
+ * The instruments arrive from three independent sources — the version call, the
+ * first scoped read's `X-OurWay-Client-Scope` header, and the patch-policy
+ * poller — so a measurement taken as soon as `<main>` paints runs against a bar
+ * that is still half empty, and an empty bar never overflows. Wait for the
+ * instruments this width is supposed to carry before measuring it.
  */
-async function panOffset(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    window.scrollTo(0, 0);
-    window.scrollTo(600, 0);
-    const offset = window.scrollX;
-    window.scrollTo(0, 0);
-    return offset;
-  });
+async function settleBar(page: Page, width: number) {
+  await expect(page.locator('#main-content')).toBeVisible();
+  if (width >= 768) {
+    await expect(page.getByTitle(/WebSocket connected|WebSocket down/).first()).toBeVisible({ timeout: 15_000 });
+  }
+  if (width >= 1280) {
+    // The version instrument is the first thing the version call puts on the
+    // bar, and the rate instrument and scope follow from the same two reads.
+    await expect(page.getByTitle(/console build/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTitle(/request budget|rate limit reached/i)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('fleet', { exact: true })).toBeVisible({ timeout: 15_000 });
+  }
+  if (width >= 1536) await expect(page.getByText('Next window', { exact: true })).toBeVisible({ timeout: 15_000 });
 }
 
 /**
- * Content on the shift bar that is cut off with no way to reach it.
+ * Walks the header for a box that hides ink with nothing to reach it.
  *
- * A box counts as a violation only when it hides pixels and the operator has no
- * way to get them: not when the truncation is announced by a `title` (§8 allows
- * "announced or reachable"), not when a real scroller holds the overflow, and not
- * for a box whose overflow escapes to the page — the pan check owns that case.
- * The bar's own clipping wrappers are inspected as well, since they sit above
- * `header` and would swallow the overflow instead of showing it.
+ * Allowed, in the words of DESIGN.md §8: a real scroller (`overflow-x: auto`)
+ * that the user can move, or a truncation that is *announced* — an ellipsis that
+ * actually paints, and the full value on that same element or the one wrapping
+ * it, so a hover says what was cut. `text-overflow` does not inherit, so an
+ * ellipsis declared on an `inline-flex` pill does not reach the text inside it;
+ * that is why the check tests the clipped element itself and not a distant
+ * ancestor, and why a `title` three levels up does not excuse a silent cut.
  */
 async function unreachableBarContent(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const header = document.querySelector('header');
-    if (!header) return ['the console shell rendered without a header bar'];
+    if (!header) return ['no header rendered'];
+    const CLIPS = new Set(['hidden', 'clip', 'container']);
+    const boxes = new Set<Element>([header.parentElement?.parentElement ?? header, header.parentElement ?? header, header]);
+    header.querySelectorAll('*').forEach((el) => boxes.add(el));
 
-    const label = (el: Element) => {
-      const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/)[0] : '';
-      return `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ''}`;
-    };
-    const announced = (el: Element) => {
-      for (let node: Element | null = el, depth = 0; node && depth < 4; node = node.parentElement, depth += 1) {
-        if (node.getAttribute('title')) return true;
-      }
-      return false;
-    };
+    const srOnly = (el: Element) => el.classList.contains('sr-only');
     const insideScroller = (el: Element) => {
-      for (let node = el.parentElement; node; node = node.parentElement) {
-        const overflowX = getComputedStyle(node).overflowX;
-        if (overflowX === 'auto' || overflowX === 'scroll') return true;
+      // Bounded to the header subtree: an app-wide horizontal scroller would
+      // otherwise make this check stop checking without anyone noticing.
+      for (let p = el.parentElement; p && header.contains(p); p = p.parentElement) {
+        const sx = getComputedStyle(p).overflowX;
+        if (sx === 'auto' || sx === 'scroll') return true;
       }
       return false;
     };
+    const announced = (el: Element, style: CSSStyleDeclaration) => {
+      if (style.textOverflow !== 'ellipsis') return false;
+      const holder = [el, el.parentElement].find((n) => n && n.hasAttribute('title'));
+      return Boolean(holder);
+    };
 
-    const boxes: Element[] = [];
-    for (let node: Element | null = header.parentElement, depth = 0; node && depth < 2; node = node.parentElement, depth += 1) {
-      boxes.push(node);
-    }
-    boxes.push(header, ...Array.from(header.querySelectorAll('*')));
-
-    const found: string[] = [];
-    for (const box of boxes) {
-      const el = box as HTMLElement;
-      if (el.getClientRects().length === 0) continue;
+    const findings: string[] = [];
+    for (const el of boxes) {
       const style = getComputedStyle(el);
-      if (style.overflowX !== 'hidden') continue;
-      if (el.scrollWidth <= el.clientWidth + 1) continue;
-      if (style.textOverflow === 'ellipsis' && announced(el)) continue;
-      if (insideScroller(el)) continue;
-      found.push(`${label(el)} cuts off ${el.scrollWidth - el.clientWidth}px with nothing to reach it`);
+      const xClips = CLIPS.has(style.overflowX);
+      const yClips = CLIPS.has(style.overflowY);
+      if (!xClips && !yClips) continue;
+      if (srOnly(el) || insideScroller(el)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
+      const overX = xClips ? el.scrollWidth - el.clientWidth : 0;
+      const overY = yClips ? el.scrollHeight - el.clientHeight : 0;
+      if (overX <= 1 && overY <= 1) continue;
+      if (announced(el, style)) continue;
+      const label = (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 24);
+      findings.push(`${el.tagName.toLowerCase()}.${el.className.toString().split(' ').slice(0, 2).join('.')} cuts ${Math.max(overX, overY)}px with nothing to reach it ("${label}")`);
     }
-
-    // The two controls the bar may never lose, and may never push off itself.
-    for (const selector of ['button[aria-label="Sign out"]', 'input[type="search"]']) {
-      const el = header.querySelector(selector);
-      if (!el) {
-        found.push(`the shift bar has no ${selector}`);
-        continue;
-      }
-      const bar = header.getBoundingClientRect();
-      const box = el.getBoundingClientRect();
-      if (box.width <= 0 || box.height <= 0) {
-        found.push(`${selector} has no box on the bar`);
-        continue;
-      }
-      const outside = Math.round(Math.max(0, box.right - bar.right, bar.left - box.left));
-      if (outside > 1) found.push(`${selector} sits ${outside}px outside the header box`);
-    }
-
-    return found;
+    return findings;
   });
 }
 
-for (const width of WIDTHS) {
-  test(`nothing on the shell hides behind a clip at ${width}px`, async ({ page }) => {
+/** The document must not be pannable sideways, nor wider than its viewport. */
+async function horizontalPanning(page: Page): Promise<number> {
+  const intrinsic = await page.evaluate(() => {
+    const root = document.scrollingElement ?? document.documentElement;
+    return root.scrollWidth - root.clientWidth;
+  });
+  await page.evaluate(() => window.scrollTo(600, 0));
+  const scrolled = await page.evaluate(() => window.scrollX);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  return Math.max(intrinsic, scrolled);
+}
+
+test.describe('the shell holds its overflow inside itself', () => {
+  test('nothing on the shell hides behind a clip', async ({ page }) => {
+    // 7 routes × 7 widths, each with a fresh load and a settle wait for three
+    // async sources; the default 30s per test is not enough on a cold runner.
+    test.setTimeout(300_000);
+    await uiLogin(page);
+
+    for (const width of WIDTHS) {
+      for (const route of ROUTES) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`${route}`, { waitUntil: 'domcontentloaded' });
+        await settleBar(page, width);
+
+        const pan = await horizontalPanning(page);
+        expect(pan, `${route} at ${width}px lets the document pan sideways`).toBeLessThanOrEqual(1);
+
+        const clipped = await unreachableBarContent(page);
+        expect(clipped, `${route} at ${width}px hides content behind a clip`).toEqual([]);
+      }
+    }
+  });
+
+  test('a ledger scrolls inside its own box while the page stands still', async ({ page }) => {
     test.setTimeout(120_000);
     await uiLogin(page);
-    await page.setViewportSize({ width, height: 900 });
 
-    for (const route of ROUTES) {
-      await page.goto(route);
-      // The route answered as itself, not bounced to login: an assertion that
-      // never lands is how a width check quietly stops checking.
-      await expect(page.locator('#main-content'), `${route} at ${width}px did not render the console shell`).toBeVisible();
+    for (const route of ['/audit', '/thresholds']) {
+      await page.setViewportSize({ width: 390, height: 900 });
+      await page.goto(`${route}`, { waitUntil: 'domcontentloaded' });
+      const scroller = page.locator('.ledger-scroll').first();
+      await expect(scroller).toBeVisible();
 
-      expect(await panOffset(page), `${route} at ${width}px: the document pans sideways, so a scroller is leaking its overflow (DESIGN.md §5)`).toBe(0);
-      expect(await unreachableBarContent(page), `${route} at ${width}px: the shift bar hides content the operator cannot reach`).toEqual([]);
+      const box = await scroller.evaluate((el) => {
+        const parent = el.parentElement;
+        return {
+          client: el.clientWidth,
+          content: el.scrollWidth,
+          pastParent: parent ? Math.round(el.getBoundingClientRect().right - parent.getBoundingClientRect().right) : 0,
+          overflowX: getComputedStyle(el).overflowX,
+          position: getComputedStyle(el).position,
+        };
+      });
+      // The table is genuinely wider than the phone, the box really is the
+      // scroller, and it is positioned — which is what keeps its scrollable
+      // overflow from propagating to the viewport (DESIGN.md §5).
+      expect(box.content).toBeGreaterThan(box.client);
+      expect(box.overflowX).toBe('auto');
+      expect(['relative', 'absolute', 'fixed', 'sticky']).toContain(box.position);
+      expect(box.pastParent, `${route} leaks its ledger past its own box`).toBeLessThanOrEqual(1);
+
+      expect(await horizontalPanning(page), `${route} pans the document at 390px`).toBeLessThanOrEqual(1);
     }
   });
-}
-
-test('a ledger scrolls inside its own box while the page stands still', async ({ page }) => {
-  await uiLogin(page);
-  await page.setViewportSize({ width: 390, height: 900 });
-
-  for (const route of ['/audit', '/thresholds']) {
-    await page.goto(route);
-    const scroller = page.locator('.ledger-scroll').first();
-    await expect(scroller, `${route} at 390px: no .ledger-scroll box, so this test has stopped proving the fix`).toBeVisible();
-
-    const box = await scroller.evaluate((el) => ({
-      client: el.clientWidth,
-      content: el.scrollWidth,
-      offsetX: getComputedStyle(el).overflowX,
-    }));
-    expect(
-      box.content,
-      `${route} at 390px: the ledger is only ${box.content}px wide inside ${box.client}px — it is no wider than its box, so this test proves nothing`,
-    ).toBeGreaterThan(box.client);
-    expect(
-      await scroller.evaluate((el) => Math.round(el.getBoundingClientRect().right) - Math.round(el.parentElement?.getBoundingClientRect().right ?? el.getBoundingClientRect().right)),
-      `${route} at 390px: the ledger box itself breaks past the panel that holds it`,
-    ).toBeLessThanOrEqual(1);
-
-    expect(await panOffset(page), `${route} at 390px: the ledger's columns move the page instead of scrolling inside the ledger (DESIGN.md §5)`).toBe(0);
-  }
 });
 
-test('the shift bar sheds its instruments in the stated order', async ({ page }) => {
-  await uiLogin(page);
+test.describe('the shift bar sheds in the order DESIGN.md §8 states', () => {
+  test.beforeEach(async ({ page }) => {
+    test.setTimeout(120_000);
+    await uiLogin(page);
+    await page.goto('/devices', { waitUntil: 'domcontentloaded' });
+  });
 
-  const version = page.getByTitle(/console build/i);
-  const budget = page.getByTitle(/request budget/i);
-  const nextWindow = page.getByText('Next window', { exact: true });
+  const instruments = [
+    { label: 'the live link', gate: 768, locator: (page: Page) => page.getByTitle(/WebSocket connected|WebSocket down/).first() },
+    { label: 'the UTC clock', gate: 640, locator: (page: Page) => page.getByText(/^UTC\s/).first() },
+    { label: 'the server version', gate: 1280, locator: (page: Page) => page.getByTitle(/console build/i) },
+    { label: 'the rate instrument', gate: 1280, locator: (page: Page) => page.getByTitle(/request budget|rate limit reached/i) },
+    { label: 'the tenant scope', gate: 1280, locator: (page: Page) => page.getByText('fleet', { exact: true }) },
+    { label: 'the next maintenance window', gate: 1536, locator: (page: Page) => page.getByText('Next window', { exact: true }) },
+  ];
 
-  // Promised wherever the bar can hold them, so they arrive a whole breakpoint
-  // earlier than the widest instrument (docs: DESIGN.md §8).
-  for (const width of [1600, 1440, 1280]) {
-    await page.setViewportSize({ width, height: 900 });
-    await expect(version, `the server version must be on the bar at ${width}px`).toBeVisible();
-    await expect(budget, `the request budget must be on the bar at ${width}px`).toBeVisible();
+  // One test per instrument, looping the widths inside it: each test costs a
+  // UI login, and a 36-test matrix would dominate the job for no extra reach.
+  for (const { label, gate, locator } of instruments) {
+    test(`${label} is on the bar from ${gate}px and shed below it`, async ({ page }) => {
+      test.setTimeout(120_000);
+      for (const width of [1600, 1536, 1280, 1024, 768, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        const found = locator(page);
+        // `toBeVisible` polls, so this waits for the instrument to arrive
+        // instead of measuring the bar before the read that fills it lands.
+        if (width >= gate) await expect(found, `${label} at ${width}px`).toBeVisible({ timeout: 15_000 });
+        else await expect(found, `${label} at ${width}px`).toBeHidden();
+      }
+    });
   }
 
-  // The widest instrument is the one that yields: it says the whole window only
-  // where the bar can hold the whole window.
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await expect(nextWindow, 'the next-window instrument belongs to 2xl (1536), not 1280').toBeHidden();
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await expect(nextWindow, 'at 2xl the bar must say the next maintenance window').toBeVisible();
+  test('the operator’s identity and the way out are never shed', async ({ page }) => {
+    test.setTimeout(120_000);
+    for (const width of [1600, 1280, 768, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await settleBar(page, width);
+      const search = page.getByRole('searchbox', { name: /search all devices/i });
+      const signOut = page.getByRole('button', { name: /sign out/i });
+      await expect(search, `search at ${width}px`).toBeVisible();
+      await expect(signOut, `sign-out at ${width}px`).toBeVisible();
 
-  // Shedding must be total. A half-cut instrument reads as a value that is
-  // wrong rather than one that is elsewhere.
-  for (const width of [1024, 768, 390]) {
-    await page.setViewportSize({ width, height: 900 });
-    await expect(version, `the server version must be shed, not cut, at ${width}px`).toBeHidden();
-    await expect(budget, `the request budget must be shed, not cut, at ${width}px`).toBeHidden();
-  }
-
-  // What never yields: the search field and the way out, at every width,
-  // including the width where an instrument was once allowed to push them off.
-  for (const width of [1600, 1280, 1024, 768, 390]) {
-    await page.setViewportSize({ width, height: 900 });
-    await expect(page.getByRole('searchbox', { name: 'Search all devices' }), `the search field must survive at ${width}px`).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign out' }), `the way out must survive at ${width}px`).toBeVisible();
-  }
+      const where = await signOut.evaluate((el) => {
+        const header = document.querySelector('header');
+        if (!header) return 'no header';
+        const box = header.getBoundingClientRect();
+        const r = el.getBoundingClientRect();
+        return r.right <= box.right + 1 && r.left >= box.left - 1 ? 'inside' : `outside (${Math.round(r.right)} vs ${Math.round(box.right)})`;
+      });
+      expect(where, `sign-out at ${width}px`).toBe('inside');
+    }
+  });
 });

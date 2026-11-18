@@ -136,26 +136,46 @@ reach a column a box could have scrolled.
 - A ledger wider than its column scrolls inside `.ledger-scroll` (§5). Columns stay reachable; the
   document does not grow.
 - The audit therefore holds **zero** rather than carrying a list of accepted exceptions: it counts a
-  titled ellipsis as announced, and it ignores content inside a horizontal scroller, because that
+  titled ellipsis as announced — the ellipsis must actually paint, and the `title` must be on the cut
+  element or the one wrapping it, not on a distant ancestor that happens to be titled — and it
+  ignores content inside a horizontal scroller, because that
   content is reachable by design.
 - **The shift bar sheds in a stated order.** Identity and the way out never yield. Below them the
   order is: UTC clock from `sm`; the link indicator from `md`, because it is the truth about whether
-  the figures on screen are live; the server version, the per-user request budget and the tenant
-  scope from `xl`; and the next maintenance window only at `2xl` — it is the widest instrument and
-  below that it cannot say the whole window. That last one is a real trade, not a free win: the
-  version and the budget are what the console's own end-to-end suite promises an operator at
-  1280×720, and the first cut of this order hid them there and failed that suite. The window is not
-  lost information — the dashboard and the patch-policy pages both name it. Scope moved from `lg` to
-  `xl` for the same reason in the other direction: with a real tenant scope, `lg` is where the bar
-  ran out, and what it cut was not the trivia but the **link indicator** — 29px at 1024, 23px at
-  1280, unreachable, because a clipped figure has nothing to be reached by. Scope is not lost
-  either: the sidebar names it and the Clients page lists the tenants. Its label is capped at
-  `max-w-[9rem]` and truncated, which §8 allows precisely because the same element's `title` already
-  carries the full answer — so a long client name absorbs the pressure instead of evicting a control.
-  The instruments sit in one shrinkable box, so if everything that can be shed is gone, the last
-  thing clipped is a figure whose full text is in its `title` — never the operator's own name.
-  This is no longer a claim measured by hand: `e2e/responsive.spec.ts` asserts that no box on the
-  bar hides content that cannot be reached, at 1440 / 1280 / 1024 / 768 / 390, on seven routes.
+  the figures on screen are live; the server version, the rate instrument and the tenant scope from
+  `xl`; and the next maintenance window only at `2xl` — it is the widest instrument and below that
+  it cannot say the whole window. That last one is a real trade, not a free win: the version and the
+  rate figure are what the console's own end-to-end suite promises an operator at 1280×720, and the
+  first cut of this order hid them there and failed that suite. The window is not lost information —
+  the dashboard and the patch-policy pages both name it.
+- **The yield order is also the squeeze order.** The instruments sit in one shrinkable box, and every
+  instrument is a flex item with `min-width: auto`, so it refuses to shrink below its own text. Only
+  the truncating instruments carry `min-w-0`, which means the deficit always lands on an announced
+  ellipsis and never on the instrument at the right-hand end of the box. That is the whole mechanism,
+  and it makes the ladder load-bearing in two directions: from `md` to `lg` the box holds exactly the
+  clock and the link with nothing left over, so scope cannot arrive before `xl` — and anything that
+  appears only *sometimes* has to arrive at `xl` too, where there is a truncating instrument to
+  absorb it. The rate-limit state is therefore not an eighth instrument bolted on beside the budget;
+  it is the budget instrument changing state, "100/min" becoming "Limited 12s", because a transient
+  condition must not be the thing that runs the bar out of room.
+- **A truncation is announced only if the ellipsis paints.** `text-overflow` does not inherit and does
+  not reach an anonymous flex item, so `truncate` on the inline-flex `.stamp` pill is dead: the value
+  is painted straight through the pill's edge, clipped by the bar, with nothing to say so. The idiom
+  is a block child that owns the text — `<Stamp className="max-w-[…] min-w-0"><span
+  className="block min-w-0 truncate">…</span></Stamp>`. This was not hypothetical: the first fix for
+  the cut link indicator put `truncate` on the pill, and the tenant chip became a 20px pill holding
+  one visible character with 108px of the name painted outside it. The scope chip is now capped at
+  `max-w-[9rem]`, truncates inside, and spells the whole sentence out in an `.sr-only` span — a
+  `title` on a span nobody can focus is a hover tooltip, not an announcement. Measured against the
+  longest fixture tenant name, the chip shows 74px of value at 1280 and the full name from 1440; the
+  55px freed by dropping the redundant `budget` caption ("100/min" says what it is) is the difference
+  between that and an empty pill.
+- This is no longer a claim measured by hand: `e2e/responsive.spec.ts` asserts, at 1600 / 1536 / 1440
+  / 1280 / 1024 / 768 / 390 across seven routes, that no box on the bar hides content that cannot be
+  reached, that nothing pans the document, and that every instrument is on the bar exactly where this
+  section puts it. The spec waits for the instruments before measuring, because an audit run the
+  moment the page paints measures a bar that has not been populated yet, and an empty bar never
+  overflows — that false pass is how the cut survived a full CI cycle.
 
 ## 9. Failure is a state; zero is a claim
 
@@ -245,13 +265,18 @@ node .impeccable/tmp/bar.mjs   # per width: search width, each instrument's px, 
 
 The end-to-end suite runs at **1280×720** — Playwright's default, now *pinned* in
 `e2e/playwright.config.ts` rather than inherited, because that width is part of the contract:
-`e2e/auth.spec.ts` asserts the server version and the request budget are visible there. The rest of
-§8 is asserted by `e2e/responsive.spec.ts`, which sweeps 1440 / 1280 / 1024 / 768 / 390 and checks
-the shed order **in both directions** — an instrument present where it is promised, absent where it
-yields — because a half-cut instrument reads as a wrong value rather than a moved one. The same
-spec asserts that no route pans the document and that a ledger's overflow stays inside its own box,
-which is the rule §5 attaches to `.ledger-scroll`. Change the bar's breakpoints and that spec in
-the same commit: it is the machine-readable half of §8, and a page-level audit cannot see it.
+`e2e/auth.spec.ts` asserts the server version and the rate figure are visible there. `locale: 'en'`
+is pinned for the same kind of reason: the console detects a language and caches it, so a suite that
+asserts on English copy is one `storageState` optimisation away from asserting on German. The rest of
+§8 is asserted by `e2e/responsive.spec.ts`, which sweeps 1600 / 1536 / 1440 / 1280 / 1024 / 768 / 390
+and checks the shed order **in both directions** — an instrument present where it is promised, absent
+where it yields — because a half-cut instrument reads as a wrong value rather than a moved one. The
+same spec asserts that no route pans the document and that a ledger's overflow stays inside its own
+box, which is the rule §5 attaches to `.ledger-scroll`. It waits for the bar's instruments before
+measuring it: the version, the scope and the window arrive from three separate reads, so a probe run
+as soon as the page paints measures an empty bar, and an empty bar never overflows. Change the bar's
+breakpoints and that spec in the same commit: it is the machine-readable half of §8, and a page-level
+audit cannot see it.
 
 The failure conditions in §9 are manufactured, not imagined:
 

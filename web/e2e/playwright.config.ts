@@ -38,6 +38,14 @@ export default defineConfig({
     // contract; `web/e2e/responsive.spec.ts` asserts the shed order at the
     // widths DESIGN.md §8 names.
     viewport: { width: 1280, height: 720 },
+    // Pinned for the same reason. The console detects a language from the
+    // browser and caches it in `localStorage`, and the assertions in
+    // `responsive.spec.ts` and `auth.spec.ts` are on English copy and English
+    // `title` text. Today every run is English only because Playwright hands
+    // each test a fresh context; the day someone adds a `storageState` to skip
+    // the UI login, the language starts travelling with it and the assertions
+    // quietly stop matching the controls they mean.
+    locale: 'en',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

@@ -184,7 +184,12 @@ export function Layout() {
             {/* The instruments are one shrinkable box; the identity cluster and
                 the way out are not. When the bar runs out of room the
                 instruments give — in the order their breakpoints shed them —
-                and the operator's own name and the sign-out never do. */}
+                and the operator's own name and the sign-out never do. The order
+                is load-bearing in a second way: at every width that carries
+                more than the clock and the link, the scope chip is present, and
+                it is the only child allowed to shrink. So the squeeze always
+                lands on an announced ellipsis instead of on the instrument at
+                the right-hand end of the box, which a clipped bar cannot show. */}
             <div className="hidden min-w-0 items-center gap-2.5 overflow-hidden md:flex md:gap-3.5">
             {/* The window instrument is the widest one on the bar, so it is the
                 instrument that yields: it appears only at `2xl`, where it can
@@ -233,16 +238,17 @@ export function Layout() {
 
             {scope !== '' && (
               /* Scope is the declared trivia, so it is the instrument that
-                 yields: below `xl` it is not on the bar at all. It used to
-                 arrive at `lg`, and with a real tenant scope that is exactly
-                 where it pushed the link indicator past the edge of the
-                 instrument box — 29px of it cut off at 1024 and 23px at 1280,
-                 silently, because a clipped figure has no way to be reached.
-                 The answer is not lost: the sidebar names the scope and the
-                 Clients page lists every tenant. Its label is capped and
-                 truncated, announced by the same title that already carries
-                 the full answer, so a long client name can never repeat that
-                 squeeze at a wider breakpoint. */
+                 yields: below `xl` it is not on the bar at all, because from
+                 `md` to `lg` the box holds exactly the clock and the link and
+                 nothing else fits. Above `xl` it does more than sit here — it
+                 is the bar's shock absorber. Every other instrument is a flex
+                 item with `min-width: auto`, so it refuses to shrink below its
+                 own text; this one carries `min-w-0` and truncates inside, so
+                 whatever the bar runs short on lands here, as an ellipsis whose
+                 full value is in the `title`, instead of pushing the link
+                 indicator past the edge of the box and out of reach. The answer
+                 is never lost either way: the sidebar names the scope and the
+                 Clients page lists every tenant. */
               <span
                 className="hidden xl:flex min-w-0 items-baseline gap-2"
                 title={t('layout.scopeTitle', {
@@ -253,39 +259,71 @@ export function Layout() {
                 <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">{t('layout.scopeCap')}</span>
                 <Stamp
                   tone={scope === 'none' ? 'offline' : scope === 'all' ? 'neutral' : 'online'}
-                  className="max-w-[9rem] min-w-0 truncate"
+                  className="max-w-[9rem] min-w-0"
                   title={t('layout.scopeTitle', {
                     scope: scopeLabel(scope, clients),
                     tenants: scopeCount(scope),
                   })}
                 >
-                  {scopeLabel(scope, clients)}
+                  {/* `truncate` belongs on a block container. `.stamp` is an
+                      inline-flex pill, and `text-overflow` does not reach the
+                      anonymous flex item holding the text — put it on the pill
+                      and the value is painted straight through the pill's edge
+                      and clipped by the bar, with no ellipsis to say so. Same
+                      reason the window instrument truncates an inner span. */}
+                  <span className="block min-w-0 truncate">{scopeLabel(scope, clients)}</span>
+                </Stamp>
+                {/* A `title` on a non-focusable span is a description, not a
+                    name, and it only arrives on hover: an ellipsis read aloud is
+                    still an ellipsis. Spell the scope out for assistive tech. */}
+                <span className="sr-only">
+                  {t('layout.scopeTitle', {
+                    scope: scopeLabel(scope, clients),
+                    tenants: scopeCount(scope),
+                  })}
+                </span>
+              </span>
+            )}
+
+            {/* One rate instrument, two states. When the server is refusing us,
+                the figure it replaces is the reason: "100/min" becomes
+                "Limited 12s". They are never both on the bar, because a
+                transient state must not be the thing that runs the bar out of
+                room — from `md` to `lg` the box is exactly full with the clock
+                and the link, so anything that appears only sometimes has to
+                arrive at `xl`, where the scope chip is present to absorb it. */}
+            {limited ? (
+              <span
+                className="hidden xl:flex min-w-0 items-baseline gap-2"
+                title="Server rate limit reached — polling rests until the minute budget refills"
+              >
+                <Stamp
+                  tone="due"
+                  className="max-w-[9rem] min-w-0"
+                  title="Server rate limit reached — polling rests until the minute budget refills"
+                >
+                  <Pause className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  <span className="block min-w-0 truncate">Limited {secondsLeft}s</span>
                 </Stamp>
               </span>
-            )}
-
-            {typeof serverVersion?.rate_limit_per_minute === 'number' && (
-              <span
-                className="hidden xl:flex items-baseline gap-2"
-                title={t('layout.rateBudgetTitle', {
-                  perMinute: serverVersion.rate_limit_per_minute,
-                  burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,
-                })}
-              >
-                <span className="cap-sm cap shrink-0 whitespace-nowrap text-text-muted">budget</span>
-                <span className="ow-num text-[13px] text-text-primary">
-                  {serverVersion.rate_limit_per_minute}/min
+            ) : (
+              typeof serverVersion?.rate_limit_per_minute === 'number' && (
+                <span
+                  className="hidden xl:flex items-baseline gap-2"
+                  title={t('layout.rateBudgetTitle', {
+                    perMinute: serverVersion.rate_limit_per_minute,
+                    burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,
+                  })}
+                >
+                  {/* No cap label here, unlike its neighbours: "100/min" already
+                      says what it is, and the 55px a "budget" caption costs is
+                      the difference between the tenant scope showing a name and
+                      showing an empty pill at 1280. */}
+                  <span className="ow-num text-[13px] text-text-primary">
+                    {serverVersion.rate_limit_per_minute}/min
+                  </span>
                 </span>
-              </span>
-            )}
-
-            {limited && (
-              <Stamp tone="due" title="Server rate limit reached — polling rests until the minute budget refills">
-                <span className="inline-flex items-center gap-1.5">
-                  <Pause className="h-3 w-3" aria-hidden="true" />
-                  Limited {secondsLeft}s
-                </span>
-              </Stamp>
+              )
             )}
 
             {/* The link indicator is the one instrument that is never shed while

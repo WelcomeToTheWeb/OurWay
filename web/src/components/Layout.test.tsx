@@ -93,8 +93,10 @@ describe('Layout shift bar - tenant scope (2.3-5)', () => {
     applyScope('none');
     const stamp = screen.getByText('no tenants');
     expect(stamp).toBeInTheDocument();
-    // The title is the sentence the operator reads when a unit is missing.
-    expect(stamp.getAttribute('title')).toContain('A unit you cannot find is usually a tenant you are not granted');
+    // The title is the sentence the operator reads when a unit is missing. It
+    // sits on the pill; the text is in the span that truncates inside it, so
+    // ask the nearest ancestor that actually carries it.
+    expect(stamp.closest('[title]')?.getAttribute('title')).toContain('A unit you cannot find is usually a tenant you are not granted');
   });
 
   it('stays off the bar before the server has said anything, so the bar never states a scope it does not know', () => {
