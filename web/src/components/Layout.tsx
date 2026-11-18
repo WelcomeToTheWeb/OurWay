@@ -297,41 +297,35 @@ export function Layout() {
                 room — from `md` to `lg` the box is exactly full with the clock
                 and the link, so anything that appears only sometimes has to
                 arrive at `xl`, where the scope chip is present to absorb it. */}
-            {/* One rate instrument, two states. When the server is refusing us,
-                the warning replaces the figure. But unlike the figure it is
-                never shed, and it carries no words that could be cut: an icon, a
-                `title`, and a sentence for assistive tech. The figure can wait
-                for `xl` because it is a rate; the condition it warns about is the
-                one that makes every figure on screen stale, and the link chip
-                beside it will still read "Live", because the socket is a separate
-                transport and the poller simply skips its tick. A warning that
-                yielded with the trivia would let this bar assert liveness while
-                nothing was being read. */}
-            {limited ? (
-              <Stamp tone="due" className="shrink-0" title={`Rate limited — polling rests for ${secondsLeft}s`}>
-                <Pause className="h-3 w-3 shrink-0" aria-hidden="true" />
-                <span className="sr-only">
-                  Rate limited — polling rests for {secondsLeft}s until the minute budget refills
+            {/* The budget figure is a rate, so it waits for `xl` with the other
+                rates and sheds with them. The warning that replaces it when the
+                server starts refusing us is the opposite case and is rendered
+                outside this box, next to identity: this box is the container
+                whose entire job is to shed, so an instrument declared "never
+                shed" cannot live inside it and mean it. The condition the
+                warning states is the one that makes every figure on screen
+                stale, and the link chip beside it will still read "Live",
+                because the socket is a separate transport and the poller simply
+                skips its tick. A warning that yielded with the trivia would let
+                this bar assert liveness while nothing was being read — and it
+                would carry no words that could be cut: an icon, a `title`, and a
+                sentence for assistive tech. */}
+            {!limited && typeof serverVersion?.rate_limit_per_minute === 'number' && (
+              <span
+                className="hidden xl:flex items-baseline gap-2"
+                title={t('layout.rateBudgetTitle', {
+                  perMinute: serverVersion.rate_limit_per_minute,
+                  burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,
+                })}
+              >
+                {/* No cap label here, unlike its neighbours: "100/min" already
+                    says what it is, and the 55px a "budget" caption costs is the
+                    difference between the tenant scope showing a name and
+                    showing an empty pill at 1280. */}
+                <span className="ow-num text-[13px] text-text-primary">
+                  {serverVersion.rate_limit_per_minute}/min
                 </span>
-              </Stamp>
-            ) : (
-              typeof serverVersion?.rate_limit_per_minute === 'number' && (
-                <span
-                  className="hidden xl:flex items-baseline gap-2"
-                  title={t('layout.rateBudgetTitle', {
-                    perMinute: serverVersion.rate_limit_per_minute,
-                    burst: serverVersion.rate_limit_burst ?? serverVersion.rate_limit_per_minute,
-                  })}
-                >
-                  {/* No cap label here, unlike its neighbours: "100/min" already
-                      says what it is, and the 55px a "budget" caption costs is
-                      the difference between the tenant scope showing a name and
-                      showing an empty pill at 1280. */}
-                  <span className="ow-num text-[13px] text-text-primary">
-                    {serverVersion.rate_limit_per_minute}/min
-                  </span>
-                </span>
-              )
+              </span>
             )}
 
             {/* The link indicator is the one instrument that is never shed while
@@ -341,6 +335,15 @@ export function Layout() {
               <LinkStamp connected={connected} />
             </span>
             </div>
+
+            {limited && (
+              <Stamp tone="due" className="shrink-0" title={`Rate limited — polling rests for ${secondsLeft}s`}>
+                <Pause className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <span className="sr-only">
+                  Rate limited — polling rests for {secondsLeft}s until the minute budget refills
+                </span>
+              </Stamp>
+            )}
 
             {user && (
               /* Identity yields last, and it is never cut. The avatar is here at
