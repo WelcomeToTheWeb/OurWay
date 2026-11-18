@@ -96,11 +96,16 @@ jobs:
           # The suite reads like an operator with a shift of tabs open: it is
           # one user making many reads. The budget is a server-side dial
           # (RATE_LIMIT_PER_MINUTE / RATE_LIMIT_BURST, 2.2-3), so the harness
-          # runs with headroom instead of tripping its own limit: 25 specs of
-          # page mounts and polls are more reads per minute than a human operator
-          # makes, and a harness that answers 429 mid-suite reads to the next
-          # reader as a missing control. The budget itself is asserted by
-          # `web/e2e/fleet.spec.ts` against the documented default of 100/min.
+          # runs with headroom instead of tripping its own limit: thirty-two
+          # tests across ten spec files, most of them mounting a page and its
+          # polls, are more reads per minute than a human operator makes, and a
+          # harness that answers 429 mid-suite reads to the next reader as a
+          # missing control. The budget itself is asserted by
+          # `web/e2e/fleet.spec.ts` against the documented default of 100/min,
+          # and `web/e2e/responsive.spec.ts` depends on this staying high: it
+          # asserts whichever state the rate instrument is in rather than
+          # assuming the quiet one, so it survives either, but it can only
+          # *measure* the warning by forcing a 429 locally.
           RATE_LIMIT_PER_MINUTE: '2000'
           RATE_LIMIT_BURST: '200'
           # Enrollment is gated (2.0-5). The harness seeds the fleet through the
