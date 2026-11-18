@@ -37,10 +37,11 @@ import {
  * caption: the caption `fleet` and the placeholder version `dev` are both on
  * screen before any read has answered.
  *
- * NOT covered, stated because §8 is a contract and silence about its edges is
- * how it got broken last time: no test here renders the rate-limited state — CI
- * raises the per-minute budget to 2000, so nothing in this suite can make the
- * server refuse a request, and the component test drives that flag directly.
+ * NOT guaranteed here: the live rate-limited state. CI raises the per-minute
+ * budget to 2000, which usually keeps the suite under it — but the suite has
+ * tripped it anyway, so the rate instrument's tests assert whichever of its two
+ * states is on the bar rather than assuming one, and the component test drives
+ * the flag directly.
  */
 
 const WIDTHS = [1600, 1536, 1440, 1280, 1024, 768, 390];
@@ -159,12 +160,13 @@ async function settleBar(page: Page, width: number, scopeValue: string): Promise
   }
   if (width >= 1280) {
     await expect(chip).toBeVisible({ timeout: 15_000 });
-    const version = page.getByTitle(/console build/i);
-    await expect(version).toBeVisible({ timeout: 15_000 });
-    // `{serverVersion?.version || 'dev'}` paints the placeholder on frame one,
-    // so "visible" proves nothing. "no dev figure" is the read having answered.
-    await expect(version.getByText('dev')).toHaveCount(0, { timeout: 15_000 });
-    await expect(page.getByTitle(/request budget/i)).toBeVisible({ timeout: 15_000 });
+    // One rate instrument, two states: the budget figure or the warning. Either
+    // one is proof the version read has answered, because the figure renders
+    // only from `rate_limit_per_minute` in that same response. The version
+    // *string* cannot settle anything here: a CI server is built without release
+    // ldflags, so it legitimately reports `dev` forever, and an assertion that
+    // it stops saying so is a test that can only fail.
+    await expect(page.getByTitle(/request budget|polling rests/i).first()).toBeVisible({ timeout: 15_000 });
   }
   if (width >= 1536) {
     // `formatWindow(policy) · untilLabel(at)`, and untilLabel is always "now" or
@@ -327,7 +329,6 @@ test.describe('the shift bar as a tenant, which is the only state where it runs 
       // on the copy can never match. `<time datetime>` is locale-proof.
       { label: 'the UTC clock', gate: 640, locator: (p) => p.locator('header time[datetime]').first() },
       { label: 'the server version', gate: 1280, locator: (p) => p.getByTitle(/console build/i) },
-      { label: 'the rate figure', gate: 1280, locator: (p) => p.getByTitle(/request budget/i) },
       { label: 'the next maintenance window', gate: 1536, locator: (p) => p.locator('header').getByText(/·\s*(now|in \d)/) },
     ];
     for (const { label, gate, locator } of instruments) {
@@ -425,20 +426,32 @@ test.describe('the shell as a fleet admin', () => {
   });
 });
 
-test('the rate-limit warning is the one bar instrument with no breakpoint', async ({ page }) => {
-  // CI raises the per-minute budget to 2000, so the server never refuses this
-  // session and the live state cannot be reached from here; the component test
-  // drives the flag directly. What this pins is the shape of the promise: the
-  // budget figure waits for `xl` because it is a rate, but the warning that
-  // replaces it is the one instrument that is never shed and never carries
-  // words that could be cut — because the condition it states is the one that
-  // makes every other figure stale while the link chip beside it still says
-  // "Live".
-  test.setTimeout(60_000);
+test('the rate instrument is one instrument with two states, and the warning has no breakpoint', async ({
+  page,
+}) => {
+  // The figure is a rate and waits for `xl` with the other rates. The warning
+  // that replaces it when the server starts refusing us is the one bar
+  // instrument with no breakpoint, because the condition it states is the one
+  // that makes every other figure stale while the link chip beside it still
+  // reads "Live". Which of the two is on the bar depends on the server, so this
+  // asserts the pair instead of picking a side: exactly one of them is ever
+  // present, the figure never below `xl`, and the warning — if the suite happens
+  // to trip a limit at 390px, which it has done — is visible there too.
+  test.setTimeout(180_000);
   await uiLogin(page);
-  await page.setViewportSize({ width: 390, height: 720 });
-  await page.goto('/devices', { waitUntil: 'domcontentloaded' });
-  await settleBar(page, 390, ADMIN_SCOPE);
-  await expect(page.getByTitle(/request budget/i)).toBeHidden();
-  await expect(page.getByTitle(/polling rests/i)).toHaveCount(0);
+  const figure = page.getByTitle(/request budget/i);
+  const warning = page.getByTitle(/polling rests/i);
+  for (const width of WIDTHS) {
+    await page.setViewportSize({ width, height: 720 });
+    await page.goto('/devices', { waitUntil: 'domcontentloaded' });
+    await settleBar(page, width, ADMIN_SCOPE);
+    if (width < 1280) {
+      await expect(figure, `the budget figure is shed below xl at ${width}px`).toBeHidden();
+    }
+    if ((await warning.count()) > 0) {
+      await expect(warning, `the rate-limit warning is never shed, and ${width}px is not too narrow`).toBeVisible();
+    } else if (width >= 1280) {
+      await expect(figure, `the budget figure at ${width}px`).toBeVisible();
+    }
+  }
 });

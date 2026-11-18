@@ -125,11 +125,12 @@ describe('Layout shift bar - tenant scope (2.3-5)', () => {
 });
 
 /**
- * Two promises the e2e suite cannot make for itself.
+ * Two promises the e2e suite cannot make on its own.
  *
- * The rate-limited state is unreachable in CI — the workflow raises the
- * per-minute budget so the server never refuses a request — and what a bar
- * *renders* at 390px needs a real layout engine, which jsdom does not have. So
+ * The rate-limited state depends on the server refusing a request, which CI
+ * usually avoids by raising the per-minute budget — so it cannot be driven from
+ * a test that only clicks, even when the limit does trip. And what a bar
+ * *draws* at 390px needs a real layout engine, which jsdom does not have. So
  * these assert the markup contract, and `e2e/responsive.spec.ts` measures the
  * rendering. Both halves are needed: this file cannot notice that a 1px sr-only
  * box is invisible to an eye, and that file cannot notice that a class list says
