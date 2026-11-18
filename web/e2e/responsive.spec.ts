@@ -180,7 +180,11 @@ test.describe('the shift bar sheds in the order DESIGN.md §8 states', () => {
 
   const instruments = [
     { label: 'the live link', gate: 768, locator: (page: Page) => page.getByTitle(/WebSocket connected|WebSocket down/).first() },
-    { label: 'the UTC clock', gate: 640, locator: (page: Page) => page.getByText(/^UTC\s/).first() },
+    // The clock is a `<time>` element, not a text run: the caption and the
+    // figure are separate flex children, so their shared text content is
+    // "UTC04:24:51" with no space in it — a regex on the copy cannot match.
+    // The element is also the only thing in the header with a `datetime`.
+    { label: 'the UTC clock', gate: 640, locator: (page: Page) => page.locator('header time[datetime]').first() },
     { label: 'the server version', gate: 1280, locator: (page: Page) => page.getByTitle(/console build/i) },
     { label: 'the rate instrument', gate: 1280, locator: (page: Page) => page.getByTitle(/request budget|rate limit reached/i) },
     { label: 'the tenant scope', gate: 1280, locator: (page: Page) => page.getByText('fleet', { exact: true }) },
