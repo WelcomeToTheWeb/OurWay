@@ -355,7 +355,9 @@ export function Users() {
                   />
                   <div className="min-w-0">
                     <span className="cap cap-sm text-text-primary">{role.name}</span>
-                    <span className="block truncate text-xs text-text-muted">{role.description}</span>
+                    <span className="block truncate text-xs text-text-muted" title={role.description}>
+                      {role.description}
+                    </span>
                   </div>
                 </label>
               ))}

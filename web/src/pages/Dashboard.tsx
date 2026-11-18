@@ -344,6 +344,7 @@ export function Dashboard() {
                       <Link
                         to={`/devices/${d.device_id}`}
                         className="min-w-0 truncate text-[13px] font-semibold text-text-primary hover:text-[var(--service)]"
+                        title={d.name}
                       >
                         {d.name}
                       </Link>
@@ -371,6 +372,7 @@ export function Dashboard() {
                     <Link
                       to={`/devices/${d.device_id}`}
                       className="min-w-0 truncate text-[13px] text-text-primary hover:text-[var(--service)]"
+                      title={d.name}
                     >
                       {d.name}
                     </Link>
@@ -394,8 +396,12 @@ export function Dashboard() {
                 {sessions.slice(0, 5).map((s) => (
                   <li key={s.id} className="flex items-center gap-2 border-b border-rule px-3 py-2 text-[12px] last:border-b-0">
                     <Radio className="h-3.5 w-3.5 shrink-0 text-[var(--service)]" aria-hidden="true" />
-                    <Link to={`/devices/${s.device_id}`} className="ow-num truncate text-text-primary hover:text-[var(--service)]">
-                      {s.device_id.slice(0, 8)}
+                    <Link
+                      to={`/devices/${s.device_id}`}
+                      className="ow-num block min-w-0 truncate text-text-primary hover:text-[var(--service)]"
+                      title={s.device_id}
+                    >
+                      {s.device_id}
                     </Link>
                     <Stamp tone={s.status === 'active' ? 'online' : 'neutral'}>{s.status}</Stamp>
                   </li>

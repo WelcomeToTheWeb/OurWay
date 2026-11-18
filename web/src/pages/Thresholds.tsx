@@ -573,7 +573,9 @@ export function Thresholds() {
                       </Stamp>
                       <span className="ow-num">{candidate.warning} / {candidate.critical}</span>
                       {candidate.scope_value && (
-                        <span className="truncate text-text-muted">{candidate.scope_value}</span>
+                        <span className="truncate text-text-muted" title={candidate.scope_value}>
+                          {candidate.scope_value}
+                        </span>
                       )}
                     </li>
                   ))}

@@ -541,6 +541,10 @@ function ClientPanel({
       <div className="grid gap-4 lg:grid-cols-2">
         <div>
           <h3 className="cap cap-sm mb-2 text-text-muted">{t('clients.unitsTitle')}</h3>
+          {/* Not a `ledger-scroll` box: this is a picker, and a column you have to
+              scroll sideways to reach hides the checkbox you are scrolling to use.
+              A unit whose name or host does not fit says so and carries the whole
+              value in its title instead (§8's other honest outcome). */}
           <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
             {candidates.map((d) => (
               <label key={d.id} className="flex items-center gap-2">
@@ -551,8 +555,8 @@ function ClientPanel({
                     setSelected((prev) => (e.target.checked ? [...prev, d.id] : prev.filter((x) => x !== d.id)))
                   }
                 />
-                <span className="cap cap-sm text-text-primary">{d.name}</span>
-                <span className="ow-num text-[11px] text-text-muted">{d.hostname}</span>
+                <span className="cap cap-sm min-w-0 truncate text-text-primary" title={d.name}>{d.name}</span>
+                <span className="ow-num min-w-0 truncate text-[11px] text-text-muted" title={d.hostname}>{d.hostname}</span>
               </label>
             ))}
             {candidates.length === 0 && (
@@ -581,8 +585,10 @@ function ClientPanel({
                       setGrants((prev) => (e.target.checked ? [...prev, u.id] : prev.filter((x) => x !== u.id)))
                     }
                   />
-                  <span className="cap cap-sm text-text-primary">{u.username}</span>
-                  <span className="cap cap-sm text-text-muted">{u.roles.join(', ')}</span>
+                  <span className="cap cap-sm min-w-0 truncate text-text-primary" title={u.username}>{u.username}</span>
+                  <span className="cap cap-sm min-w-0 truncate text-text-muted" title={u.roles.join(', ')}>
+                    {u.roles.join(', ')}
+                  </span>
                 </label>
               ))}
             {users.filter((u) => !u.roles.includes('admin')).length === 0 && (

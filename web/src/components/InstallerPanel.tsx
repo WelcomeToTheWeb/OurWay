@@ -145,7 +145,17 @@ export function InstallerPanel() {
                         <CmdIcon className="h-4 w-4 shrink-0 text-[var(--service)]" aria-hidden="true" />
                         <span className="min-w-0 flex-1">
                           <span className="cap-sm cap block text-text-muted">{cmd.label}</span>
-                          <code className="block truncate font-mono text-[11.5px] text-text-primary">
+                          {/*
+                            The command carries an enrollment token, so the ellipsis
+                            may not be the only thing between an operator and the
+                            value: it is selectable here, copyable beside it, and the
+                            title names what was cut. A secret behind a hover alone is
+                            not reachable.
+                          */}
+                          <code
+                            className="block min-w-0 cursor-text select-all truncate font-mono text-[11.5px] text-text-primary"
+                            title={cmd.command}
+                          >
                             {cmd.command}
                           </code>
                         </span>

@@ -342,9 +342,16 @@ export function Alerts() {
                           {t('alerts.acknowledged')}
                         </Stamp>
                       )}
+                      /* `.stamp` is inline-flex: an ellipsis declared on the pill
+                         itself paints nothing. Cap the pill, and let the inner
+                         span own the text node it cuts. */
                       {alert.assigned_to && (
-                        <Stamp tone="neutral" title={`Assigned owner: ${alert.assigned_to}`} className="max-w-[10rem] overflow-hidden text-ellipsis">
-                          {alert.assigned_to}
+                        <Stamp
+                          tone="neutral"
+                          title={`Assigned owner: ${alert.assigned_to}`}
+                          className="max-w-[10rem] min-w-0"
+                        >
+                          <span className="block min-w-0 truncate">{alert.assigned_to}</span>
                         </Stamp>
                       )}
                       {alert.resolved && (
