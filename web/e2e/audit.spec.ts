@@ -506,52 +506,99 @@ test("the unit view deep link opens that unit's record", async ({
     `the ledger is filtered to ${short}; ${foreign.length} row(s) name something else`,
   ).toEqual([]);
 
-  // The page and the server are the same measurement of this unit's record. The
-  // page asks for 200 rows, so the read asks for 200 too — the endpoint states
-  // `total` as the page's length, not the table's size. Polled because the ledger
-  // is live: another worker's act on a *different* unit never enters this count,
-  // but a page rendered a moment before a re-read still has to agree with it.
+  // The page and the server are the same measurement of this unit's record — but
+  // only if they are measured across the same stretch of time, and the version this
+  // replaces measured them across different stretches. It polled **the server** (a
+  // live read, current on every iteration) against **the page's DOM** (measured once,
+  // at mount, and never re-read: the console reads the ledger once per mount and does
+  // not poll it). Polling one moving side against one frozen side cannot converge. It
+  // can only fail — and it did, twice on `main` with `retries: 0`:
   //
-  // Compared by **act**, not by count. PR #85's failure read "the page printed 1,
-  // the server has 2", which names the symptom and leaves whoever reads it to
-  // guess at the cause; the same comparison written as a list of verbs names the
-  // act that is on one side and not the other, and an act name is a route. The
-  // multiset is order-insensitive on purpose: both sides read `created_at DESC`,
-  // and a disagreement about *order* is a different defect than a disagreement
-  // about *content*, so it must not be reported as one.
+  //     the server has 2 act(s) for device 0f6b8663; the page shows 1
+  //     server: device.stream, device.stream — page: device.stream
   //
-  // `evaluateAll` reads every row in one pass. The loop this replaces awaited
-  // between rows, so a re-render mid-loop made the page's own count a measurement
-  // of two different renders — which is the wrong instrument for a test whose
-  // whole subject is whether the page and the server agree.
-  const verbOf = (row: { action: string }) => row.action;
+  // Neither side was wrong. `POST /api/devices/:id/stream` and `/stream/stop` **both**
+  // audit `device.stream` (`server/api/audit.go:65-66`), and the hub ends a stream the
+  // moment its viewer socket closes — so a stop row can land on this very unit while
+  // this test is running. The page read before it; the server read after it. An
+  // assertion that requires a single-read page to equal a live server at an arbitrary
+  // instant is a test that can fail with no defect present, which is the definition of
+  // the thing this repo keeps asking for.
+  //
+  // So the comparison is now **bracketed**: read the server, force the console to
+  // re-read (a reload is the act an operator performs, and the only one that makes the
+  // page's measurement current), read the server again. Equal brackets mean the ledger
+  // did not move across the whole window in which the page measured, which is the
+  // precondition for the two to be comparable at all. If they are not equal, the test
+  // says *the ledger was not quiet* and retries, rather than reporting a page defect
+  // that does not exist. The cheap two-read gate up front keeps that from costing a
+  // reload per iteration while the ledger is busy.
+  //
+  // Compared by **act**, not by count, as before: an act name is a route, so the
+  // failure names the verb that is on one side and not the other. Order-insensitive on
+  // purpose — both sides read `created_at DESC`, and a disagreement about order is a
+  // different defect from a disagreement about content.
+  const sorted = (acts: string[]) => [...acts].sort().join(", ") || "(none)";
+
+  const serverActs = async () => {
+    const res = await request.get(`${apiBase()}/api/audit`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { target: unit.id, limit: "200" },
+    });
+    const body = await res.json();
+    return sorted((body.logs as { action: string }[]).map((log) => log.action));
+  };
+
+  const pageActs = async () =>
+    sorted(
+      await dataRows.evaluateAll((rows) =>
+        Array.from(rows, (row) => {
+          const cells = row.querySelectorAll("td");
+          return cells[1]?.textContent?.trim() ?? "(no action cell)";
+        })
+      )
+    );
+
   await expect
     .poll(
       async () => {
-        const res = await request.get(`${apiBase()}/api/audit`, {
-          headers: { Authorization: `Bearer ${token}` },
-          params: { target: unit.id, limit: "200" },
-        });
-        const body = await res.json();
-        const serverActs: string[] = (body.logs as { action: string }[]).map(verbOf);
-        const pageActs: string[] = await dataRows.evaluateAll((rows) =>
-          Array.from(rows, (row) => {
-            const cells = row.querySelectorAll("td");
-            return cells[1]?.textContent?.trim() ?? "(no action cell)";
-          })
-        );
-        const sorted = (acts: string[]) => [...acts].sort().join(", ") || "(none)";
-        const onServer = sorted(serverActs);
-        const onPage = sorted(pageActs);
-        if (onServer === onPage) return "equal";
+        // Gate: is anything writing? If two reads a beat apart differ, stop early —
+        // no page measurement could possibly agree with a ledger that is moving.
+        const gate1 = await serverActs();
+        const gate2 = await serverActs();
+        if (gate1 !== gate2) {
+          return `the ledger is not quiet yet: "${gate1}" then "${gate2}"`;
+        }
+
+        const before = await serverActs();
+        await page.reload();
+        await expect(page.getByText(`Unit record: ${short}`)).toBeVisible();
+        await expect(dataRows.first()).toBeVisible();
+        const onPage = await pageActs();
+        const after = await serverActs();
+
+        if (before !== after) {
+          return [
+            "the ledger moved across the page read, so page and server are not the same measurement",
+            `before: ${before}`,
+            `after:  ${after}`,
+          ].join(" — ");
+        }
+        if (onPage === before) return "equal";
         return [
-          `the server has ${serverActs.length} act(s) for ${short}; the page shows ${pageActs.length}`,
-          `server: ${onServer}`,
-          `page:   ${onPage}`,
+          `the server was quiet at [${before}] and the page shows [${onPage}] for ${short}`,
           `url: ${page.url()}`,
         ].join(" — ");
       },
-      { message: "the page shows the server's acts for this unit" }
+      {
+        message:
+          "with the ledger quiet, the page shows exactly the server's acts for this unit",
+        // The predicate performs a real navigation and retries until the ledger is
+        // quiet, so it needs more room than a synchronous expect. This is a bound on
+        // waiting for a quiet window, not a retry of the assertion: a page that never
+        // agrees with a quiet server still fails, and says which side disagreed.
+        timeout: 25_000,
+      }
     )
     .toBe("equal");
 });
