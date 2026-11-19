@@ -764,6 +764,7 @@
     "noAccess": "Das Protokoll ist eine Oberfläche für Betreuer: Administratoren lesen die Installation, Managers lesen ihre Mandanten.",
     "scope": "Angewandter Bereich: {{scope}}",
     "retention": "Einträge älter als {{days}} Tage werden entfernt",
+    "retentionUnknown": "Aufbewahrungsfenster unbekannt — dieser Seite war der Protokollabruf nicht möglich",
     "lastSweep": "Der letzte Durchlauf hat {{rows}} Einträge entfernt ({{when}})",
     "sweepNever": "Der Bereinigungslauf wurde auf diesem Server noch nicht ausgeführt",
     "sweepFailed": "Der letzte Bereinigungslauf ist fehlgeschlagen — Einträge bleiben länger als geplant",
@@ -779,6 +780,7 @@
     "empty": "Keine Einträge für diesen Filter. Einträge älter als das Aufbewahrungsfenster sind entfernt.",
     "noActor": "kein Konto",
     "footnote": "Auch abgelehnte Versuche werden erfasst — dafür ist das Protokoll da. Einträge älter als {{days}} Tage werden entfernt.",
+    "footnoteUnknown": "Auch abgelehnte Versuche werden erfasst — dafür ist das Protokoll da. Solange der Protokollabruf fehlschlägt, bleibt das Aufbewahrungsfenster unbekannt.",
     "col": {
       "actor": "Wer",
       "action": "Aktion",

@@ -227,6 +227,24 @@ describe('Audit ledger (2.3-6)', () => {
     expect(screen.getByText(/Last sweep removed 42 rows/)).toBeInTheDocument();
   });
 
+  it('does not print a retention window it never read', async () => {
+    // The window used to initialise to `0` and the catch path left it there, so a
+    // ledger the page could not fetch was announced as "records older than 0 days
+    // are removed" — the most alarming value that column can take, from a number
+    // the page invented. It is also what let the ledger spec's retention
+    // assertion pass vacuously (PR #84), which is why the fix is here and not only
+    // in the spec.
+    mockedLog.mockRejectedValue(new Error('the ledger read failed'));
+    renderPage();
+
+    expect(await screen.findByText(/Retention window unknown/i)).toBeInTheDocument();
+    // Not "0 days", not any number: nothing is claimed about the window at all.
+    expect(document.body.textContent).not.toMatch(/older than \d+ days/i);
+    // The sweep line is withheld for the same reason — a read that failed says
+    // nothing about whether the sweep ran.
+    expect(screen.queryByText(/has not run yet/i)).not.toBeInTheDocument();
+  });
+
   it('says when the retention sweep has never run, and when it failed', async () => {
     mockedLog.mockResolvedValue(
       page([row()], {

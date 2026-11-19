@@ -764,6 +764,7 @@
     "noAccess": "Le journal est une interface d'exploitation : les administrateurs lisent l'installation, les gestionnaires lisent leurs clients.",
     "scope": "Périmètre appliqué : {{scope}}",
     "retention": "Les entrées de plus de {{days}} jours sont supprimées",
+    "retentionUnknown": "Fenêtre de conservation inconnue — cette page n'a pas pu lire le journal",
     "lastSweep": "La dernière passe a supprimé {{rows}} entrées ({{when}})",
     "sweepNever": "La passe de conservation n'a pas encore tourné sur ce serveur",
     "sweepFailed": "La dernière passe de conservation a échoué — les entrées restent au-delà de la fenêtre",
@@ -779,6 +780,7 @@
     "empty": "Aucune entrée pour ce filtre. Les entrées plus anciennes que la fenêtre de conservation ont été supprimées.",
     "noActor": "aucun compte",
     "footnote": "Les tentatives refusées sont enregistrées aussi — c'est le rôle du journal. Les entrées de plus de {{days}} jours sont supprimées.",
+    "footnoteUnknown": "Les tentatives refusées sont enregistrées aussi — c'est le rôle du journal. La fenêtre de conservation reste inconnue tant que la lecture du journal échoue.",
     "col": {
       "actor": "Qui",
       "action": "Action",

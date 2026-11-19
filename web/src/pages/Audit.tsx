@@ -62,7 +62,19 @@ export function Audit() {
   const [rows, setRows] = useState<AuditLog[]>([]);
   const [actions, setActions] = useState<string[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string; slug: string }[]>([]);
-  const [meta, setMeta] = useState({ retentionDays: 0, rowsPruned: 0, lastRun: '', errored: false });
+  // `null` is "this page has not read the ledger". It is not the same fact as a
+  // window of 0 days, and conflating them is buglist-worthy: the initial state
+  // used to be `0`, so a *failed* ledger read printed "Records older than 0 days
+  // are removed" beside an empty table — indistinguishable from a server genuinely
+  // configured to keep nothing. That is also why the ledger spec's retention
+  // assertion could pass while proving nothing (PR #84). Product principle 4: the
+  // console is honest about "we don't know".
+  const [meta, setMeta] = useState<{
+    retentionDays: number | null;
+    rowsPruned: number;
+    lastRun: string;
+    errored: boolean;
+  }>({ retentionDays: null, rowsPruned: 0, lastRun: '', errored: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -92,6 +104,10 @@ export function Audit() {
         errored: page.retention?.sweep_errored ?? false,
       });
     } catch (e) {
+      // A failed read knows nothing — including nothing about the numbers it was
+      // showing a moment ago. Keeping the previous window would print a confident
+      // promise the page can no longer support.
+      setMeta({ retentionDays: null, rowsPruned: 0, lastRun: '', errored: false });
       setError(e instanceof Error ? e.message : t('common.error'));
     } finally {
       setLoading(false);
@@ -172,21 +188,25 @@ export function Audit() {
 
       {/* The scope the server said it applied, and the retention the page is
       subject to, printed together: "you are reading the client's fleet, and
-      rows older than this are gone". Both are the server's answer, read off
-      the same response, so neither is a claim the page makes up. */}
+      rows older than this are gone". Both come from the server's answer, so
+      neither is a claim the page makes up — and when the read failed, the page
+      says it does not know instead of printing a number it never read. */}
       <div className="panel flex flex-wrap items-center gap-3 px-3 py-2">
         <span className="cap cap-sm text-text-muted">{t('audit.scope', { scope })}</span>
         <span className="cap cap-sm text-text-muted">
-          {t('audit.retention', { days: meta.retentionDays })}
+          {meta.retentionDays === null
+            ? t('audit.retentionUnknown')
+            : t('audit.retention', { days: meta.retentionDays })}
         </span>
-        {meta.lastRun && meta.lastRun !== '0001-01-01T00:00:00Z' ? (
-          <span className="cap cap-sm text-text-muted">
-            {t('audit.lastSweep', { when: formatWhen(meta.lastRun), rows: meta.rowsPruned })}
-          </span>
-        ) : (
-          <span className="cap cap-sm text-text-muted">{t('audit.sweepNever')}</span>
-        )}
-        {meta.errored && (
+        {meta.retentionDays !== null &&
+          (meta.lastRun && meta.lastRun !== '0001-01-01T00:00:00Z' ? (
+            <span className="cap cap-sm text-text-muted">
+              {t('audit.lastSweep', { when: formatWhen(meta.lastRun), rows: meta.rowsPruned })}
+            </span>
+          ) : (
+            <span className="cap cap-sm text-text-muted">{t('audit.sweepNever')}</span>
+          ))}
+        {meta.retentionDays !== null && meta.errored && (
           <span role="status" className="cap cap-sm text-[var(--stamp)]">
             {t('audit.sweepFailed')}
           </span>
@@ -351,7 +371,9 @@ export function Audit() {
         </div>
         <p className="cap cap-sm mt-2 flex items-center gap-2 text-text-muted">
           <ScrollText size={13} aria-hidden />
-          {t('audit.footnote', { days: meta.retentionDays })}
+          {meta.retentionDays === null
+            ? t('audit.footnoteUnknown')
+            : t('audit.footnote', { days: meta.retentionDays })}
         </p>
       </section>
     </section>
