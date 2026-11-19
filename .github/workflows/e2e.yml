@@ -96,7 +96,7 @@ jobs:
           # The suite reads like an operator with a shift of tabs open: it is
           # one user making many reads. The budget is a server-side dial
           # (RATE_LIMIT_PER_MINUTE / RATE_LIMIT_BURST, 2.2-3), so the harness
-          # runs with headroom instead of tripping its own limit: thirty-two
+          # runs with headroom instead of tripping its own limit: forty-one
           # tests across ten spec files, most of them mounting a page and its
           # polls, are more reads per minute than a human operator makes, and a
           # harness that answers 429 mid-suite reads to the next reader as a
