@@ -20,6 +20,32 @@ import (
 	"ourway/server/store"
 )
 
+// hopBudget is how long any one hop in this package is allowed to take: a dial,
+// a write, a read, or one lap of a poll-until-the-store-looks-right loop.
+//
+// It is generous on purpose. `go test ./...` runs the packages in parallel, and
+// these hops are real WebSocket round-trips through a hub goroutine: on a loaded
+// CI box a scheduler can starve the hub's loop while every other package is
+// compiling and racing. A tight deadline reads as "the relay is slow" when
+// nothing is wrong with the relay, and a test that fails under load and passes on
+// re-run teaches people to ignore the suite.
+//
+// 20 s was starved on an 8-core box running `go -C server test -race ./...` with
+// the 2.4-5 threshold suite added to the parallel load: the hop was late, the
+// relay was correct. The budget covers a scheduler that starves the hub for the
+// length of a package's compile, not just a context switch. What these tests
+// assert is which frames reach which socket, never how fast a saturated hub is.
+//
+// One constant, no literals. This is buglist.md L13: the entry was written about
+// a "tight 5 s deadline" in `viewer_test.go`, the read and write budgets were
+// widened twice, and the test still failed on CI — because the *dial* and the
+// shared `dialAgent`/`wsSend` helpers each kept their own hard-coded 5 s. A
+// deadline that survives as a magic number in nine places is nine places to
+// forget. Anything that measures something other than one hop states its own
+// window at the call — `scale_test.go`'s 30 s is a ceiling on a 25-device
+// fan-out, not on a hop, and stays as it is.
+const hopBudget = 60 * time.Second
+
 // setupHubTest spins a fresh in-memory SQLite store and an HTTP server whose
 // /ws route is served by a plain (non-distributed) hub.
 func setupHubTest(t *testing.T) (*httptest.Server, *store.Store, *Hub) {
@@ -76,7 +102,7 @@ func addDevice(t *testing.T, st *store.Store, name, key string) *models.Device {
 func dialAgent(t *testing.T, tsURL, key string) *websocket.Conn {
 	t.Helper()
 	wsURL := "ws" + strings.TrimPrefix(tsURL, "http") + "/ws"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hopBudget)
 	defer cancel()
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"ourway-auth", key},
@@ -97,7 +123,7 @@ func wsSend(t *testing.T, conn *websocket.Conn, msgType string, payload interfac
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hopBudget)
 	defer cancel()
 	if err := conn.Write(ctx, websocket.MessageText, data); err != nil {
 		t.Fatalf("write %s failed: %v", msgType, err)
@@ -158,7 +184,7 @@ func TestHubMetricsUseConnectionIdentity(t *testing.T) {
 	// against the connection's device (C2 regression guard).
 	wsSend(t, conn, "metrics", metricsPayload(victim.DeviceKey, 88.8))
 
-	readUntil(t, conn, 5*time.Second, func(m Message) bool {
+	readUntil(t, conn, hopBudget, func(m Message) bool {
 		return m.Type == "metrics"
 	})
 
@@ -188,7 +214,7 @@ func TestHubMetricsBroadcastShape(t *testing.T) {
 	// device connections themselves, so the sending agent observes its own
 	// frame echoed in the REST broadcast shape.
 	wsSend(t, agentConn, "metrics", metricsPayload(dev.DeviceKey, 12.5))
-	msg := readUntil(t, agentConn, 5*time.Second, func(m Message) bool {
+	msg := readUntil(t, agentConn, hopBudget, func(m Message) bool {
 		return m.Type == "metrics"
 	})
 	payload, ok := msg.Payload.(map[string]interface{})
@@ -217,7 +243,7 @@ func TestHubUnknownDeviceKeyRejected(t *testing.T) {
 	ts, _, hub := setupHubTest(t)
 	go hub.Run()
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hopBudget)
 	defer cancel()
 	_, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"ourway-auth", "not-a-real-key"},
@@ -322,7 +348,7 @@ func TestHubSendToDevice(t *testing.T) {
 	// The register channel is processed asynchronously by hub.Run(); the
 	// dial returning does not mean the hub has registered the client yet.
 	// Poll instead of asserting immediately (this was a flaky race).
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(hopBudget)
 	for !hub.IsDeviceConnected(dev.DeviceKey) {
 		if time.Now().After(deadline) {
 			t.Fatal("expected device to be considered connected after dialing")
@@ -332,7 +358,7 @@ func TestHubSendToDevice(t *testing.T) {
 	if err := hub.SendToDevice(dev.DeviceKey, "ping", nil); err != nil {
 		t.Fatalf("SendToDevice failed: %v", err)
 	}
-	readUntil(t, conn, 5*time.Second, func(m Message) bool {
+	readUntil(t, conn, hopBudget, func(m Message) bool {
 		return m.Type == "ping"
 	})
 	if err := hub.SendToDevice("no-such-key", "ping", nil); err == nil {
@@ -352,7 +378,7 @@ func TestHubHeartbeatUpdatesDeviceAndIPs(t *testing.T) {
 		"public_ip":  "203.0.113.7",
 	})
 	// Heartbeats do not broadcast; poll the store for the update.
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(hopBudget)
 	for time.Now().Before(deadline) {
 		got, err := st.Devices.GetByKey("hb-key")
 		if err == nil && got.PrivateIP == "10.0.0.99" && got.PublicIP == "203.0.113.7" && !got.LastSeen.Before(before) {
@@ -368,7 +394,7 @@ func TestHubHeartbeatUpdatesDeviceAndIPs(t *testing.T) {
 // credential plus an Origin header.
 func dialWithOrigin(tsURL, key, origin string) (*websocket.Conn, *http.Response, error) {
 	wsURL := "ws" + strings.TrimPrefix(tsURL, "http") + "/ws"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hopBudget)
 	defer cancel()
 	return websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"ourway-auth", key},
@@ -432,9 +458,9 @@ func TestHubStoresAgentCapabilities(t *testing.T) {
 	payload["input_capability"] = "denied"
 	payload["capture_state"] = "ok"
 	wsSend(t, conn, "metrics", payload)
-	readUntil(t, conn, 5*time.Second, func(m Message) bool { return m.Type == "metrics" })
+	readUntil(t, conn, hopBudget, func(m Message) bool { return m.Type == "metrics" })
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(hopBudget)
 	var got *models.Device
 	var gerr error
 	for time.Now().Before(deadline) {
@@ -451,7 +477,7 @@ func TestHubStoresAgentCapabilities(t *testing.T) {
 	// An agent that reports nothing must not move the stored value.
 	oldConn := dialAgent(t, ts.URL, silent.DeviceKey)
 	wsSend(t, oldConn, "metrics", metricsPayload(silent.DeviceKey, 20.0))
-	readUntil(t, oldConn, 5*time.Second, func(m Message) bool { return m.Type == "metrics" })
+	readUntil(t, oldConn, hopBudget, func(m Message) bool { return m.Type == "metrics" })
 	time.Sleep(200 * time.Millisecond)
 	untouched, err := st.Devices.GetByID(silent.ID)
 	if err != nil {
