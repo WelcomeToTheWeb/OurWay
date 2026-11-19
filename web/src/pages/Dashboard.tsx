@@ -101,7 +101,10 @@ export function Dashboard() {
     };
   }, [samples]);
 
-  const attention = useMemo(() => buildAttentionList(devices, overview, 40), [devices, overview]);
+  const attention = useMemo(
+    () => buildAttentionList(devices, overview, openAlerts, 40),
+    [devices, overview, openAlerts],
+  );
   const osCounts = useMemo(() => osBreakdown(devices), [devices]);
   const guide = useGuideWords(attention.length);
 
@@ -273,7 +276,7 @@ export function Dashboard() {
                           </td>
                           <td className="text-text-secondary">{reasons.join(' · ')}</td>
                           <td>
-                            <Stamp tone={device.status === 'alert' ? 'alert' : device.status === 'offline' ? 'offline' : 'due'}>
+                            <Stamp tone={device.status === 'offline' ? 'offline' : 'due'}>
                               {device.status ? device.status[0].toUpperCase() + device.status.slice(1) : device.status}
                             </Stamp>
                           </td>

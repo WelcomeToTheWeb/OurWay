@@ -50,7 +50,6 @@ export function Stamp({
 const statusCopy: Record<Device['status'], { label: string; tone: StampTone; meaning: string }> = {
   online: { label: 'Online', tone: 'online', meaning: 'Reporting on schedule' },
   offline: { label: 'Offline', tone: 'offline', meaning: 'No heartbeat received' },
-  alert: { label: 'Alert', tone: 'alert', meaning: 'A threshold is breached' },
 };
 
 /** Device presence, as a badge. */

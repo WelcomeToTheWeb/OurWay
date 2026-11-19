@@ -15,9 +15,10 @@ export interface DeviceFilters {
 
 export const defaultFilters: DeviceFilters = { search: '', status: 'all', os: 'all', tag: '', client: '' };
 
-// Alerts first, then offline, then online: the order a technician wants to
-// triage in.
-const statusRank: Record<Device['status'], number> = { alert: 0, offline: 1, online: 2 };
+// Offline before online: the order a technician wants to triage in. Presence
+// only — the unit's alert state is not in this column (see Device.status), so
+// an "alert" rank would sort on a value no writer ever produces.
+const statusRank: Record<Device['status'], number> = { offline: 0, online: 1 };
 
 /** Filter then sort devices. Sorting never mutates the input. */
 export function applyDeviceFilters(
@@ -76,7 +77,7 @@ export function collectTags(devices: Device[]): string[] {
  * The sheet's view is its URL (2.1.0's view-in-URL rule, finished in 2.3-5).
  *
  * Every control on the filter row is a parameter, and every parameter is a
- * control: `?client=acme&status=alert&sort=last-seen`. The reason is not
+ * control: `?client=acme&status=offline&sort=last-seen`. The reason is not
  * tidiness. A technician under a `?client=` link from a ticket, a bookmark, or
  * a browser back must land on the fleet they were pointed at, with the sort
  * they were told to read — and a page that kept those in component state
@@ -113,7 +114,7 @@ export function devicesViewFromSearch(params: URLSearchParams): DeviceFilters & 
   return {
     search: params.get('q') ?? '',
     client: (params.get('client') ?? '').trim().toLowerCase(),
-    status: status === 'online' || status === 'offline' || status === 'alert' ? status : 'all',
+    status: status === 'online' || status === 'offline' ? status : 'all',
     os: os === 'windows' || os === 'linux' || os === 'darwin' ? os : 'all',
     tag: params.get('tag') ?? '',
     sort: SORT_FROM_URL[params.get('sort') ?? ''] ?? 'name',
