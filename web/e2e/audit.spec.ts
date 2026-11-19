@@ -511,6 +511,20 @@ test("the unit view deep link opens that unit's record", async ({
   // `total` as the page's length, not the table's size. Polled because the ledger
   // is live: another worker's act on a *different* unit never enters this count,
   // but a page rendered a moment before a re-read still has to agree with it.
+  //
+  // Compared by **act**, not by count. PR #85's failure read "the page printed 1,
+  // the server has 2", which names the symptom and leaves whoever reads it to
+  // guess at the cause; the same comparison written as a list of verbs names the
+  // act that is on one side and not the other, and an act name is a route. The
+  // multiset is order-insensitive on purpose: both sides read `created_at DESC`,
+  // and a disagreement about *order* is a different defect than a disagreement
+  // about *content*, so it must not be reported as one.
+  //
+  // `evaluateAll` reads every row in one pass. The loop this replaces awaited
+  // between rows, so a re-render mid-loop made the page's own count a measurement
+  // of two different renders — which is the wrong instrument for a test whose
+  // whole subject is whether the page and the server agree.
+  const verbOf = (row: { action: string }) => row.action;
   await expect
     .poll(
       async () => {
@@ -519,12 +533,25 @@ test("the unit view deep link opens that unit's record", async ({
           params: { target: unit.id, limit: "200" },
         });
         const body = await res.json();
-        const printed = await dataRows.count();
-        return printed === body.total
-          ? "equal"
-          : `the page printed ${printed}, the server has ${body.total}`;
+        const serverActs: string[] = (body.logs as { action: string }[]).map(verbOf);
+        const pageActs: string[] = await dataRows.evaluateAll((rows) =>
+          Array.from(rows, (row) => {
+            const cells = row.querySelectorAll("td");
+            return cells[1]?.textContent?.trim() ?? "(no action cell)";
+          })
+        );
+        const sorted = (acts: string[]) => [...acts].sort().join(", ") || "(none)";
+        const onServer = sorted(serverActs);
+        const onPage = sorted(pageActs);
+        if (onServer === onPage) return "equal";
+        return [
+          `the server has ${serverActs.length} act(s) for ${short}; the page shows ${pageActs.length}`,
+          `server: ${onServer}`,
+          `page:   ${onPage}`,
+          `url: ${page.url()}`,
+        ].join(" — ");
       },
-      { message: "the page shows the server's rows for this unit" }
+      { message: "the page shows the server's acts for this unit" }
     )
     .toBe("equal");
 });
