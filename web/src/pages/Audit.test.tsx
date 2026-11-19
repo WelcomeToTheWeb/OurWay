@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const enLocale = enLocaleRaw as Record<string, unknown>;
@@ -362,5 +362,76 @@ describe('Audit ledger (2.3-6)', () => {
   it('prints the empty target of a bulk refusal as its kind, not a dash', async () => {
     renderPage();
     expect(await screen.findByText('device-batch')).toBeInTheDocument();
+  });
+
+  it('an older read cannot overwrite a newer one: the newest answer wins', async () => {
+    // The ledger is not polled, so the answer applied last *is* the window the
+    // operator reads until they touch another filter. Two reads of a live table can
+    // therefore be shown backwards: the earlier request answers after the later one,
+    // and the page reverts to rows the server has already moved past — silently, and
+    // permanently, because nothing re-reads. That is the defect that turned
+    // `Console end-to-end` red on main with "the page printed 1, the server has 2"
+    // while the endpoint and its `target` filter were both correct: the ledger was
+    // not wrong, the page was holding an older answer.
+    //
+    // The three reads are driven explicitly rather than raced, because a test that
+    // hopes the promises resolve in the unlucky order is the same kind of test that
+    // was just rewritten for passing without proving anything. Each read is answered
+    // by the **filter it asked about**, not by a call count: the page can ask more
+    // than once for the same filter, and a test that counts calls is asserting the
+    // component's render arithmetic instead of the thing that matters — which answer
+    // wins. So: the mount read (with the target filter) answers at once; clearing the
+    // target produces the read that is **held open**; setting a `from` date produces
+    // the newest answer while that one is still in flight. Only then is the held read
+    // released — the one ordering that matters.
+    let releaseStale!: (value: AuditPage) => void;
+    const heldOpen = new Promise<AuditPage>((resolve) => {
+      releaseStale = resolve;
+    });
+    mockedLog.mockImplementation((q) => {
+      if (q?.from) {
+        return Promise.resolve(page([row({ id: 'newest-answer', action: 'device.assign' })]));
+      }
+      if (q?.target) {
+        return Promise.resolve(page([row({ id: 'mount-answer', action: 'device.tags' })]));
+      }
+      return heldOpen;
+    });
+
+    // Read the ledger by its **action cells**. `findByText` is the wrong
+    // instrument here: the head above the table restates the first and last row's
+    // action, so one row's action appears three times on the page and a text query
+    // either over-matches or passes for the wrong reason.
+    const actionCells = () =>
+      Array.from(
+        document.querySelectorAll('table.ledger tbody tr td:nth-child(2)'),
+        (cell) => cell.textContent?.trim() ?? ''
+      );
+
+    renderPage('/audit?target=abcd1234efgh5678');
+    await waitFor(() => expect(actionCells()).toContain('device.tags'));
+
+    // Act one: drop the unit filter. This read stays in flight.
+    fireEvent.click(screen.getByRole('button', { name: /all units/i }));
+
+    // Act two: a different filter, so a *newer* read is asked for while the first is
+    // still open.
+    const fromInput = document.getElementById('audit-from') as HTMLInputElement;
+    fireEvent.change(fromInput, { target: { value: '2026-11-01' } });
+
+    // The newest answer is on the page.
+    await waitFor(() => expect(actionCells()).toContain('device.assign'));
+
+    // Now let the superseded read land.
+    await act(async () => {
+      releaseStale(page([row({ id: 'superseded-answer', action: 'device.reboot' })]));
+      await Promise.resolve();
+    });
+
+    // It is dropped. Before the guard, this was the whole bug: the ledger quietly
+    // rewound to the rows from an earlier request and stayed there, because nothing
+    // on this page re-reads.
+    expect(actionCells()).not.toContain('device.reboot');
+    expect(actionCells()).toContain('device.assign');
   });
 });
