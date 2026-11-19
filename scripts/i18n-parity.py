@@ -15,6 +15,16 @@ from pathlib import Path
 
 LOCALES = ("en", "de", "fr")
 
+# Re-aim stdout at UTF-8. The script's own output carries a separator that a legacy
+# Windows code page cannot encode, so without this the gate can die printing its
+# success line — the check passes and the process still fails, which is worse than
+# the check failing. Guarded, because a harness may hand stdout to something with no
+# such method.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+except (AttributeError, ValueError):
+    pass
+
 
 def flatten(obj, prefix=""):
     keys = set()
@@ -36,7 +46,12 @@ def check(root: Path) -> tuple[bool, int]:
         if not path.exists():
             print(f"i18n-parity: missing locale file {path}", file=sys.stderr)
             return False, 0
-        trees[code] = flatten(json.loads(path.read_text()))
+        # UTF-8 named explicitly. Without it `read_text` uses the platform default,
+        # which on Windows is a legacy code page — so the gate that exists to prove
+        # de/fr agree with en died before it compared anything, with a UnicodeDecodeError
+        # on the first umlaut. A locale gate that cannot run is not a locale gate, and
+        # the failure looks like a broken machine rather than a broken check.
+        trees[code] = flatten(json.loads(path.read_text(encoding="utf-8")))
 
     all_keys = set().union(*trees.values())
     ok = True
