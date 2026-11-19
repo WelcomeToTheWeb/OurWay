@@ -11,6 +11,7 @@ import (
 
 	"ourway/server/alerts"
 	"ourway/server/events"
+	"ourway/server/metrics"
 	"ourway/server/models"
 	"ourway/server/store"
 	"ourway/server/ws"
