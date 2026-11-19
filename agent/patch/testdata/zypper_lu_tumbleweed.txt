@@ -1,0 +1,30 @@
+# HAND-BUILT FIXTURE — written from the ruled table `zypper list-updates`
+# (zypper(8): "list-updates (lu) [options] — List available updates"; with the
+# global `-q` the "Loading repository data..." and "Reading installed
+# packages..." notices are what a quiet run still tends to leave in front of
+# the table, and the parser ignores any line without a column separator). It is
+# not a transcript of a real system's output: no row below was recorded from a
+# running openSUSE install, and the versions were written by hand to be
+# plausible for a rolling Tumbleweed snapshot.
+#
+# Still owed before this format can be called field-proven: a real run on
+# openSUSE Tumbleweed, recorded with `LC_ALL=C zypper --non-interactive -q lu >
+# fixture.txt`, checked against the exact header zypper prints for this release.
+# The column set below is one of the two layouts this parser is written to
+# tolerate — a Status column after New Version — chosen deliberately so the
+# test suite covers it; which columns a given zypper build prints is exactly
+# what the real recording still has to confirm.
+#
+# The `|`-separated columns are read by header name, not by position, and
+# `New Version` is what a deployment installs. zypper reports no severity and
+# no category here (those belong to its patch listing), so nothing invents one.
+Loading repository data...
+Reading installed packages...
+S | Repository              | Name              | Current Version | New Version       | Status
+--+-------------------------+-------------------+-----------------+-------------------+-------
+v | openSUSE-Tumbleweed-Oss | MozillaFirefox    | 141.0.3-1.1     | 142.0-1.1         |
+v | openSUSE-Tumbleweed-Oss | glibc             | 2.40-3.2        | 2.40-4.1          |
+v | openSUSE-Tumbleweed-Oss | libssl3           | 3.5.1-2.1       | 3.6.0-1.1         |
+v | openSUSE-Tumbleweed-Update | curl           | 8.19.0-3.1      | 8.20.0-1.1        |
+v | openSUSE-Tumbleweed-Oss | kernel-default    | 6.17.4-1.1      | 6.17.7-1.1        |
+v | openSUSE-Tumbleweed-Oss | yast2           | 5.9.0-1.1       | 5.9.2-1.1         |
