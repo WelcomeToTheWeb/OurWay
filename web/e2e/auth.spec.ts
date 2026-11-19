@@ -79,7 +79,36 @@ test('a viewer reads the fleet their scope names and is not offered destructive 
   await expect(page.getByText(seeded.hostname)).toHaveCount(0);
   await expect(page.getByText('No devices found')).toBeVisible();
 
-  // A viewer is not offered the controls that change the fleet.
-  await expect(page.getByRole('button', { name: /scan/i })).toHaveCount(0);
+  // A viewer is not offered the surfaces that change the fleet.
+  //
+  // This used to be `expect(page.getByRole('button', { name: /scan/i
+  // })).toHaveCount(0)` on the "Scan for updates" control, and that assertion
+  // could not fail: the button is rendered behind `canAct && selectedVisible.length
+  // > 0` (`web/src/pages/Devices.tsx:318`), and this viewer's fleet is the empty
+  // state asserted seven lines above. With nothing to select, no role — admin
+  // included — can reach that control in this page state, so its absence here says
+  // nothing about the gate.
+  //
+  // The nav rail is the same promise expressed where the viewer's page state does
+  // not hide it, and it is asserted from both ends:
+  //
+  //  * the rail's ungated entries are **present**. That is the positive control,
+  //    and it is the one that makes the absence below mean something: it is
+  //    measured in this same login, at this same viewport, so a missing entry
+  //    cannot be a breakpoint shedding the rail or a shell that failed to mount;
+  //  * the role-gated entries are **absent**, which is the gate itself.
+  const rail = page.getByRole('navigation', { name: 'Main navigation' });
+  await expect(rail.getByRole('link', { name: /Devices/ })).toBeVisible();
+  await expect(rail.getByRole('link', { name: /Clients/ })).toBeVisible();
+  await expect(rail.getByRole('link', { name: /Alerts/ })).toBeVisible();
+
+  // `web/src/components/Sidebar.tsx:57-71` — the operator surfaces, and the verb
+  // surfaces behind them, are not offered to a read-only role.
+  for (const gated of ['Sessions', 'Settings', 'Webhooks']) {
+    await expect(
+      rail.getByRole('link', { name: new RegExp(gated, 'i') }),
+      `a viewer must not be offered the ${gated} surface`,
+    ).toHaveCount(0);
+  }
   void testInfo;
 });

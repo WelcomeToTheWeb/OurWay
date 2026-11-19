@@ -129,8 +129,7 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   await expect(row, 'the started session should appear in the ledger').toBeVisible({ timeout: 10_000 });
   await expect(row, 'the row is this session, on this unit').toContainText(reFor(unit.id.slice(0, 8)));
 
-  // Its state comes from the server, which is the ledger's source: pending
-  // until the agent reports a frame, active once it does (server/api/sessions.go).
+  // Its state comes from the server, which is the ledger's source.
   const ledgerToken = await apiLogin(ADMIN_USER, ADMIN_PASSWORD);
   const listed = await fetch(`${apiBase()}/api/sessions`, {
     headers: { authorization: `Bearer ${ledgerToken}` },
@@ -141,7 +140,38 @@ test('a connected unit can start a session, and the ledger shows it', async ({ p
   );
   expect(recorded, 'the started session is server state').toBeTruthy();
   expect(recorded?.device_id, 'the ledger records this session on this unit').toBe(unit.id);
-  expect(['pending', 'active']).toContain(recorded?.status);
+
+  // Pending until the unit reports a frame, active once it does — that is the
+  // whole rule, and nothing else in the product makes the transition
+  // (`server/api/sessions.go:347-358`, and `hub.go:866-879` for the WS path).
+  //
+  // The assertion used to read `expect(['pending','active']).toContain(status)`.
+  // That accepts a session **stuck at pending**, which is precisely the failure
+  // this check exists to catch: a session that never receives a frame still looks
+  // like a session that opened, in the ledger and to the operator. It could not
+  // fail, and it never did, because the harness's device never produced a frame
+  // for anyone — `fake-agent.mjs` answered `session_start` with silence, so
+  // `active` was unreachable in this suite and the disjunction was always `pending`.
+  //
+  // The support agent now streams the way an installed agent does, which makes
+  // the transition something this spec can cause rather than hope for. Bounded,
+  // because a session that never goes active is a defect, not a slow test.
+  await expect
+    .poll(
+      async () => {
+        const res = await fetch(`${apiBase()}/api/sessions`, {
+          headers: { authorization: `Bearer ${ledgerToken}` },
+        });
+        const body = await res.json();
+        const live = (body.sessions as { id: string; status: string }[]).find((x) => x.id === sessionID);
+        return live?.status ?? 'gone from the ledger';
+      },
+      {
+        message: 'the unit reporting frames makes the session active, not parked at pending',
+        timeout: 30_000,
+      }
+    )
+    .toBe('active');
 
   // The session survives a reload: it is server state, not page state.
   await page.reload();

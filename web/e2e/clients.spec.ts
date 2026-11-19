@@ -112,8 +112,22 @@ test('the Clients ledger creates a tenant, assigns a unit, and grants it', async
     .toBe(created);
 
   // The ledger's unit count for this client becomes 1.
-  await expect(row).toBeVisible();
-  await expect(page.getByText('No clients yet')).toHaveCount(0);
+  //
+  // This is the assertion the comment above it has always promised and the spec
+  // never made: `expect(row).toBeVisible()` and `toHaveCount(0)` on the empty-state
+  // string are both satisfied whether the row's counter reads 1 or 0, so the one
+  // number the Clients ledger exists to show was never read — the whole tenancy
+  // write was verified server-side and never on the page.
+  //
+  // The second column is that counter, and it is server-computed (`rollupOf`, from
+  // the same scoped reads the device ledger runs), which is what makes it worth
+  // reading: the operator's row and the API's answer have to agree about who owns
+  // the unit. Polled because the rollups arrive on their own poll, after the save.
+  const unitsCell = page.getByRole('row').filter({ has: row }).locator('td').nth(1);
+  await expect(
+    unitsCell,
+    'the ledger states this tenant now owns the unit that was just assigned to it'
+  ).toHaveText('1', { timeout: 20_000 });
 
   // Grant the technician, then check what their console shows.
   const access = panel.getByRole('button', { name: /save access/i });

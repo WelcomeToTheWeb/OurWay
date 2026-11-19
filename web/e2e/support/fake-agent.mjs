@@ -91,6 +91,82 @@ function reportLoop(key, ws) {
   setInterval(tick, 4000).unref?.();
 }
 
+/**
+ * Frames, while a session is live.
+ *
+ * This is the part of the capture loop an installed agent runs and this harness
+ * used not to. `POST /api/devices/:id/sessions` creates a session as `pending`,
+ * and the first frame is the only thing in the product that makes it `active`
+ * (`server/api/sessions.go:347-358`; the WebSocket relay does the same at
+ * `server/ws/hub.go:866-879`). A device that answers `session_start` with silence
+ * therefore leaves every session pending forever — which is how
+ * `sessions.spec.ts` came to assert `['pending','active']` and pass: the
+ * disjunction was always the left-hand side, and a session that never receives a
+ * frame is indistinguishable from one that is working.
+ *
+ * The upload is the agent's own legacy path — `X-Device-Key`, the frame endpoint,
+ * and the `server_url` from the `session_start` payload — because that is what
+ * `agent/session/session.go:303-333` does. Inventing a shorter route here would
+ * hide the one thing a harness like this is for: proving the URL and the
+ * credential we hand a device actually reach the endpoint.
+ *
+ * A unit that reports `capture_state: error` sends nothing. Its reported state is
+ * the state this harness must be consistent with: a device whose screen cannot be
+ * captured does not produce frames, and the console's "Capture failing" badge
+ * would otherwise be contradicted by the same wire that set it.
+ */
+const streaming = new Map();
+
+function startStreaming(key, payload) {
+  const report = reports.get(key);
+  if (report && report.captureState !== 'ok') {
+    console.log(`${args.label}: session_start for ${key.slice(0, 8)} — reporting capture error, sending no frames`);
+    return;
+  }
+  const sessionID = payload?.session_id;
+  const serverURL = payload?.server_url;
+  if (!sessionID || !serverURL) {
+    console.log(`${args.label}: session_start without session_id/server_url — cannot upload frames`);
+    return;
+  }
+  stopStreaming(key);
+
+  const url = `${serverURL.replace(/\/$/, '')}/api/sessions/${sessionID}/frame`;
+  // SOI then EOI: a degenerate but well-formed JPEG. The server stores
+  // and relays the bytes; nothing in this suite decodes them.
+  const frame = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+  let warned = false;
+  const tick = async () => {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'image/jpeg', 'x-device-key': key },
+        body: frame,
+      });
+      if (!res.ok && !warned) {
+        warned = true;
+        console.log(`${args.label}: frame upload returned ${res.status} for ${sessionID.slice(0, 8)}`);
+      }
+    } catch (err) {
+      if (!warned) {
+        warned = true;
+        console.log(`${args.label}: frame upload failed for ${sessionID.slice(0, 8)}: ${err?.message ?? err}`);
+      }
+    }
+  };
+  console.log(`${args.label}: session_start ${sessionID.slice(0, 8)} → streaming frames to ${url}`);
+  void tick();
+  streaming.set(key, setInterval(() => void tick(), 1_000));
+}
+
+function stopStreaming(key) {
+  const timer = streaming.get(key);
+  if (timer) {
+    clearInterval(timer);
+    streaming.delete(key);
+  }
+}
+
 function connect(key, attempt = 0) {
   if (stopping) return;
   const ws = new WebSocket(wsURL, ['ourway-auth', key]);
@@ -111,10 +187,22 @@ function connect(key, attempt = 0) {
     if (msg?.type === 'ping') {
       ws.send(JSON.stringify({ type: 'pong' }));
     }
+    // The agent's capture loop only runs after `session_start` and stops at
+    // `session_end` (agent/session/session.go:83). Standing in for both halves is
+    // what makes the session lifecycle assertable from the outside.
+    if (msg?.type === 'session_start') {
+      startStreaming(key, msg.payload);
+    }
+    if (msg?.type === 'session_end') {
+      stopStreaming(key);
+    }
   };
   ws.onclose = (event) => {
     const index = sockets.indexOf(ws);
     if (index >= 0) sockets.splice(index, 1);
+    // The session died with the socket: an interval left running uploads frames
+    // to a session the hub has already ended.
+    stopStreaming(key);
     if (stopping) return;
     // Say when a unit drops and why. "the device is not connected" from the
     // session API is the product's answer to a fleet the harness lost track

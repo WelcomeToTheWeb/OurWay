@@ -104,7 +104,7 @@ describe('Devices page - tenant filter (2.3-5)', () => {
     vi.mocked(getClients).mockResolvedValue([tenant('c-a', 'Alpha Co', 'alpha-co')]);
     vi.mocked(getDevices).mockResolvedValue([
       mk('alpha-1', { client_id: 'c-a', last_seen: '2026-10-01T00:00:00Z' }),
-      mk('alpha-2', { client_id: 'c-a', status: 'alert', last_seen: '2026-10-09T00:00:00Z' }),
+      mk('alpha-2', { client_id: 'c-a', status: 'offline', last_seen: '2026-10-09T00:00:00Z' }),
       mk('loose-1', { client_id: null, last_seen: '2026-10-05T00:00:00Z' }),
     ]);
   });
@@ -113,7 +113,7 @@ describe('Devices page - tenant filter (2.3-5)', () => {
     // The acceptance criterion for 2.3-5 in one line: the tenant filter is URL
     // state, so a link the operator saved is a view they land on.
     render(
-      <MemoryRouter initialEntries={['/devices?client=alpha-co&status=alert&sort=last-seen']}>
+      <MemoryRouter initialEntries={['/devices?client=alpha-co&status=offline&sort=last-seen']}>
         <Devices />
       </MemoryRouter>,
     );

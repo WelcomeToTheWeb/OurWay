@@ -44,7 +44,7 @@ func TestRemoteExeFramesReachBrowser(t *testing.T) {
 	browser2.SetReadLimit(4 << 20)
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hopBudget)
 	defer cancel()
 	exe, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
 		Subprotocols: []string{"ourway-auth", token, "remote"},
@@ -55,7 +55,7 @@ func TestRemoteExeFramesReachBrowser(t *testing.T) {
 	defer exe.Close(websocket.StatusNormalClosure, "done")
 
 	// Wait until the hub has registered the browser (registration is async).
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(hopBudget)
 	for {
 		if len(hub.clientsFor("user:"+user.ID)) == 2 {
 			break
@@ -74,7 +74,7 @@ func TestRemoteExeFramesReachBrowser(t *testing.T) {
 		t.Fatalf("write frame: %v", err)
 	}
 
-	msg := readUntil(t, browser, 5*time.Second, func(m Message) bool { return m.Type == "session_frame" })
+	msg := readUntil(t, browser, hopBudget, func(m Message) bool { return m.Type == "session_frame" })
 	p, _ := msg.Payload.(map[string]interface{})
 	if p["session_id"] != "sess-1" || p["data"] == "" {
 		t.Fatalf("bad frame payload: %v", msg.Payload)
@@ -82,7 +82,7 @@ func TestRemoteExeFramesReachBrowser(t *testing.T) {
 
 	// A second connection for the same user must not have displaced the
 	// first (it used to, which left the session viewer blank).
-	if m2 := readUntil(t, browser2, 5*time.Second, func(m Message) bool { return m.Type == "session_frame" }); m2 == nil {
+	if m2 := readUntil(t, browser2, hopBudget, func(m Message) bool { return m.Type == "session_frame" }); m2 == nil {
 		t.Fatal("second browser connection got no frame")
 	}
 

@@ -288,14 +288,78 @@ The finer states (`denied-permission` vs `no-display`) are a macOS-side mapping
 left for the Screen-Recording grant work.
 
 ### 🟢 L13. `TestViewerSessionRelay` can fail under container load
-**Status:** ⚠️ Observed once (not reproduced in 4 later runs)
-**Files:** `server/ws/viewer_test.go`
+**Status:** ✅ Fixed — one `hopBudget` for every hop in `server/ws` (three passes had each widened *some* of the deadlines)
+**Files:** `server/ws/hub_test.go` (the budget, `dialAgent`, `wsSend`), `server/ws/viewer_test.go`, `server/ws/remote_frames_test.go`
 
 It failed once with `context deadline exceeded` inside a 5 s read deadline while
 the package ran next to the whole `-race` suite on a loaded container; it passed
-3/3 in isolation and the full `./ws/` suite passed afterwards. The test's fixed
-5 s deadlines are tight for a CI runner under load — worth widening before the
-e2e job makes CI noisier.
+3/3 in isolation and the full `./ws/` suite passed afterwards. This entry's own
+advice was "worth widening", and it was widened — to 20 s, then to 60 s — and the
+test kept failing. It became a recurring red `Tests` job on **web-only** PRs, which
+is the most expensive variety of flake: every future failure of that job costs
+someone an investigation to discover that nothing is wrong.
+
+The reason the fix did not take is that the budget was never one thing.
+`relayBudget` covered the test's reads and writes, while the *dials* (`dialRole`,
+`dialAgent`), the shared `wsSend` helper, and nine
+`readUntil(…, 5*time.Second, …)` call sites each kept their own hard-coded 5 s.
+Each pass widened the hops someone happened to be looking at and left the rest, so
+the deadline that tripped next was always somewhere else. `hopBudget` is now the
+only per-hop deadline in the package's functional tests, stated once and carried by
+the helpers rather than repeated at the calls. `scale_test.go` keeps its own 30 s:
+that is a ceiling on a 25-device fan-out, not on a hop, and folding it in would
+have made the scale gate 60 s slow to fail.
+
+### 🟡 M22. The audit ledger announced "records older than 0 days are removed" when its own read failed
+**Status:** ✅ Fixed 2026-11-18 (follow-up to PR #84) — the window is `null` until read, and unknown prints as unknown
+**Files:** `web/src/pages/Audit.tsx`, `web/src/i18n/locales/{en,de,fr}.json`, `web/src/pages/Audit.test.tsx`, `web/e2e/audit.spec.ts`
+
+`meta.retentionDays` initialised to `0` and the `catch` in `load()` left it there, so a
+ledger the page could not fetch printed its header strip as "Records older than 0 days
+are removed" — the most alarming value that column can take, from a number the page made
+up. The sweep line went with it, because `lastRun: ''` was an equally invented value.
+
+It cost two things at once. An operator staring at a failed read was told the
+installation deletes its audit trail immediately, which is the one sentence in this
+console that turns a support call into an incident. And it is what made the ledger
+spec's retention assertion vacuous: `getByText(/older than \d+ days/)` was satisfied by
+the *failure* state, so the e2e job reported green for a page that had no retention to
+state. Fixing the spec without fixing this would have left the page free to lie again as
+soon as the assertion got honest.
+
+The window is now `number | null` — `null` until a read succeeds, back to `null` when
+one fails — and the two places that print it say so in words (`audit.retentionUnknown`,
+`audit.footnoteUnknown`), with the sweep stamps suppressed while it is unknown, because
+a read that failed says nothing about whether the sweep ran. The spec now compares the
+printed number against the `retention_days` the endpoint answers for the same query and
+asserts it is greater than zero; `Audit.test.tsx` fails if the page ever prints a
+number it did not read.
+
+### 🟡 M23. `status: "alert"` was a device state that nothing has ever written
+**Status:** ✅ Fixed 2026-11-18 — device status is presence only; the alert signal is read from the alerts collection
+**Files:** `web/src/types/device.ts`, `web/src/utils/attention.ts`, `web/src/utils/deviceList.ts`, `web/src/pages/Dashboard.tsx`, `web/src/pages/Devices.tsx`, `web/src/pages/DeviceDetail.tsx`, `web/src/components/StatusBadge.tsx` (deleted)
+
+Four readers consumed a status no writer produced: the Devices filter offered an "Alert"
+option, `statusRank` sorted on it, `attention.ts` ranked the shift's top items by it, and
+`StatusBadge` had a stamp ready for it. `git log --all -S'Status = "alert"'` returns
+**zero commits** — across the repository's entire history nothing has ever assigned it —
+and the values the server can hold are `online` and `offline`
+(`server/store/devices.go:113`, `server/api/devices.go:138,173`,
+`server/ws/hub.go:711,1025`).
+
+The reachable consequence was the filter: an operator who chose "Alert" got an empty
+fleet back while the installation was on fire, and that empty list is indistinguishable
+from "nothing needs you" — the failure mode this console is specifically measured
+against. The other three readers were dead branches that made `status` read as a
+five-state machine to everyone typing against it.
+
+The fix is removal, not a writer. A writer would have raced the two presence writers in
+`hub.go` — a heartbeat's `UpdateLastSeen` would quietly downgrade an alerting unit to
+`online` seconds after it was flagged — and it would have re-created the duplicate
+definition of "open alerts" that the 2.2-4 decision retired. `attention.ts` now ranks
+from the worst **open** alert (`isAlertOpen`, severity then recency, one reason per
+unit), so there is still exactly one place that decides what "needs attention" means,
+and it is the same place the Alerts page reads.
 
 ---
 

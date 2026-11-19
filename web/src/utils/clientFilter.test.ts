@@ -58,10 +58,10 @@ describe('client filter helpers (2.3-5)', () => {
   });
 
   it('writes the tenant into the URL without disturbing the other filters', () => {
-    const params = new URLSearchParams('status=alert&sort=last-seen');
+    const params = new URLSearchParams('status=offline&sort=last-seen');
     const next = withClientSlug(params, 'alpha-co');
     expect(next.get('client')).toBe('alpha-co');
-    expect(next.get('status')).toBe('alert');
+    expect(next.get('status')).toBe('offline');
     expect(next.get('sort')).toBe('last-seen');
     // Clearing the filter leaves the rest of the view intact.
     expect(withClientSlug(next, '').get('client')).toBeNull();

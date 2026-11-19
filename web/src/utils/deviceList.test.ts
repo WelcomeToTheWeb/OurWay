@@ -12,7 +12,7 @@ const mk = (o: Partial<Device>): Device => ({
 const devices = [
   mk({ name: 'web-10', status: 'online', os: 'linux', tags: ['prod', 'web'] }),
   mk({ name: 'web-2', status: 'offline', os: 'windows', tags: ['prod'], last_seen: '2026-10-01T10:00:00Z' }),
-  mk({ name: 'db-1', status: 'alert', os: 'linux', private_ip: '10.0.9.9', tags: [] }),
+  mk({ name: 'db-1', status: 'online', os: 'linux', private_ip: '10.0.9.9', tags: [] }),
 ];
 
 describe('applyDeviceFilters', () => {
@@ -21,9 +21,11 @@ describe('applyDeviceFilters', () => {
     expect(names).toEqual(['db-1', 'web-2', 'web-10']);
   });
 
-  it('puts alerts, then offline, then online when sorting by status', () => {
+  it('puts offline units before online ones when sorting by presence', () => {
+    // The column is presence, so this ordering is about those two states only;
+    // a unit's alert state is not sortable here because it is not stored here.
     const names = applyDeviceFilters(devices, defaultFilters, 'status').map((d) => d.name);
-    expect(names).toEqual(['db-1', 'web-2', 'web-10']);
+    expect(names).toEqual(['web-2', 'db-1', 'web-10']);
   });
 
   it('filters by status, os and tag together', () => {

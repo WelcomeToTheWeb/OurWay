@@ -11,12 +11,22 @@ env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: welcometotheweb/ourway
 
-# One workflow run publishes at a time. A tag and its main push race each
-# other on the same package (both push server:latest / server:edge from the
-# same commit), and GHCR answers that race with "unknown blob" mid-push.
-concurrency:
-  group: ghcr-publish
-  cancel-in-progress: false
+# NOTE: there is deliberately **no workflow-level `concurrency` group here.**
+#
+# There used to be one (`group: ghcr-publish`, `cancel-in-progress: false`) meant
+# to keep two runs from pushing the same package at once. Being workflow-level, it
+# serialised *every* job behind it — including `tests` — and GitHub resolves a
+# crowded group by replacing the older queued run with the newer one. A queued run
+# that is replaced before it starts never reports a conclusion, so its check
+# disappears from the PR: not green, not red, not cancelled — gone. On a PR whose
+# code was fine, that both destroyed the test evidence and left the branch looking
+# un-reviewed.
+#
+# The rule this encodes: nothing that produces *evidence* may sit in a concurrency
+# group whose purpose is to protect a *publish*. Only the two jobs that push to
+# GHCR are grouped, and they are grouped separately because they push separate
+# packages (`…/ourway/server` and `…/ourway/web`), so a server push and a web push
+# cannot block each other.
 
 jobs:
   # Build agent binaries for all platforms
@@ -114,8 +124,6 @@ jobs:
             dist/agents/ourway-installer-*
             dist/agents/ourway-viewer-*
 
-  # Test gate: build, vet and test every Go module, plus the web
-  # build (tsc + vite). Images are only pushed when this is green.
   # 2.2-1: the macOS agent must be built where CoreGraphics exists.
   # CGO_ENABLED=1 on a macOS builder, for arm64 and amd64, and merged into the
   # same artifact the server image and the release download — so the Mac binary a
@@ -182,6 +190,14 @@ jobs:
             dist/agents/ourway-installer-*
             dist/agents/ourway-viewer-*
 
+  # Test gate: build, vet and test every Go module, plus the web
+  # build (tsc + vite). Images are only pushed when this is green.
+  #
+  # This job holds no `concurrency` group, and must never be given one. Everything
+  # it produces is evidence: a PR needs its verdict, and a verdict that is silently
+  # withdrawn is worse than a failure — it reads as "there was nothing to check".
+  # See the note at the top of this file for how a workflow-level publish group
+  # once took this job's check away on a healthy PR.
   tests:
     name: Tests
     runs-on: ubuntu-latest
@@ -264,6 +280,20 @@ jobs:
     name: Build Server Image
     needs: [build-agents, build-macos-agents, tests]
     runs-on: ubuntu-latest
+    # The lock this file's old workflow-level group was actually for, scoped to
+    # the one thing it protects. A tag push and the `main` push of the same commit
+    # both publish `…/ourway/server:latest` and `:edge`, and GHCR answers that race
+    # with "unknown blob" mid-push. `…/ourway/web` is a different package and holds
+    # its own group below, so the two pushes never wait on each other.
+    #
+    # `cancel-in-progress: false` because a half-pushed image is worse than a late
+    # one: a manifest uploaded without its blobs is a pull failure for every
+    # install pointed at that tag. A job that loses the slot to a newer run is the
+    # right outcome on `main` — the newest commit is the one that should be
+    # published — and it costs no evidence, because the verdict came from `tests`.
+    concurrency:
+      group: ghcr-publish-server
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
@@ -347,6 +377,12 @@ jobs:
     name: Build Web Image
     needs: [build-agents, tests]
     runs-on: ubuntu-latest
+    # Its own group, for the same reason as the server job above — and separate
+    # from it on purpose: this pushes `…/ourway/web`, a different package, so a
+    # server push and a web push cannot deadlock or queue behind one another.
+    concurrency:
+      group: ghcr-publish-web
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write

@@ -223,6 +223,9 @@ export function Devices() {
           onChange={(slug) => setFilters({ ...filters, client: slug })}
           includeUnassigned={hasAnyRole(['admin'])}
         />
+        {/* Both values of a presence column (see Device.status). An "Alert"
+            choice here would be a filter that can never return a row: the
+            alerts ledger is where that signal is read from. */}
         <select
           aria-label="Filter by status"
           className="select"
@@ -232,7 +235,6 @@ export function Devices() {
           <option value="all">All statuses</option>
           <option value="online">Online</option>
           <option value="offline">Offline</option>
-          <option value="alert">Alert</option>
         </select>
         <select
           aria-label="Filter by OS"
@@ -466,7 +468,7 @@ export function Devices() {
                         <p className="cap-sm cap text-text-muted">{d.hostname}</p>
                       </td>
                       <td>
-                        <Stamp tone={d.status === 'alert' ? 'alert' : d.status === 'offline' ? 'offline' : 'online'}>
+                        <Stamp tone={d.status === 'offline' ? 'offline' : 'online'}>
                           {d.status}
                         </Stamp>
                         {d.reboot_pending && (

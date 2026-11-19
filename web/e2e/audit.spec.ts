@@ -368,8 +368,45 @@ test("the ledger page renders rows, states its scope, and exports a CSV", async 
 
   // The scope and retention strip: the page states what it applied and what it
   // throws away, from the server's own answer.
-  await expect(page.getByText(/Scope applied/i)).toBeVisible();
-  await expect(page.getByText(/older than \d+ days/i).first()).toBeVisible();
+  //
+  // Both assertions here used to be incapable of failing. `/Scope applied/i`
+  // matched the label with nothing after it — it passed when the scope value was
+  // empty, and it passed when the page had never read a response at all. And
+  // `/older than \d+ days/` was satisfied by `older than 0 days`, which is exactly
+  // what `Audit.tsx` printed after a **failed** ledger read (PR #84's product bug:
+  // the window initialised to 0 and the catch path left it there). The strip is
+  // now compared against the answer the server gives for the same query, and the
+  // window has to be a window.
+  const stated = await request.get(`${apiBase()}/api/audit?limit=1`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(stated.status(), "the ledger answers a read of itself").toBe(200);
+  const answer = (await stated.json()) as {
+    scope: string;
+    retention_days: number;
+  };
+  expect((answer.scope ?? "").trim(), "the server names the scope it applied").not.toBe(
+    "",
+  );
+
+  await expect(page.getByText(`Scope applied: ${answer.scope}`)).toBeVisible();
+
+  const retention = page.getByText(/older than \d+ days are removed/i).first();
+  await expect(retention).toBeVisible();
+  // The number is read out of the sentence it lives in, not out of the element's
+  // first digits: the strip also carries the scope, and a scope value that happens
+  // to contain a digit would otherwise be measured as the retention window.
+  const printedDays = Number(
+    (await retention.textContent())?.match(/older than (\d+) days/i)?.[1] ?? Number.NaN,
+  );
+  expect(
+    printedDays,
+    "the page prints the window the server stated, not a number of its own",
+  ).toBe(answer.retention_days);
+  expect(
+    printedDays,
+    "a retention window of 0 days describes a ledger that keeps nothing",
+  ).toBeGreaterThan(0);
 
   const rows = page.locator("table.ledger tbody tr");
   await expect(rows.first()).toBeVisible();
@@ -432,18 +469,62 @@ test("the unit view deep link opens that unit's record", async ({
   await expect(page.getByText(`Unit record: ${short}`)).toBeVisible();
   expect(page.url()).toContain(`target=${unit.id}`);
 
-  // The record is the unit's. The bulk re-enable and the tag act in this spec
-  // both landed on the unit the fleet list ends with, so the target+verb row
-  // must exist — and every row on the page must name that unit.
-  const rows = page.locator("table.ledger tbody tr").filter({ hasText: short });
-  await expect(rows.first()).toBeVisible();
-  const count = await rows.count();
-  expect(count).toBeGreaterThan(0);
+  // The record is the unit's: the page's rows are the server's rows for
+  // `?target=<unit id>`, and nothing else is on the page. The bulk re-enable and
+  // the tag act earlier in this spec both landed on the unit the fleet list ends
+  // with, which is the one deep-linked here, so its record is not empty.
+  //
+  // The version this replaces could not fail. It selected the rows with
+  // `filter({ hasText: short })` — which guarantees the value it then asserted —
+  // and looped over that selection re-reading the same cell. If the endpoint's
+  // `target` filter were dropped and the whole ledger printed, the assertion above
+  // it (`Unit record: …` and the URL) would still pass, and this loop would simply
+  // have counted fewer rows. So: assert over **every** row the table renders, and
+  // assert the page's count against the server's count for the same filter.
+  //
+  // `:has(td:nth-child(6))` is the empty-state guard: a ledger with no rows
+  // renders one placeholder row of six columns' width, and reading its third cell
+  // would be reading `undefined`.
+  const dataRows = page.locator("table.ledger tbody tr:has(td:nth-child(6))");
+  await expect(dataRows.first()).toBeVisible();
+  const count = await dataRows.count();
+  expect(count, "this unit has acts, so its record is not empty").toBeGreaterThan(0);
+
+  // The target column is stamped in capitals by the stylesheet, so the comparison
+  // is case-folded: what is asserted is "this row names this unit", not the casing
+  // the page prints it in.
+  const foreign: string[] = [];
   for (let i = 0; i < count; i += 1) {
-    const cells = await rows.nth(i).locator("td").allInnerTexts();
-    // The target column is stamped in capitals by the stylesheet, so the
-    // comparison is case-folded: what is asserted is "this row names this unit",
-    // not the casing the page prints it in.
-    expect(cells[2].toLowerCase()).toContain(short.toLowerCase());
+    const cells = await dataRows.nth(i).locator("td").allInnerTexts();
+    const target = (cells[2] ?? "").trim();
+    if (target.toLowerCase() !== short.toLowerCase()) {
+      foreign.push(`row ${i + 1} names "${target}"`);
+    }
   }
+  expect(
+    foreign,
+    `the ledger is filtered to ${short}; ${foreign.length} row(s) name something else`,
+  ).toEqual([]);
+
+  // The page and the server are the same measurement of this unit's record. The
+  // page asks for 200 rows, so the read asks for 200 too — the endpoint states
+  // `total` as the page's length, not the table's size. Polled because the ledger
+  // is live: another worker's act on a *different* unit never enters this count,
+  // but a page rendered a moment before a re-read still has to agree with it.
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`${apiBase()}/api/audit`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { target: unit.id, limit: "200" },
+        });
+        const body = await res.json();
+        const printed = await dataRows.count();
+        return printed === body.total
+          ? "equal"
+          : `the page printed ${printed}, the server has ${body.total}`;
+      },
+      { message: "the page shows the server's rows for this unit" }
+    )
+    .toBe("equal");
 });

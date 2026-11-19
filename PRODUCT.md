@@ -92,7 +92,12 @@ replacement and locale keys must be updated in lockstep if it is.
 
 - Name **OurWay** (repo `WelcomeToTheWeb/OurWay`, MIT-licensed).
 - README voice: direct, technical, anti-marketing — "technology over monetization".
-- No logo, brand artwork, colour, typographic, or tone constraint is binding.
+- **No brand from outside binds this product.** No logo, no licensed palette, no typographic
+  identity to inherit, no marketing tone to protect: nothing decided elsewhere constrains the
+  console. That is a statement about *ownership*, not about latitude — the console does have a colour
+  rule, and it binds: `DESIGN.md` §2 makes state colour semantic only, commits one field of colour,
+  forbids a coloured border above 1px, and scores every status ink against its own wash. The
+  standing direction below is where that discipline comes from.
 - **Standing visual direction (owner's choice, 2026-11-16): the category standard, played
   straight.** The owner was shown a roll of derived worlds and deliberately took the standing
   exit. Convention is therefore the commitment, not a fallback: navigation, controls, table
@@ -108,8 +113,16 @@ replacement and locale keys must be updated in lockstep if it is.
 
 ## Evidence on Hand
 
-- Real product surface: 13 console pages and shared components in `web/src/` (~7,100 lines),
-  with tests for Devices, Alerts, Patches, Sidebar, RoleRoute, client, attention/patch-window utils.
+- Real product surface: 19 page components in `web/src/pages` behind the 17 routes
+  `web/src/App.tsx` declares; ~16,000 lines of product TypeScript/TSX across 91 files in `web/src`;
+  26 vitest files carrying 197 tests beside them; and a console end-to-end suite of ten Playwright
+  spec files, 41 tests, run in CI against the built bundle. These were measured, not remembered —
+  the figures this bullet used to carry ("13 console pages, ~7,100 lines") had drifted by about half
+  while the console grew, and a doc that understates the surface gets believed by whoever scopes the
+  next change. Re-measure rather than trusting the numbers here: run
+  `Get-ChildItem web/src -Recurse -Include *.ts,*.tsx | Where-Object { $_.Name -notlike "*.test.*" } |
+  Get-Content | Measure-Object -Line` for the product lines, and
+  `npm test --prefix web -- --run` for the unit count.
 - Real product docs: `README.md`, `docs/` (architecture, api, agent, configuration,
   installation, user-guide, roadmap-2.0, release-notes-2.0, changelog, remote-viewer).
 - Real, cited review evidence: `buglist.md` — severity-graded findings with fix status and the

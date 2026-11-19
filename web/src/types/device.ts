@@ -5,7 +5,12 @@ export interface Device {
   os: 'linux' | 'windows' | 'darwin';
   arch: string;
   agent_version: string;
-  status: 'online' | 'offline' | 'alert';
+  /**
+   * Presence, and nothing else. The server's writers only ever put `online` or
+   * `offline` here; whether a unit is in alert is answered by the alerts
+   * collection, never by this field (2.2-4).
+   */
+  status: 'online' | 'offline';
   last_seen: string;
   public_ip: string;
   private_ip: string;
