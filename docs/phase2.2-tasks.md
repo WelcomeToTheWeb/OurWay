@@ -34,11 +34,17 @@ unfinished phase.
       (`e2e/support/fake-agent.mjs`) holds device connections for the run.
 - [x] Smoke flows, in this order: login → device list renders rows → open device
       detail → alert acknowledge → patch approve → start and end a remote session.
-- [ ] Re-measure coverage for `server/` and `agent/` and commit the number; add a
+- [x] Re-measure coverage for `server/` and `agent/` and commit the number; add a
       CI step that fails if coverage drops below the recorded baseline (ratchet).
-      **Done 2026-10-26:** `coverage.baseline.json` (server 39.0, agent 30.0) and
+      **Done 2026-10-26:** `coverage.baseline.json` and
       `scripts/coverage.sh`, run in the `tests` job and in the local gate.
-- [ ] Agent smoke test per OS in CI (Linux + Windows + macOS runners): install as
+      **Re-checked 2026-11-19 against the file, not against this line:** the
+      baseline now reads server **54.3**, agent **33.0** — the 39.0 / 30.0 this
+      item recorded was the 2026-10-26 reading, and the ratchet step
+      (`build.yml`, "Coverage ratchet") is what makes every increase after it a
+      commit decision rather than drift. The numbers above are the current ones;
+      quote the file, not this paragraph, next time.
+- [x] Agent smoke test per OS in CI (Linux + Windows + macOS runners): install as
       service, heartbeat lands, metrics land, session capture starts.
       **Done 2026-10-26:** `scripts/agent-smoke.sh` +
       `.github/workflows/agent-smoke.yml` (matrix: ubuntu / windows / macos).
@@ -59,7 +65,11 @@ many reads, so it starves on the old 100/min constant.
 
 **Acceptance criteria**
 - [x] A red e2e smoke flow blocks the merge; the suite runs in under 6 minutes.
-- [ ] Coverage baseline recorded in the repo, with the ratchet failing on a decrease.
+- [x] Coverage baseline recorded in the repo, with the ratchet failing on a decrease.
+      — `coverage.baseline.json` (server 54.3, agent 33.0 as of 2026-11-19) and the
+      `Coverage ratchet` step in `build.yml`, which runs `scripts/coverage.sh`.
+      The step needs Docker to measure, so on a machine without it this is a
+      reading of the committed file plus the workflow, not a local run.
 - [x] No test asserts on fixture data outside the suite's own seed.
 
 ---
@@ -279,11 +289,26 @@ JSX text nodes: `Settings.tsx` 5, `DeviceDetail.tsx` 2, `Alerts.tsx` 1,
 `Devices.tsx` 1, `PatchPolicies.tsx` 1, `Sessions.tsx` 1.
 
 **Do**
-- [ ] Add the 2 missing keys to `de` and `fr`.
+- [x] Add the 2 missing keys to `de` and `fr`.
+      — Re-checked 2026-11-19 by running `scripts/i18n-parity.py`: **en/de/fr agree
+      on 794 key paths in `web/src/i18n/locales` and 30 in `server/i18n/locales`,
+      824 total, exit 0.** The measurement was taken on the branch that names UTF-8
+      explicitly, because on `main` the script dies with `UnicodeDecodeError:
+      'charmap' codec can't decode byte 0x9d` on a Windows console before it
+      compares anything — a parity check that cannot run is not a parity check, and
+      that fix is the `scripts/i18n-parity.py` change in the same lane as this one.
 - [ ] Extract the hardcoded nodes listed above through `t(...)`.
 - [ ] Add `scripts/i18n-parity.py` (or a `web` npm script) that flattens the three
       locale files and **fails CI** on any missing or extra key, and reports the
       count of untranslated JSX text nodes so the number only goes down.
+      **Two-thirds done, and the split is the point.** The script exists; CI runs it
+      as a named step (`build.yml`, "Locale parity (en/de/fr)") and
+      `CONTRIBUTING.md` puts it in the local gate, so a missing or extra key does
+      fail the build. What it does **not** do is the second clause: it counts key
+      paths and nothing else, and there is no JSX text-node count anywhere in it, so
+      "the number of untranslated nodes only goes down" is not measured by anything
+      and will not fail when it rises. Left open rather than ticked, because the
+      acceptance wording asks for both halves.
 - [ ] Keep the `t` shadowing rule enforced (`CONTRIBUTING.md`): no local named `t`.
 
 **Acceptance criteria**
@@ -332,6 +357,16 @@ been documented**.
       agent.
 - [ ] `docs/changelog.md`: the 2.2.0 section at release time, generated per
       `docs/versioning.md` (release notes come from that section).
+      **Still open, and it is bigger than this checkbox.** Checked 2026-11-19: there
+      is no `v2.2.0` tag and no `[2.2.0]` section in `docs/changelog.md`, while
+      2.2's scope is delivered and has its own task file. So either 2.2's work was
+      folded into 2.3.0 and this item was answered by a section that does not
+      mention it, or a release was prepared and never published — which would put
+      shipped code ahead of `docs/versioning.md` rule 1, that a release is cut from
+      a changelog section. **Which of the two happened is not recorded anywhere in
+      the repo, and inventing a `[2.2.0]` section now would write history that may
+      not have happened.** This stays open until someone who knows answers; the same
+      question is written into `docs/roadmap-2.x.md`.
 
 **Acceptance criteria**
 - Every route registered in `server/api/handlers.go` appears in `docs/api.md`,
