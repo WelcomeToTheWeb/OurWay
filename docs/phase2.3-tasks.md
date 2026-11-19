@@ -337,6 +337,9 @@ Tests: `server/api/clients_test.go` (6 tests over the real router).
       view — the filter state is derived from the URL, not seeded from it, so
       the link is the view (`Devices.test.tsx` › tenant filter; `Alerts.test.tsx`
       › tenant filter; `DeviceDetail.test.tsx` › whose machine this is).
+      *Superseded 2.4: `status` is presence only (`online`/`offline`) and the URL
+      parser rejects `alert` — buglist.md M23. The other two parameters still work;
+      the alert signal comes from the alerts collection, not from the device row.*
 - [x] The dashboard's per-client rows agree with the Clients ledger: the server
       builds both from `rollupOf` (`TestClientsRollupsIsTheLedger` compares the
       list row with the per-client endpoint field by field), and the console
