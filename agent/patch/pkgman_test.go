@@ -42,14 +42,27 @@ type recordedRun struct {
 // manager" is proven without a package manager.
 func recordRunner(t *testing.T, results map[string]pkgResult) *[]recordedRun {
 	t.Helper()
-	previous := runPkg
-	runs := []recordedRun{}
-	runPkg = func(timeout time.Duration, name string, args ...string) pkgResult {
-		runs = append(runs, recordedRun{name: name, args: append([]string(nil), args...)})
+	return recordRunnerWith(t, func(name string, args []string) pkgResult {
 		if res, ok := results[name]; ok {
 			return res
 		}
 		return pkgResult{code: 0}
+	})
+}
+
+// recordRunnerWith answers per invocation instead of per program. That
+// distinction is not a convenience: buglist.md M14 is about a rollback that
+// restored *some* packages, and when every call to `zypper` answers identically
+// the only rollback outcomes expressible are all-succeeded and all-failed. A
+// test that means to prove "2 of 3 came back" has to be able to make one call
+// fail and its neighbour succeed, which needs the argv, not just the name.
+func recordRunnerWith(t *testing.T, answer func(name string, args []string) pkgResult) *[]recordedRun {
+	t.Helper()
+	previous := runPkg
+	runs := []recordedRun{}
+	runPkg = func(timeout time.Duration, name string, args ...string) pkgResult {
+		runs = append(runs, recordedRun{name: name, args: append([]string(nil), args...)})
+		return answer(name, args)
 	}
 	t.Cleanup(func() { runPkg = previous })
 	return &runs
@@ -252,7 +265,7 @@ func TestDeployLinuxUpdatesHandsOnlyApprovedPackagesToThePackageManager(t *testi
 		"glibc": "2.31-150300.9.1",
 	}))
 	runs := recordRunner(t, map[string]pkgResult{
-		"pacman": {code: 0, output: "curl 8.20.0-1 https://geo.mirror.pkgbuild.com/extra/os/x86_64/curl-8.20.0-1-x86_64.pkg.tar.zst\n"},
+		"pacman": {code: 0, output: "curl https://geo.mirror.pkgbuild.com/extra/os/x86_64/curl-8.20.0-1-x86_64.pkg.tar.zst\n"},
 		"zypper": {code: 0, output: "No update detected.\n"},
 	})
 
@@ -361,9 +374,9 @@ func TestPacmanCandidateURLUsesTheApprovedVersionOnly(t *testing.T) {
 	// package plus dependencies. Only the approved line may be installed.
 	runs := recordRunner(t, map[string]pkgResult{
 		"pacman": {code: 0, output: strings.Join([]string{
-			"glibc 2.42-5 https://geo.mirror.pkgbuild.com/core/os/x86_64/glibc-2.42-5-x86_64.pkg.tar.zst",
-			"curl 8.20.0-1 https://geo.mirror.pkgbuild.com/extra/os/x86_64/curl-8.20.0-1-x86_64.pkg.tar.zst",
-			"ca-certificates-mozilla 2:3.106-1 https://geo.mirror.pkgbuild.com/core/os/x86_64/ca-certificates-mozilla-3.106-1-any.pkg.tar.zst",
+			"glibc https://geo.mirror.pkgbuild.com/core/os/x86_64/glibc-2.42-5-x86_64.pkg.tar.zst",
+			"curl https://geo.mirror.pkgbuild.com/extra/os/x86_64/curl-8.20.0-1-x86_64.pkg.tar.zst",
+			"ca-certificates-mozilla https://geo.mirror.pkgbuild.com/core/os/x86_64/ca-certificates-mozilla-3.106-1-any.pkg.tar.zst",
 			"",
 		}, "\n")},
 	})
@@ -381,7 +394,7 @@ func TestPacmanCandidateURLUsesTheApprovedVersionOnly(t *testing.T) {
 
 func TestPacmanCandidateURLRefusesAVersionTheDatabasesDoNotHave(t *testing.T) {
 	recordRunner(t, map[string]pkgResult{
-		"pacman": {code: 0, output: "curl 8.21.0-1 https://geo.mirror.pkgbuild.com/extra/os/x86_64/curl-8.21.0-1-x86_64.pkg.tar.zst\n"},
+		"pacman": {code: 0, output: "curl https://geo.mirror.pkgbuild.com/extra/os/x86_64/curl-8.21.0-1-x86_64.pkg.tar.zst\n"},
 	})
 	_, err := pacmanCandidateURL(Update{Source: "pacman", Title: "curl", Version: "8.20.0-1"})
 	if err == nil {
@@ -493,8 +506,15 @@ func TestRollbackLinuxUpdatesReportsEveryFailedPackage(t *testing.T) {
 	}
 	t.Cleanup(func() { clearPreDeployState(deploymentID) })
 
-	runs := recordRunner(t, map[string]pkgResult{
-		"zypper": {code: 4, output: "Problem: the requested solvable is no longer available\n"},
+	// The two downgrades fail because the solvable is gone; `yay` is answered
+	// separately because it has no recorded previous version, so its rollback is
+	// a remove and that one succeeds. Per-program answers could not express this
+	// at all — see recordRunnerWith.
+	runs := recordRunnerWith(t, func(name string, args []string) pkgResult {
+		if len(args) > 0 && args[len(args)-1] == "yay" {
+			return pkgResult{code: 0, output: "Nothing found to remove.\n"}
+		}
+		return pkgResult{code: 4, output: "Problem: the requested solvable is no longer available\n"}
 	})
 
 	err := rollbackLinuxUpdates(deploymentID)
