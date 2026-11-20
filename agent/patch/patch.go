@@ -212,6 +212,14 @@ func scanLinuxUpdates() ([]Update, error) {
 		break // use only the first available tool
 	}
 
+	// Try pacman (Arch Linux): checkupdates when it is installed, else
+	// `pacman -Qu`. See scanPacmanUpdates for why this scan does not
+	// refresh the sync databases the way the apt path above does.
+	updates = append(updates, scanPacmanUpdates()...)
+
+	// Try zypper (openSUSE Tumbleweed and Leap, SLES).
+	updates = append(updates, scanZypperUpdates()...)
+
 	return updates, nil
 }
 
@@ -288,35 +296,62 @@ func deployLinuxUpdates(deploymentID string, updates []Update) error {
 	// An empty list is never a request for a full upgrade: it means the
 	// server sent nothing to install, and running `apt-get upgrade` /
 	// `yum update` here would upgrade the whole OS unrequested.
+	//
+	// That guard is also what "an empty approved set fails exactly as apt/dnf
+	// does" means on the agent side (docs/phase2.5-tasks.md, 2.5-3): it sits
+	// in front of the per-source switch below, so a pacman or zypper
+	// deployment with nothing to install returns the same error and runs no
+	// package manager at all. The server refuses an empty approved set
+	// earlier, with patching.ErrNoApprovedUpdates; this is the belt for a
+	// payload that arrives with an empty list anyway.
 	if len(updates) == 0 {
 		return fmt.Errorf("no updates provided; refusing to run a full OS upgrade")
 	}
 
-	// Record the currently installed versions so a later rollback can
-	// restore them. A deployment with no recorded state cannot be rolled
-	// back honestly.
 	var preState []preDeployEntry
 	var firstErr error
 	for _, u := range updates {
 		if u.Title == "" {
 			continue
 		}
-		oldVersion := currentPackageVersion(u.Source, u.Title)
+		// Record the currently installed version so a later rollback can
+		// restore it. A deployment with no recorded state cannot be rolled
+		// back honestly, and for pacman and zypper a lookup that could not
+		// answer is not a recorded state either: the package stays
+		// undeployed and the deployment reports why.
+		oldVersion, recorded := packageVersion(u.Source, u.Title)
+		if !recorded {
+			err := fmt.Errorf("cannot read the installed version of %s; refusing to deploy it with nothing to roll back to", u.Title)
+			log.Printf("deploy %s@%s: %v", u.Title, u.Version, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
 		preState = append(preState, preDeployEntry{Package: u.Title, Source: u.Source, OldVersion: oldVersion})
 
-		var cmd *exec.Cmd
+		var output string
+		var err error
 		switch u.Source {
+		case "pacman":
+			output, err = installPacmanUpdate(u)
+		case "zypper":
+			output, err = installZypperUpdate(u)
 		case "yum":
-			cmd = exec.Command(rpmTool(), "-y", "install", rpmInstallSpec(u.Title, u.Version))
+			cmd := exec.Command(rpmTool(), "-y", "install", rpmInstallSpec(u.Title, u.Version))
+			b, cerr := cmd.CombinedOutput()
+			output, err = string(b), cerr
 		default: // apt
 			target := u.Title
 			if u.Version != "" {
 				target += "=" + u.Version
 			}
-			cmd = aptCmd("-y", "install", target)
+			cmd := aptCmd("-y", "install", target)
+			b, cerr := cmd.CombinedOutput()
+			output, err = string(b), cerr
 		}
-		if output, err := cmd.CombinedOutput(); err != nil {
-			log.Printf("deploy %s@%s: %s", u.Title, u.Version, string(output))
+		if err != nil {
+			log.Printf("deploy %s@%s: %s", u.Title, u.Version, output)
 			if firstErr == nil {
 				firstErr = fmt.Errorf("install %s@%s failed: %v", u.Title, u.Version, err)
 			}
@@ -582,41 +617,79 @@ func rollbackLinuxUpdates(deploymentID string) error {
 	}
 
 	var firstErr error
+	var details []string
+	// aggregateOnlyForNewSources keeps an apt/yum-only rollback reporting
+	// exactly what it reported before 2.5-3 (the first failure), and gives
+	// pacman and zypper the per-package account buglist.md M14 asks for.
+	aggregateOnlyForNewSources := false
 	for _, e := range state {
-		if e.OldVersion == "" {
-			// Package was newly installed (no prior version): remove it.
+		var output string
+		var rerr error
+		switch e.Source {
+		case "pacman":
+			output, rerr = rollbackPacmanEntry(e)
+		case "zypper":
+			output, rerr = rollbackZypperEntry(e)
+		default: // apt and yum/dnf, unchanged
 			var cmd *exec.Cmd
-			if e.Source == "yum" {
-				cmd = exec.Command(rpmTool(), "-y", "remove", e.Package)
+			if e.OldVersion == "" {
+				// Package was newly installed (no prior version): remove it.
+				if e.Source == "yum" {
+					cmd = exec.Command(rpmTool(), "-y", "remove", e.Package)
+				} else {
+					cmd = aptCmd("-y", "remove", e.Package)
+				}
+				b, cerr := cmd.CombinedOutput()
+				output, rerr = string(b), cerr
+				if rerr != nil {
+					log.Printf("rollback %s (remove): %s", e.Package, output)
+				}
 			} else {
-				cmd = aptCmd("-y", "remove", e.Package)
-			}
-			if output, rerr := cmd.CombinedOutput(); rerr != nil {
-				log.Printf("rollback %s (remove): %s", e.Package, string(output))
-				if firstErr == nil {
-					firstErr = fmt.Errorf("remove %s failed: %v", e.Package, rerr)
+				if e.Source == "yum" {
+					cmd = exec.Command(rpmTool(), "-y", "downgrade", e.Package+"-"+e.OldVersion)
+				} else {
+					cmd = aptCmd("-y", "--allow-downgrades", "install", e.Package+"="+e.OldVersion)
+				}
+				b, cerr := cmd.CombinedOutput()
+				output, rerr = string(b), cerr
+				if rerr != nil {
+					log.Printf("rollback %s -> %s: %s", e.Package, e.OldVersion, output)
 				}
 			}
+		}
+		if rerr == nil {
 			continue
 		}
-		var cmd *exec.Cmd
-		if e.Source == "yum" {
-			cmd = exec.Command(rpmTool(), "-y", "downgrade", e.Package+"-"+e.OldVersion)
-		} else {
-			cmd = aptCmd("-y", "--allow-downgrades", "install", e.Package+"="+e.OldVersion)
+		if e.Source == "pacman" || e.Source == "zypper" {
+			// The per-package outcome the operator needs to see: which
+			// package did not come back, and what the package manager said
+			// about it. Reported as a failed rollback, never as a success.
+			log.Printf("rollback %s (%s) -> %s: %s", e.Source, e.Package, e.OldVersion, output)
+			aggregateOnlyForNewSources = true
+			details = append(details, fmt.Sprintf("%s: %v", e.Package, rerr))
 		}
-		if output, rerr := cmd.CombinedOutput(); rerr != nil {
-			log.Printf("rollback %s -> %s: %s", e.Package, e.OldVersion, string(output))
-			if firstErr == nil {
-				firstErr = fmt.Errorf("downgrade %s to %s failed: %v", e.Package, e.OldVersion, rerr)
-			}
+		if firstErr == nil {
+			firstErr = linuxRollbackError(e, rerr)
 		}
 	}
 
 	if firstErr == nil {
 		clearPreDeployState(deploymentID)
 	}
+	if aggregateOnlyForNewSources && len(details) > 1 {
+		return fmt.Errorf("rollback did not restore %d of %d packages: %s", len(details), len(state), strings.Join(details, "; "))
+	}
 	return firstErr
+}
+
+// linuxRollbackError words a single package's rollback failure the way the
+// pre-2.5-3 paths word theirs, so an apt or yum rollback reports exactly what
+// it reported before this change.
+func linuxRollbackError(e preDeployEntry, rerr error) error {
+	if e.OldVersion == "" {
+		return fmt.Errorf("remove %s failed: %v", e.Package, rerr)
+	}
+	return fmt.Errorf("downgrade %s to %s failed: %v", e.Package, e.OldVersion, rerr)
 }
 
 // macOS rollback: brew has no reliable version-restore mechanism and
