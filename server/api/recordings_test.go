@@ -87,7 +87,7 @@ func newRecordingFixtureWithPolicy(t *testing.T, policy recordings.Policy) *reco
 		SetRecording(recordings.Policy{Mode: models.RecordingModeOff}, nil)
 	})
 
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), store.GormConfig())
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

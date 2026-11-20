@@ -88,11 +88,39 @@ func NewWithDB(db *gorm.DB) (*Store, error) {
 	return st, nil
 }
 
+// GormConfig is the GORM configuration every open in this product should use.
+//
+// `NowFunc` is not cosmetic. GORM fills a model's automatic CreatedAt/UpdatedAt
+// from it, and the default is `time.Now()` — the **server's local zone**. The
+// rest of the product already stamps UTC by hand (`time.Now().UTC()` at every
+// write site that sets a timestamp itself), which leaves GORM's automatic fields
+// as the single place a local-zone time gets into the database.
+//
+// On Postgres this is invisible, and that is why it survived: AutoMigrate makes
+// those columns `timestamp with time zone`, so the driver stores the instant and
+// both comparison and ordering are exact whatever zone the process ran in.
+//
+// On SQLite it is not invisible. SQLite has no datetime type: a timestamp is
+// stored as the text it serialized to, and `created_at >= ?` is therefore a
+// **text** comparison. A row written "2026-11-19 23:45:23-05:00" is textually
+// earlier than the UTC bound "2026-11-20 04:44:53+00:00" even though it is the
+// same instant, so a window query over that row answers **zero rows** — and a
+// server east of UTC has it answer zero through the other end instead. Every CI
+// runner is UTC, so the only person who sees it is a developer whose laptop is
+// set to a real timezone, watching a red test against product code that is
+// correct. Stamping UTC makes the test dialect agree with production semantics,
+// rather than teaching the tests to expect a zone-dependent answer.
+func GormConfig() *gorm.Config {
+	return &gorm.Config{
+		NowFunc: func() time.Time { return time.Now().UTC() },
+	}
+}
+
 // New connects to the database, runs migrations, and returns a Store.
 func New(dsn string) (*Store, error) {
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
+	cfg := GormConfig()
+	cfg.Logger = logger.Default.LogMode(logger.Silent)
+	db, err := gorm.Open(postgres.Open(dsn), cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
