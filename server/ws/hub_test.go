@@ -131,20 +131,57 @@ func wsSend(t *testing.T, conn *websocket.Conn, msgType string, payload interfac
 }
 
 // readUntil reads messages until one matches pred or the timeout elapses.
+//
+// On failure it reports what *did* arrive, which the old message could not. This
+// package's one intermittent failure dies in exactly this helper with
+//
+//	read failed waiting for message: failed to get reader: use of closed network connection
+//
+// after almost exactly `hopBudget`, which reads like the peer hung up. It is not
+// distinguishable from a read that simply never received its message: when the
+// read context expires, coder/websocket tears the local socket down and the
+// reader reports *that*, not the deadline. So the message that has been printing
+// for weeks supports both theories and settles neither.
+//
+// Elapsed time plus the list of message types that did arrive separates them: a
+// timeout at hopBudget having received nothing means the hub never delivered it,
+// and a short elapsed time with a real close means something closed the socket.
+// Either way the next CI run says something, which is more than the last one did.
 func readUntil(t *testing.T, conn *websocket.Conn, timeout time.Duration, pred func(Message) bool) *Message {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	start := time.Now()
+	deadline := start.Add(timeout)
+	var saw string
+	var seen int
 	for {
 		ctx, cancel := context.WithDeadline(context.Background(), deadline)
-		_, data, err := conn.Read(ctx)
+		typ, data, err := conn.Read(ctx)
+		expired := ctx.Err() == context.DeadlineExceeded
 		cancel()
 		if err != nil {
-			t.Fatalf("read failed waiting for message: %v", err)
+			said := "having received nothing at all"
+			if seen > 0 {
+				said = "having received " + fmt.Sprintf("%d", seen) + " message(s): " + saw
+			}
+			where := "after " + time.Since(start).Round(time.Millisecond).String() + ", " + said
+			if expired {
+				t.Fatalf("no matching message %v. Still connected when the budget ran out, so the message was never sent or never queued: %v", where, err)
+			}
+			t.Fatalf("read failed %v: %v", where, err)
+		}
+		if typ == websocket.MessageBinary {
+			seen++
+			saw += "binary "
+			continue
 		}
 		var msg Message
 		if err := json.Unmarshal(data, &msg); err != nil {
+			seen++
+			saw += "<unparsable> "
 			continue
 		}
+		seen++
+		saw += msg.Type + " "
 		if pred(msg) {
 			return &msg
 		}
