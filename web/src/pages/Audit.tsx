@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Download, ScrollText } from 'lucide-react';
@@ -88,14 +88,40 @@ export function Audit() {
   // asks for nothing a caller cannot perform.
   const canRead = hasRole('admin') || hasRole('manager');
 
+  // `readSeq` is the ordering guard, and the page needs one because it does not
+  // poll: whatever read is applied last is the window the operator reads until they
+  // touch a filter. Two reads of a live ledger can answer **swapped**, and if the
+  // older answer lands second the page shows a window the server has already moved
+  // past — and keeps showing it, because nothing re-reads. That is what turned
+  // `Console end-to-end` red on main with "the page printed 1, the server has 2"
+  // while the endpoint, its `target` filter, and its `total` were all correct. The
+  // ledger was not wrong; the page was holding an older answer.
+  //
+  // The swap is reachable without trying. `load` used to name `t` in its deps
+  // because `t` names the error string below, and react-i18next hands back a new `t`
+  // when the locale bundle resolves — so a single mount re-created `load`, re-ran the
+  // effect, and asked the ledger the same question twice. Both answers are correct;
+  // they simply are not the same answer, because the table is live. So the
+  // duplicate read goes first (`i18n` is the stable instance and does not change
+  // identity when translations arrive), and the guard above stays, because ordering
+  // is the defect and removing one way to meet it does not make the page safe.
+  const readSeq = useRef(0);
+
   const load = useCallback(async () => {
     if (!canRead) {
       setLoading(false);
       return;
     }
     setError('');
+    readSeq.current += 1;
+    const seq = readSeq.current;
+    // Checked after every await, and after every path through them: the gap an await
+    // opens is exactly where the answers get reordered, so "still the newest read I
+    // asked for" has to be re-asked each time, not once at the top.
+    const isCurrent = () => readSeq.current === seq;
     try {
       const page = await getAuditLog({ ...query, limit: 200 });
+      if (!isCurrent()) return;
       setRows(page.logs ?? []);
       setMeta({
         retentionDays: page.retention_days,
@@ -106,13 +132,15 @@ export function Audit() {
     } catch (e) {
       // A failed read knows nothing — including nothing about the numbers it was
       // showing a moment ago. Keeping the previous window would print a confident
-      // promise the page can no longer support.
+      // promise the page can no longer support. A *superseded* failure says less
+      // still: a newer read is already on its way with an answer.
+      if (!isCurrent()) return;
       setMeta({ retentionDays: null, rowsPruned: 0, lastRun: '', errored: false });
-      setError(e instanceof Error ? e.message : t('common.error'));
+      setError(e instanceof Error ? e.message : i18n.t('common.error'));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [canRead, query, t]);
+  }, [canRead, query, i18n]);
 
   useEffect(() => {
     void load();
