@@ -6,6 +6,28 @@
 **Scope of this document:** the next four minor releases, their scope, and what each
 one must pass before it is tagged.
 
+## Where the four releases actually stand
+
+Measured 2026-11-19 against `git tag`, `docs/changelog.md` and `server/store/migrate.go` — not against this document's own plan, which is what drifted:
+
+| Release | State | Evidence |
+|---|---|---|
+| **v2.2.0** | **Scope delivered; never released.** | Every 2.2 scope row below is marked delivered (2026-10-26/27), yet there is no `v2.2.0` tag and no `[2.2.0]` section in `docs/changelog.md`. The releases published between `v2.1.0` and `v2.3.0` are `v2.3.0` (2026-10-28) and `v2.3.1` (2026-11-14). |
+| **v2.3.0** | Shipped, plus maintenance `v2.3.1`. | Migrations 8–11. |
+| **v2.4.0** | Shipped. | 2026-11-15. Migrations 12–17. |
+| **v2.5.0** | Next. **No part implemented.** | `docs/phase2.5-tasks.md`, status "Planned". |
+
+The 2.2.0 row is a question for the owner, not a fact to fix here: either 2.2's scope
+was deliberately folded into 2.3.0 (in which case this document should say so, and the
+"next four minor releases" framing above is stale), or a release was cut in plan and
+never published (in which case `docs/versioning.md` rule 1 — the git tag is the version
+— was bypassed). Both readings are consistent with the evidence; the repo has not
+recorded which one happened. Say so here rather than invent a changelog section.
+
+The open item on the 2.4 line is one thing: the **second vendor interop pass (AD FS)**
+in `docs/phase2.4-tasks.md` §2.4-0. Everything else that file lists as open predates
+the `v2.4.0` tag.
+
 Release numbering follows [`docs/versioning.md`](versioning.md): the git tag is the
 version, no version is invented before the work exists, a wire-contract **shape**
 break is a MAJOR, a new capability is a MINOR, a fix is a PATCH. Nothing below
@@ -267,4 +289,8 @@ From the release pipeline established in 2.1.0:
 - Interface changes in `server/store` cascade to the mocks in the same change
   (`CONTRIBUTING.md`).
 
-*Last updated: 2026-10-26, at v2.1.0.*
+*Last updated: 2026-11-19, at `v2.4.0`. The release-status table above was written
+from `git tag`, `docs/changelog.md` and `server/store/migrate.go`; the section bodies
+below are still the plan as of `v2.1.0` and have not been rewritten, so read the table
+first and treat any "planned" wording below that contradicts a delivered line in a
+`docs/phase2.x-tasks.md` as the doc being behind, not the code being ahead.*

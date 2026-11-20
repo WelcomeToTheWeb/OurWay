@@ -14,8 +14,23 @@ drops with log-only visibility. `server/ws/hub.go` has **14 `select { … defaul
 send sites** — each is a place a message can be dropped, and each currently leaves
 no number behind.
 
-**Migration numbering.** 2.3.0 ships 7–8, 2.4.0 ships 9–12, so this release uses
-**13 (device update state)** and **14 (agent update rollouts)**.
+**Migration numbering — read `server/store/migrate.go`, not this paragraph.** The
+numbering this file carried when it was written was wrong, and it was wrong in the
+same way `docs/phase2.4-tasks.md` had been: a plan numbers migrations by its task
+list, and features arrive in the order they are built, so a plan written before the
+work is a prediction and not a record. Measured in `server/store/migrate.go` at
+`v2.4.0`: 2.3.0 shipped **8** (`clients_and_user_client_scope`), **9** (`audit_log`),
+**10** (`tenant_scoped_read_indexes`) and **11** (`client_enrollment_tokens`); 2.4.0
+shipped **12** (`oidc_provider_discovery_and_identity_policy`), **13**
+(`sso_pending_identities`), **14** (`alert_threshold_scopes`), **15**
+(`notification_channels`), **16** (`saml_single_sign_on`) and **17**
+(`session_recordings`).
+
+`server/store/migrate.go` is append-only with contiguous versions, so this release
+starts at **18**: **18 (`devices_update_state`)** and **19 (`update_rollouts`)**.
+Every migration number quoted below is written against that reading. The rule that
+keeps this from happening a third time: re-read `migrate.go` immediately **before**
+writing a migration, and never take the number from a plan.
 
 ---
 
@@ -58,12 +73,40 @@ observable.
 none of them a metrics library).
 
 **Do**
-- [ ] **Decide and record:** `github.com/prometheus/client_golang` (standard
-      exposition, registry, histograms for free) **vs** a hand-rolled exposition
-      writer over the 2.5-0 counters (~200 lines, no new dependency). Record the
-      decision in this file and in `docs/architecture.md` before implementing — the
-      product's position is that the operator owns and audits the source, so a new
-      direct dependency is a conscious call, not a default.
+- [x] **Decided 2026-11-18 and recorded here: hand-rolled exposition, no new
+      dependency.** `github.com/prometheus/client_golang` was the other option, and
+      it is not a bad one — it is the standard exposition, with a registry and
+      histograms for free. It was rejected for four reasons, in the order they
+      matter:
+
+      1. **Two owners of one number.** 2.5-0's counters are process-local values the
+         hub already increments, and the console health panel (2.5-2) reads the same
+         snapshot. A registry is a *second* owner of those metrics, and two owners is
+         exactly how a Grafana panel and a console page come to disagree about the
+         same counter — the defect class 2.4-5 had to close between its preview and
+         its resolver.
+      2. **The format we need is small and testable.** Counters, gauges and explicitly
+         bucketed histograms over our own latency samples are a few lines of escaping
+         and `# TYPE` lines. What `client_golang` is genuinely good at — exemplars,
+         native histograms, process collectors, registry lifecycle — is not on this
+         release's list, and tracing/OTel is deferred out of 2.5 entirely.
+      3. **The operator audits the source.** That is the product's position, so a new
+         direct dependency has to earn its transitive closure: the client brings the
+         registry scaffolding, `prometheus/common`, `procfs` and a protobuf
+         dependency into `server/go.mod` to produce text we can write and pin in one
+         file.
+      4. **The acceptance tests are ours either way.** 2.5-1's criteria are our metric
+         names, our default-off switch, our token gate, and *no device key anywhere
+         in the exposition* — every one of those is a test over our own writer, so
+         taking the library buys none of the verification this task is graded on.
+
+      **The cost, stated rather than hidden:** the hand-written writer owns correct
+      label escaping and `# TYPE` output, and must prove it against a real Prometheus
+      scrape rather than inheriting that proof. It also inherits none of the library's
+      restart or registry semantics. **This decision is reversible at one seam**: the
+      writer's only input is 2.5-0's snapshot accessor, so a later release that wants
+      native histograms or exemplars can move the registry behind that same accessor
+      without touching a call site. `docs/architecture.md` carries the same decision.
 - [ ] `GET /metrics` — **off by default** (`METRICS_ENABLED=false`), and when on it
       requires a bearer token (`METRICS_TOKEN`), because the payload exposes fleet
       shape. Documented in `docs/configuration.md` **and** `.env.example` in the
@@ -195,7 +238,7 @@ server**. So today the console cannot tell what the fleet runs, what channel eac
 unit is on, or which units are stuck.
 
 **Do**
-- [ ] Migration 13 `devices_update_state`: `agent_version`, `update_channel`,
+- [ ] Migration **18** `devices_update_state`: `agent_version`, `update_channel`,
       `agent_version_reported_at`, `last_update_from`, `last_update_at`,
       `last_update_error`.
 - [ ] Heartbeat carries `agent_version` + `update_channel` (additive fields; older
@@ -208,7 +251,7 @@ unit is on, or which units are stuck.
 - [ ] Console: fleet posture ledger — version spread, channel spread, stalled
       units, units reporting `dev`, units below the server's minimum supported
       agent version; per-client (2.3 scope) and per-tag filters.
-- [ ] Staged roll-out control: server-side "update rollout" gate (migration 15
+- [ ] Staged roll-out control: server-side "update rollout" gate (migration **19**
       `update_rollouts`) so an operator can release a version to a pilot tag/group
       before the whole fleet, reusing the deployment batching discipline
       (`MaxDevicesPerBatch`). Default behaviour is unchanged: an agent takes an

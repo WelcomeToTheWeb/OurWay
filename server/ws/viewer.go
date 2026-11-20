@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"ourway/server/metrics"
 	"ourway/server/models"
 	"ourway/server/store"
 )
@@ -83,11 +84,7 @@ func (h *Hub) SendToViewer(sessionID, msgType string, payload interface{}) {
 	if !ok {
 		return
 	}
-	select {
-	case v.SendCh <- data:
-	default:
-		h.dropped.Add(1)
-	}
+	h.trySend(v, metrics.WSSendViewer, data)
 }
 
 // hasViewer reports whether a viewer is attached to the session.
@@ -116,7 +113,10 @@ func (h *Hub) sendViewerFrame(sessionID string, frame []byte) {
 		}
 		select {
 		case <-v.BinCh:
-			h.dropped.Add(1)
+			// The eviction is counted, never logged: frames are perishable
+			// by design, so the fact worth keeping is the rate, and a rate
+			// in a log line is a log storm with extra steps.
+			h.drop(metrics.WSViewerFrameEvicted)
 			// A dropped frame may have been a tile update the viewer
 			// now lacks; the next frames are diffs against it, so
 			// ask the exe for a full keyframe (at most once a second).
@@ -129,6 +129,12 @@ func (h *Hub) sendViewerFrame(sessionID string, frame []byte) {
 		default:
 		}
 	}
+	// Both tries failed: the frame we were asked to deliver is discarded.
+	// Reaching here means each send found BinCh full while each eviction
+	// found it empty — the viewer's writer is draining slots faster than
+	// this producer can win one, which is a frame rate the connection
+	// cannot carry rather than a bug in the loop.
+	h.drop(metrics.WSViewerFrameFull)
 }
 
 // sendRemoteExe delivers a text message to the remote exe of a device
@@ -140,13 +146,7 @@ func (h *Hub) sendRemoteExe(deviceKey string, data []byte) bool {
 	if !ok {
 		return false
 	}
-	select {
-	case r.SendCh <- data:
-		return true
-	default:
-		h.dropped.Add(1)
-		return false
-	}
+	return h.trySend(r, metrics.WSSendRemoteExe, data)
 }
 
 // sendAgent delivers a text message to the agent service connection of
@@ -158,13 +158,7 @@ func (h *Hub) sendAgent(deviceKey string, data []byte) bool {
 	if !ok {
 		return false
 	}
-	select {
-	case d.SendCh <- data:
-		return true
-	default:
-		h.dropped.Add(1)
-		return false
-	}
+	return h.trySend(d, metrics.WSSendAgent, data)
 }
 
 // endSessionForViewer ends the session when its viewer goes away and
@@ -179,6 +173,11 @@ func (h *Hub) endSessionForViewer(st *store.Store, sess *models.Session, deviceK
 		log.Printf("ws: failed to end session %s after viewer left: %v", sess.ID, err)
 		return
 	}
+	// The session ended because the technician closed the viewer, not
+	// because anyone called DELETE /api/sessions/:id, so this is the only
+	// place its end is visible. Left out, the start and end counters would
+	// disagree by exactly the sessions an operator cares about.
+	metrics.Inc(metrics.SessionEnd)
 	if err := h.SendToDevice(deviceKey, "session_end", map[string]string{"session_id": sess.ID}); err != nil {
 		log.Printf("ws: failed to notify device of session end: %v", err)
 	}
@@ -193,11 +192,7 @@ func (h *Hub) handleViewerMessage(client *Client, sess *models.Session, raw []by
 	switch {
 	case msg.Type == "ping":
 		if pong, err := json.Marshal(Message{Type: "pong"}); err == nil {
-			select {
-			case client.SendCh <- pong:
-			default:
-				h.dropped.Add(1)
-			}
+			h.trySend(client, metrics.WSSendViewerPong, pong)
 		}
 	case viewerToRemote[msg.Type]:
 		h.sendRemoteExe(client.DeviceKey, raw)
@@ -230,11 +225,7 @@ func (h *Hub) handleRemoteTextMessage(sess *models.Session, raw []byte) {
 	if !ok {
 		return
 	}
-	select {
-	case v.SendCh <- raw:
-	default:
-		h.dropped.Add(1)
-	}
+	h.trySend(v, metrics.WSSendViewerRelay, raw)
 }
 
 // relayRichFrame forwards a framed (non-legacy) binary frame from the

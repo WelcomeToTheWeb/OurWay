@@ -1,0 +1,26 @@
+# HAND-BUILT FIXTURE — written from the output format `checkupdates`
+# (pacman-contrib) and `pacman -Qu` share: `<name> <installed> ->
+# <available>`, one package per line. It is not a transcript of a real
+# system's output; the package versions were written by hand to be plausible.
+#
+# Still owed: a real run on an Arch system that also carries AUR packages,
+# recorded with `LC_ALL=C checkupdates > fixture.txt`.
+#
+# What this fixture proves about an AUR-carrying host is a negative, and it is
+# the honest one. Both commands answer from the sync databases, so packages
+# built from the AUR — on such a host these are typically things like `yay`,
+# `obsidian-native` or a `-bin` AUR build — do not appear in this output at
+# all: there is no sync database entry for them to be out of date against. A
+# row for an AUR package could only be written by inventing an available
+# version no repository ever announced, so none is produced, and the operator
+# who wants those updates is served by an AUR helper, not by this scan.
+#
+# The lines that are not `name installed -> available` are the noise pacman
+# writes to the same stream a deployment captures, in the C locale: the message
+# for an IgnorePkg entry, and the one `checkupdates` emits when the file
+# database was never downloaded. The parser skips them — treating either as a
+# package row would name a version nobody offered.
+warning: package files is not installed (or is corrupted): run 'pacman -Fy' to download it
+pacman 7.1.0-2 -> 7.2.0-1
+lib32-nvidia-utils 580.95.05-1 -> 580.105.08-1
+warning: gcc: ignoring package upgrade (15.2.1+r26-1 => 16.1.1-2)

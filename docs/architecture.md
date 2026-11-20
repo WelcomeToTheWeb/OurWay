@@ -14,6 +14,7 @@ This document describes the high-level architecture of the OurWay RMM system, in
   - [Database](#database)
 - [Data Flow](#data-flow)
 - [WebSocket Hub](#websocket-hub)
+- [Operational Counters](#operational-counters)
 - [Alert Engine](#alert-engine)
 - [Authentication Flow](#authentication-flow)
 - [Technology Choices](#technology-choices)
@@ -360,6 +361,84 @@ Each client has its own send channel, allowing non-blocking sends. If a client i
 5. Messages are sent to client via its SendCh
 6. On disconnect, client sends unregister message
 7. Hub removes client from map and closes SendCh
+
+---
+
+## Operational Counters
+
+`server/metrics/counters.go` holds one process-local registry of named numbers.
+It exists because the 2026-10 review's standing finding was "no dropped-frame
+counters anywhere", and buglist.md M8/M10 are silent drops whose only trace was a
+`log.Printf`. A log line is not observable: nobody greps a live server for a
+number, and a drop storm buries the evidence it is supposed to leave.
+
+Grammar is `domain.what.reason` for a drop — the reason says *why*, because "the
+viewer froze" and "the alert engine fell behind" are different incidents that one
+`dropped` total cannot tell apart.
+
+**The names are an API, not a rename.** `/metrics` (2.5-1) and the console health
+panel (2.5-2) read this registry, so a dashboard and an operator's alert rule point
+at the string. Renaming one is a breaking change.
+
+The review rule this list exists to enforce: **a new send site with no counter is a
+review defect.** Every `select { … default: }` in `server/ws` moves one of the names
+below; adding a tenth send path without adding a name and a row here is what this
+table is for.
+
+### Drop sites — all 20, each with exactly one call site
+
+| counter | site |
+|---|---|
+| `ws.broadcast.full` | `hub.go` — broadcast queue full, no Redis to hand it to |
+| `ws.broadcast.fallback` | `hub.go` — queue full, Redis took it: a degradation, not a loss (M8) |
+| `ws.broadcast.local` | `hub.go` — a local client's send buffer was full during fan-out |
+| `ws.broadcast.remote` | `hub.go` — a client could not take a broadcast from another instance |
+| `ws.broadcast.suppressed` | `hub.go` — own Redis publish echo, suppressed. **Not a drop**: nonzero is expected on every multi-instance install |
+| `ws.targeted.remote` | `hub.go` — cross-instance targeted message (H2) could not be queued |
+| `ws.send.device` | `hub.go` — device connection full |
+| `ws.send.user` | `hub.go` — one of the user's browser connections full |
+| `ws.send.viewer` | `viewer.go` — native viewer attached to a session full |
+| `ws.send.remote_exe` | `viewer.go` — remote-control executable connection full |
+| `ws.send.agent` | `viewer.go` — agent service connection full |
+| `ws.send.pong` | `hub.go` — app-level ping reply to a browser or remote exe (H1) |
+| `ws.send.viewer_pong` | `viewer.go` — the same ping reply on a viewer connection |
+| `ws.send.viewer_relay` | `viewer.go` — exe→viewer message could not be queued |
+| `ws.send.binary_frames` | `hub.go` — capability announcement missed; the exe falls back to HTTP frame upload (works, slower) |
+| `ws.send.server_version` | `hub.go` — the agent learns of an update on its next heartbeat instead of this one |
+| `ws.viewer_frame.evicted` | `viewer.go` — a queued frame evicted so the viewer always sees the newest screen. Perishable by design |
+| `ws.viewer_frame.full` | `viewer.go` — eviction found no room; the new frame was discarded |
+| `ws.alert_queue.full` | `hub.go` — **an alert that did not fire**: this sample is never measured against its thresholds |
+| `ws.session_frame.unconnected` | `hub.go` — session owner has no browser to carry the frame; the console shows a live, black session |
+
+### Also emitted
+
+`ingest.heartbeat.ws`, `ingest.heartbeat.http`, `ingest.metrics.ws` (counts, not
+rates — the snapshot's `SampledAt` is what turns two reads into a rate);
+`session.end` (where a viewer socket closing visibly ends a session);
+`alert.eval.latency` (the histogram 2.5-8's release gate reads);
+`redis.degraded.transitions`, `redis.recovered.transitions`, `redis.degraded` (the
+**transition**, not one count per failed publish — a Redis that stays down keeps
+failing, and 400 counts reads as 400 incidents); and the
+`ws.connections.active` gauge, labelled `role`.
+
+### Declared, not emitted
+
+`ingest.metrics.http`, `session.start`, `deploy.queued.depth`, `deploy.outcome`,
+and `db.pool.{open,idle,in_use,max_open,wait_total,wait_duration_ms}`. Each is
+marked in the source with the reason and the task that owns the call site. They are
+named so the vocabulary is settled once; **no consumer may present them as a
+measurement until something moves them.** The database pool reaches a snapshot
+through `DBPoolStats` (six struct fields, plus `Available: false` until
+`SetDBPool` gains a caller), not through those registry names.
+
+Two deliberate properties, because they are the ones a reader gets wrong:
+
+- **The snapshot is process-local.** A fleet of three instances has three
+  snapshots; merging is the console's job, because merging here would hide *which*
+  instance dropped the frames.
+- **A device key is never a label.** C3's rule applied to this surface: a metrics
+  payload is readable by whoever holds the metrics token, and a fleet's device keys
+  are credentials.
 
 ---
 

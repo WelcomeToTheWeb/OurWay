@@ -1,0 +1,27 @@
+# HAND-BUILT FIXTURE — written from the ruled table `zypper list-updates`
+# produces on a serviceable Leap release (zypper(8), same command as the
+# Tumbleweed fixture). It is not a transcript of a real system's output: no row
+# below was recorded from a running openSUSE install, and the versions were
+# written by hand to the shape Leap's update repositories use
+# (`<upstream>-<solvable revision>`, e.g. `2.31-150300.10.1`).
+#
+# Still owed before this format can be called field-proven: a real run on
+# openSUSE Leap, recorded with `LC_ALL=C zypper --non-interactive -q lu >
+# fixture.txt`.
+#
+# This fixture carries the OTHER column layout the parser is written to
+# tolerate: an Arch column where a newer zypper prints Status, and rows whose
+# padding is ragged because zypper fits columns to the widest cell it has. A
+# serviceable Leap keeps every released update in its repositories, which is
+# also why the rollback in zypper.go can usually still resolve the version
+# recorded for it here — unlike a rolling Tumbleweed snapshot.
+Loading repository data...
+Reading installed packages...
+S | Repository                | Name             | Current Version      | New Version          | Arch
+--+---------------------------+------------------+----------------------+----------------------+-------
+v | openSUSE-Leap-15.5-Update | kernel-default   | 5.14.21-150500.55.1  | 5.14.21-150500.60.1  | x86_64
+v | openSUSE-Leap-15.5-Update | glibc            | 2.31-150300.9.1      | 2.31-150300.10.1     | x86_64
+v | openSUSE-Leap-15.5-Update | libopenssl1_1    | 1.1.1w-150400.7.1    | 1.1.1w-150400.8.1    | x86_64
+v | openSUSE-Leap-15.5-Update | sudo            | 1.9.15p5-150400.3.1  | 1.9.17p1-150400.3.1  | x86_64
+v | openSUSE-Leap-15.5-Update | zlib             | 1.2.11-11.16         | 1.2.11-11.18         | x86_64
+v | openSUSE-Leap-15.5-Update | yast2-trans-de   | 4.3.0-150400.3.1     | 4.3.0-150400.4.1     | noarch
