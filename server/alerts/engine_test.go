@@ -7,9 +7,14 @@ import (
 	"ourway/server/models"
 )
 
-// MockAlertStore is a mock implementation of AlertStoreInterface for testing
+// MockAlertStore is a mock implementation of AlertStoreInterface for testing.
+//
+// resolvedCalls records every MarkResolved call with the id it was made for, so a
+// test can see *how many times* the engine touched one alert. That was not
+// knowable before: see MarkResolved.
 type MockAlertStore struct {
-	alerts []*models.Alert
+	alerts        []*models.Alert
+	resolvedCalls []string
 }
 
 func (m *MockAlertStore) Create(a *models.Alert) error {
@@ -40,11 +45,27 @@ func (m *MockAlertStore) GetByID(id string) (*models.Alert, error) {
 	return nil, nil
 }
 
+// MarkResolved mirrors what the production store writes — **both** columns
+// (`server/store/alerts.go` updates `resolved` and `resolved_at`).
+//
+// It used to write only `resolved_at`, while `List` above filters on `Resolved`,
+// the field nothing in this package ever set. The two halves were individually
+// reasonable and jointly inert: once auto-resolution touched an alert, `List`
+// went on handing it back as unresolved on every later sample, so no test in this
+// package could distinguish an idempotent sweep from one that re-marked the same
+// alert and published `alert_resolved` again for a metric that had already
+// recovered. A double that drifts from the backend it stands in for does not just
+// risk false passes; it deletes the failures it was supposed to be able to show.
+//
+// The call is recorded so the property is checkable rather than assumed — see
+// `TestAutoResolveMarksEachAlertResolvedOnce`.
 func (m *MockAlertStore) MarkResolved(id string) error {
 	for _, a := range m.alerts {
 		if a.ID == id {
 			now := time.Now()
+			a.Resolved = true
 			a.ResolvedAt = &now
+			m.resolvedCalls = append(m.resolvedCalls, id)
 			return nil
 		}
 	}
