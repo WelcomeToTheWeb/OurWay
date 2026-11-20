@@ -34,11 +34,21 @@ var (
 	flagServer      = flag.String("server", "http://localhost:8080", "OurWay server URL")
 	flagKey         = flag.String("key", "", "Device key (use --register to auto-generate)")
 	flagRegister    = flag.Bool("register", false, "Register device with server and get key")
+	flagToken       = flag.String("token", "", "Enrollment credential sent as X-Enrollment-Secret: the installation's enrollment secret, or a tenant's owt_ enrollment token")
 	flagInstallDir  = flag.String("install-dir", "", "Installation directory")
 	flagSkipService = flag.Bool("skip-service", false, "Don't install as a service")
 	flagVersion     = flag.String("version", "", "Agent version to install")
+	flagQuiet       = flag.Bool("quiet", false, "No prompts and no pause: for SCCM, GPO, Intune, psexec and CI")
 	flagHelp        = flag.Bool("help", false, "Show help")
 )
+
+// stepFailures records every step that needed a privilege the process did not
+// have, or otherwise failed, so the summary at the end can say what actually
+// happened. It exists because the first version of this installer reported
+// "Installation complete!" after `New-Service` and every `reg add` had failed —
+// which is what an un-elevated double-click does — and an operator who believes
+// an install that did not happen is worse off than one who saw it fail.
+var stepFailures []string
 
 func main() {
 	flag.Parse()
@@ -81,13 +91,26 @@ func main() {
 	}
 	fmt.Println()
 
-	// Auto-register if needed
+	// Auto-register if needed.
+	//
+	// Failing to enroll used to print a warning and continue, which produced an
+	// agent with `"device_key": ""` running as a service. That agent cannot
+	// authenticate with anything it says, so the console shows a device that is
+	// offline forever and the operator has no clue the install was the reason.
+	// When enrollment was asked for, it is now fatal.
 	deviceKey := *flagKey
 	if deviceKey == "" && *flagRegister {
-		deviceKey = registerDevice(osName, arch)
-		if deviceKey == "" {
-			fmt.Println("Warning: Failed to register device. Continuing without key.")
+		key, err := registerDevice(osName, arch)
+		if err != nil {
+			fmt.Printf("Error: enrollment failed: %v\n", err)
+			fmt.Println("Nothing was installed. Fix the cause and run again; --key skips enrollment.")
+			pauseIfWindows()
+			os.Exit(1)
 		}
+		deviceKey = key
+	}
+	if deviceKey == "" {
+		fmt.Println("Warning: no device key. The agent will install but cannot authenticate until one is set.")
 	}
 
 	// Download/install binary
@@ -129,6 +152,20 @@ func main() {
 	installUninstaller(osName, installDir, binaryPath)
 
 	fmt.Println()
+	if len(stepFailures) > 0 {
+		fmt.Println("======================================")
+		fmt.Printf("  Installation INCOMPLETE (%d step(s) failed)\n", len(stepFailures))
+		fmt.Println("======================================")
+		for _, f := range stepFailures {
+			fmt.Println("  - " + f)
+		}
+		fmt.Println()
+		fmt.Println("On Windows these steps need elevation: run the installer as")
+		fmt.Println("administrator, or deploy it with SCCM/GPO/Intune, which run as SYSTEM.")
+		fmt.Println("Exit code 1 on failure, so a script can check `$LASTEXITCODE` or ERRORLEVEL.")
+		pauseIfWindows()
+		os.Exit(1)
+	}
 	fmt.Println("======================================")
 	fmt.Println("  Installation complete!")
 	fmt.Println("======================================")
@@ -138,12 +175,21 @@ func main() {
 
 // pauseIfWindows keeps the console open when the installer is double-clicked
 // on Windows, so users can read the output before the window closes.
+//
+// Two things keep it out of the way of automation, both of which the old
+// unconditional Scanln broke: --quiet says "nobody is reading", and a stdin that
+// is not a character device (redirected, a pipe from a runner, no console at all
+// under a service account) is not something anybody can press Enter on.
 func pauseIfWindows() {
-	if runtime.GOOS == "windows" {
-		fmt.Println()
-		fmt.Print("Press Enter to exit...")
-		fmt.Scanln()
+	if runtime.GOOS != "windows" || *flagQuiet {
+		return
 	}
+	if fi, err := os.Stdin.Stat(); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return
+	}
+	fmt.Println()
+	fmt.Print("Press Enter to exit...")
+	fmt.Scanln()
 }
 
 func printHelp() {
@@ -155,13 +201,33 @@ func printHelp() {
 	fmt.Println("  --server URL       OurWay server URL (default: http://localhost:8080)")
 	fmt.Println("  --key KEY          Device key for authentication")
 	fmt.Println("  --register         Register device with server and get key")
+	fmt.Println("  --token CRED       Enrollment credential sent as X-Enrollment-Secret, needed by")
+	fmt.Println("                     --register against a server that has an enrollment secret or")
+	fmt.Println("                     tenant tokens (an owt_... token names the tenant the unit joins)")
 	fmt.Println("  --install-dir DIR  Installation directory")
 	fmt.Println("  --skip-service     Don't install as a service")
 	fmt.Println("  --version VER      Agent version to install")
+	fmt.Println("  --quiet            No prompts, no pause; exit 0/1 for scripted deployment")
 	fmt.Println("  --help             Show this help")
+	fmt.Println()
+	fmt.Println("Exits 1 when any step failed, so SCCM/GPO/Intune and CI can tell success from")
+	fmt.Println("a wall of warnings. Example:")
+	fmt.Println("  ourway-installer.exe --server https://rmm.example.com --register --token owt_abc... --quiet")
 }
 
-func registerDevice(osName, arch string) string {
+// registerDevice enrolls this machine and returns its new device key.
+//
+// The credential goes in the `X-Enrollment-Secret` header, which is the one the
+// server reads (`resolveEnrollment` in server/api/devices.go). It accepts either
+// shape: the installation's enrollment secret, or a tenant's `owt_` token, which
+// is what puts the unit *inside that tenant* rather than in whatever the id space
+// hands out next. Nothing here sends it today, so against a server configured the
+// way the docs tell MSPs to configure it, enrollment answers 401 and always has —
+// the installer just used to shrug about it.
+//
+// An error is returned rather than printed-and-ignored so the caller can decide:
+// an install with no key is not a partial success.
+func registerDevice(osName, arch string) (string, error) {
 	hostname, _ := os.Hostname()
 
 	// Report IPs at registration so the device shows them immediately;
@@ -185,40 +251,48 @@ func registerDevice(osName, arch string) string {
 		PrivateIP:    detectPrivateIP(),
 	})
 	if err != nil {
-		fmt.Printf("Error building register payload: %v\n", err)
-		return ""
+		return "", fmt.Errorf("build register payload: %w", err)
 	}
-	payload := string(payloadBytes)
 
 	url := strings.TrimRight(*flagServer, "/") + "/api/agent/register"
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(url, "application/json", strings.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		fmt.Printf("Error registering device: %v\n", err)
-		return ""
+		return "", fmt.Errorf("build request to %s: %w", url, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if *flagToken != "" {
+		req.Header.Set("X-Enrollment-Secret", *flagToken)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("POST %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		fmt.Printf("Error: Server returned %d: %s\n", resp.StatusCode, string(body))
-		return ""
+		if *flagToken == "" {
+			return "", fmt.Errorf("server returned %d: %s\n  (no enrollment credential was sent; pass --token <enrollment secret or owt_... token>)",
+				resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		return "", fmt.Errorf("server returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	// Parse response for device_key
 	var result map[string]interface{}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return ""
+		return "", fmt.Errorf("server's reply was not JSON: %w", err)
 	}
 
-	if key, ok := result["device_key"].(string); ok {
-		fmt.Printf("Device registered! Key: %s\n", key)
-		return key
+	key, ok := result["device_key"].(string)
+	if !ok || key == "" {
+		return "", fmt.Errorf("server accepted the enrollment but returned no device_key: %s", strings.TrimSpace(string(body)))
 	}
-
-	return ""
+	fmt.Printf("Device registered. Key: %s\n", key)
+	return key, nil
 }
 
 func installBinary(osName, arch, installDir, binName string) string {
@@ -328,10 +402,15 @@ WantedBy=multi-user.target
 			return
 		}
 
+		mark := len(stepFailures)
 		run("systemctl", "daemon-reload")
 		run("systemctl", "enable", "ourway-agent")
 		run("systemctl", "start", "ourway-agent")
-		fmt.Println("Service installed and started")
+		if len(stepFailures) != mark {
+			fmt.Println("Service NOT installed — see the failures listed at the end.")
+		} else {
+			fmt.Println("Service installed and started")
+		}
 
 	case "darwin":
 		plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
@@ -361,8 +440,13 @@ WantedBy=multi-user.target
 			return
 		}
 
+		mark := len(stepFailures)
 		run("launchctl", "load", "-w", plistPath)
-		fmt.Println("Service installed and started")
+		if len(stepFailures) != mark {
+			fmt.Println("Service NOT installed — see the failures listed at the end.")
+		} else {
+			fmt.Println("Service installed and started")
+		}
 
 	case "windows":
 		// Use New-Service instead of sc.exe: the install dir contains a
@@ -374,18 +458,38 @@ WantedBy=multi-user.target
 			"New-Service -Name OurWayAgent -BinaryPathName '%s --server %s --key %s' -StartupType Automatic -DisplayName 'OurWay RMM Agent'; Start-Service OurWayAgent",
 			psq(binaryPath), psq(server), psq(key),
 		)
+		mark := len(stepFailures)
 		run("powershell", "-NoProfile", "-Command", psScript)
-		fmt.Println("Service installed and started")
+		if len(stepFailures) != mark {
+			// Naming the cause is the whole point: this is what an
+			// un-elevated double-click produces, and the installer used to
+			// answer that exact situation with "Installation complete!".
+			fmt.Println("Service NOT installed — Windows refused it.")
+			fmt.Println("  Run the installer as administrator (right-click > Run as administrator),")
+			fmt.Println("  or deploy it from an elevated prompt / SCCM / GPO / Intune, which run as SYSTEM.")
+		} else {
+			fmt.Println("Service installed and started")
+		}
 	}
 }
 
-func run(name string, args ...string) {
+// run performs one step of the installation. A failure is reported and
+// recorded — never swallowed — so the closing summary can be honest about what
+// the machine actually has on it. The caller is not failed fast: on Linux a
+// `systemctl enable` that fails still leaves a binary and a unit worth keeping,
+// and an operator deploying at scale would rather see every step that failed than
+// fix one per retry.
+func run(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Warning: %s %v failed: %v\n", name, args, err)
+		msg := fmt.Sprintf("%s %s: %v", name, strings.Join(args, " "), err)
+		fmt.Printf("Warning: %s\n", msg)
+		stepFailures = append(stepFailures, msg)
+		return err
 	}
+	return nil
 }
 
 // installUninstaller puts an uninstall entry point next to the agent so

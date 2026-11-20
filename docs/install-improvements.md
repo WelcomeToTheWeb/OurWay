@@ -89,9 +89,23 @@ A new `docker/Dockerfile.agent` allows running the agent in a container, which i
 | `--server URL` | OurWay server URL | http://localhost:8080 |
 | `--key KEY` | Device key (or use --register) | (none) |
 | `--register` | Auto-register device with server | (off) |
+| `--token CRED` | Enrollment credential sent as `X-Enrollment-Secret`; needed by `--register` against a server with an enrollment secret or tenant tokens | (none) |
+| `--quiet` | No prompts and no end-of-run pause, for SCCM, GPO, Intune, psexec and CI | (off) |
 | `--install-dir DIR` | Installation directory | /opt/ourway (Linux/macOS), C:\Program Files\OurWay\Agent (Windows) |
 | `--skip-service` | Don't install as a service | (off) |
 | `--version VER` | Agent version to install | (empty: the server's current release) |
+
+**Exit codes.** The installer exits `1` when any step failed and prints each
+failure under `Installation INCOMPLETE`, so a deployment tool can tell success
+from a console full of warnings. It used to exit `0` and print
+`Installation complete!` even when `New-Service` and every `reg add` had been
+refused, which is exactly what an un-elevated double-click produces.
+
+**Enrollment.** A server that has an enrollment secret, or that hands units to
+tenants through `owt_` tokens, refuses an enrollment that presents no credential.
+`--token` is what presents it. Because an agent installed with an empty key can
+never authenticate — the console shows a machine that is offline forever — a
+failed `--register` now aborts the install instead of continuing without a key.
 
 ## Files Changed
 
