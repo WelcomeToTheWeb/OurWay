@@ -750,12 +750,23 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		// The remote exe streams legacy JPEGs for the browser until a
 		// viewer attaches; then it switches to the framed protocol.
 		if out, err := json.Marshal(Message{Type: "viewer_attach", Payload: map[string]string{"session_id": viewerSession.ID}}); err == nil {
-			h.sendRemoteExe(deviceKey, out)
+			// `sendRemoteExe` answers whether the exe is on this instance at
+			// all; the answer used to be thrown away, so "the exe was told to
+			// switch protocols" and "nobody was told anything" were the same
+			// line of output — and the console has no way to tell an operator
+			// that a session will stay on slow frames forever. It is logged,
+			// not counted: this fires when a session cannot work at all, which
+			// is an event to read, not a rate to chart.
+			if !h.sendRemoteExe(deviceKey, out) {
+				log.Printf("ws: viewer_attach for session %s not delivered: no remote exe is connected for device %s", viewerSession.ID, deviceKey)
+			}
 		}
 	}
 	if remoteSession != nil && h.hasViewer(remoteSession.ID) {
 		if out, err := json.Marshal(Message{Type: "viewer_attach", Payload: map[string]string{"session_id": remoteSession.ID}}); err == nil {
-			h.sendRemoteExe(deviceKey, out)
+			if !h.sendRemoteExe(deviceKey, out) {
+				log.Printf("ws: viewer_attach for session %s not delivered on exe connect: viewer is attached but the exe is not registered for device %s", remoteSession.ID, deviceKey)
+			}
 		}
 	}
 
