@@ -20,9 +20,76 @@ import (
 	"ourway/server/auth"
 	"ourway/server/config"
 	"ourway/server/events"
+	"ourway/server/metrics"
 	"ourway/server/models"
 	"ourway/server/store"
 )
+
+// dropLogWindow is how often one drop site may speak. A drop storm must not
+// become a log storm: a line that scrolls away its own evidence is as useless
+// as no line, which is half of why M10 was only half-fixed by logging. The
+// counter is exact; the log is a hint, and a throttled hint is still a hint.
+const dropLogWindow = 10 * time.Second
+
+// throttleRedis is the throttle key for the lines about Redis itself. It is not
+// a counter name: Redis failing is not a dropped message, it is the reason some
+// messages get dropped elsewhere. It is still a fixed constant, because the
+// throttle map stays bounded by construction only while its keys are.
+const throttleRedis = "log.redis"
+
+// drop counts a message the hub could not deliver. Every drop site goes through
+// it, so the hub's own aggregate and the named per-site counter in
+// `server/metrics` cannot drift apart.
+func (h *Hub) drop(site string) {
+	h.dropped.Add(1)
+	metrics.Add(site, nil, 1)
+}
+
+// logThrottled writes a line for `site` at most once per dropLogWindow, for
+// sites that have already counted the event they are describing.
+func logThrottled(site, format string, args ...interface{}) {
+	if metrics.AllowLog(site, dropLogWindow) {
+		log.Printf(format, args...)
+	}
+}
+
+// dropLogged is a drop site that also has something to say.
+func (h *Hub) dropLogged(site, format string, args ...interface{}) {
+	h.drop(site)
+	logThrottled(site, format, args...)
+}
+
+// trySend is the one implementation of "deliver this if the client has room,
+// otherwise count the drop under this site name and carry on". Every per-client
+// non-blocking send in the package runs through it, so a site contributes its
+// name and its message and nothing else — which is what makes "a new send site
+// with no counter is a review defect" (2.5-0) visible in review: a send that
+// bypasses trySend is the only way to be uncounted.
+func (h *Hub) trySend(client *Client, site string, data []byte) bool {
+	select {
+	case client.SendCh <- data:
+		return true
+	default:
+		h.drop(site)
+		return false
+	}
+}
+
+// redisResult is the hub's whole Redis health read: an operation that fails
+// opens a degraded incident, an operation that succeeds closes it (2.5-0). It
+// runs off the operations the hub already performs, not a health poller, so
+// there is no new way to be wrong about Redis.
+//
+// Only call it where a failure means Redis did not answer. It is deliberately
+// not used for `Get`, where "key not found" is a normal answer about a device
+// that is offline and would report the fleet's presence keys as an outage.
+func redisResult(err error) {
+	if err != nil {
+		metrics.RedisDegraded()
+		return
+	}
+	metrics.RedisRecovered()
+}
 
 // toFloat safely converts interface{} to float64
 func toFloat(v interface{}) float64 {
@@ -171,13 +238,24 @@ func (h *Hub) startAlertWorker() {
 			if h.Alerts == nil {
 				continue
 			}
+			// The latency the release gate reads (2.5-8: the alert
+			// engine's p95 must stay under the read deadline that produced
+			// M5) is measured here, on the worker's own clock, so a queue
+			// wait never shows up as a slow evaluation.
+			start := time.Now()
 			h.Alerts.Evaluate(job.metrics, job.deviceID, job.deviceName)
+			metrics.ObserveAlertEval(time.Since(start))
 		}
 	}()
 }
 
-// DroppedCount reports how many messages the hub dropped on full buffers
+// DroppedCount reports how many messages this hub dropped on full buffers
 // (M10). Useful in health endpoints and tests.
+//
+// It is the per-hub aggregate; `server/metrics` carries the per-site counters
+// that say *which* buffer was full, and those are what 2.5-2 shows. A hub counts
+// its own drops because a hub is what a test can hold; the process-wide registry
+// is what an operator reads.
 func (h *Hub) DroppedCount() uint64 {
 	return h.dropped.Load()
 }
@@ -189,11 +267,7 @@ func (h *Hub) handleRemoteTargeted(data []byte) {
 	}
 
 	for _, client := range h.clientsFor(msg.Target) {
-		select {
-		case client.SendCh <- msg.Data:
-		default:
-			h.dropped.Add(1)
-		}
+		h.trySend(client, metrics.WSTargetedRemote, msg.Data)
 	}
 }
 
@@ -223,8 +297,11 @@ func (h *Hub) handleRemoteBroadcast(data []byte) {
 		return
 	}
 	// Suppress loopback: Redis echoes our own publish back to us and we
-	// already delivered it to local clients (M8).
+	// already delivered it to local clients (M8). Counted, because a dashboard
+	// that cannot see the suppression working cannot tell it apart from a
+	// broadcast that never arrived.
 	if env.Src == h.instanceID {
+		metrics.Inc(metrics.WSBroadcastSuppressed)
 		return
 	}
 	h.mu.RLock()
@@ -232,11 +309,7 @@ func (h *Hub) handleRemoteBroadcast(data []byte) {
 		if client.Type == "viewer" {
 			continue
 		}
-		select {
-		case client.SendCh <- env.Data:
-		default:
-			h.dropped.Add(1)
-		}
+		h.trySend(client, metrics.WSBroadcastRemote, env.Data)
 	}
 	h.mu.RUnlock()
 }
@@ -247,8 +320,17 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.mu.Lock()
+			// The client map holds one entry per ID, so a connection that
+			// supersedes another (M7) must take the displaced one off the
+			// role gauge here. Its own unregister arrives later and is
+			// deliberately ignored below, so a gauge decremented only there
+			// would climb by one every time a unit reconnected.
+			if old, ok := h.clients[client.ID]; ok && old != client {
+				metrics.AddGauge(metrics.WSConnectionsActive, metrics.Labels{"role": old.Type}, -1)
+			}
 			h.clients[client.ID] = client
 			h.mu.Unlock()
+			metrics.AddGauge(metrics.WSConnectionsActive, metrics.Labels{"role": client.Type}, 1)
 			log.Printf("ws: client %s registered (%s)", client.ID, client.Type)
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -259,6 +341,7 @@ func (h *Hub) Run() {
 			if current, ok := h.clients[client.ID]; ok && current == client {
 				delete(h.clients, client.ID)
 				close(client.SendCh)
+				metrics.AddGauge(metrics.WSConnectionsActive, metrics.Labels{"role": client.Type}, -1)
 			}
 			h.mu.Unlock()
 			log.Printf("ws: client %s unregistered (%s)", client.ID, client.Type)
@@ -269,13 +352,9 @@ func (h *Hub) Run() {
 				if client.Type == "viewer" {
 					continue
 				}
-				select {
-				case client.SendCh <- msg:
-				default:
-					// Drop slow clients (M10: counted so the degradation
-					// is not invisible).
-					h.dropped.Add(1)
-				}
+				// Drop slow clients (M10: counted per site so the
+				// degradation is not invisible).
+				h.trySend(client, metrics.WSBroadcastLocal, msg)
 			}
 			h.mu.RUnlock()
 
@@ -289,8 +368,10 @@ func (h *Hub) Run() {
 					break
 				}
 				go func() {
-					if err := h.redis.Publish("ws:broadcast", env); err != nil {
-						log.Printf("ws: failed to publish broadcast: %v", err)
+					perr := h.redis.Publish("ws:broadcast", env)
+					redisResult(perr)
+					if perr != nil {
+						logThrottled(throttleRedis, "ws: failed to publish broadcast: %v", perr)
 					}
 				}()
 			}
@@ -311,17 +392,26 @@ func (h *Hub) BroadcastMessage(msgType string, payload interface{}) {
 	default:
 		// Local buffer full: publish directly to Redis (other instances
 		// still get it), or count the drop when Redis is absent (M8).
+		//
+		// Both branches are counted, and counted differently, because they
+		// are different incidents: `ws.broadcast.fallback` is this instance
+		// degrading to the direct-publish path while the fleet still hears
+		// the message; `ws.broadcast.full` is the message simply gone. A
+		// single "drops" number cannot tell an operator which one they have.
 		if h.redis != nil {
+			metrics.Inc(metrics.WSBroadcastFallback)
 			env, err := json.Marshal(RemoteBroadcast{Src: h.instanceID, Data: data})
 			if err == nil {
-				if err := h.redis.Publish("ws:broadcast", env); err != nil {
-					log.Printf("ws: failed to publish broadcast: %v", err)
+				perr := h.redis.Publish("ws:broadcast", env)
+				redisResult(perr)
+				if perr != nil {
+					logThrottled(throttleRedis, "ws: failed to publish broadcast: %v", perr)
 				}
 			} else {
 				log.Printf("ws: failed to marshal broadcast envelope: %v", err)
 			}
 		} else {
-			h.dropped.Add(1)
+			h.dropLogged(metrics.WSBroadcastFull, "ws: broadcast queue full, dropping %s message", msgType)
 		}
 	}
 }
@@ -361,16 +451,16 @@ func (h *Hub) SendToDevice(deviceKey string, msgType string, payload interface{}
 	if len(clients) > 0 {
 		delivered := false
 		for _, client := range clients {
-			select {
-			case client.SendCh <- data:
+			if h.trySend(client, metrics.WSSendDevice, data) {
 				delivered = true
-			default:
-				h.dropped.Add(1)
 			}
 		}
 		if delivered {
 			return nil
 		}
+		// The caller logs this (patching does, for a unit that is offline);
+		// the counter says how often, which is the part a log line cannot
+		// carry.
 		return fmt.Errorf("device %s send buffer full", deviceKey)
 	}
 	clientID := "device:" + deviceKey
@@ -392,8 +482,10 @@ func (h *Hub) SendToDevice(deviceKey string, msgType string, payload interface{}
 			return err
 		}
 		if err := h.redis.Publish("ws:targeted", remoteData); err != nil {
+			redisResult(err)
 			return fmt.Errorf("failed to publish targeted message: %w", err)
 		}
+		redisResult(nil)
 		return nil
 	}
 
@@ -413,11 +505,8 @@ func (h *Hub) SendToUser(userID string, msgType string, payload interface{}) err
 	if clients := h.clientsFor(clientID); len(clients) > 0 {
 		delivered := false
 		for _, client := range clients {
-			select {
-			case client.SendCh <- data:
+			if h.trySend(client, metrics.WSSendUser, data) {
 				delivered = true
-			default:
-				h.dropped.Add(1)
 			}
 		}
 		if delivered {
@@ -434,8 +523,10 @@ func (h *Hub) SendToUser(userID string, msgType string, payload interface{}) err
 			return err
 		}
 		if err := h.redis.Publish("ws:targeted", remoteData); err != nil {
+			redisResult(err)
 			return fmt.Errorf("failed to publish targeted message: %w", err)
 		}
+		redisResult(nil)
 		return nil
 	}
 
@@ -628,7 +719,10 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 	if clientType == "device" && deviceKey != "" && h.redis != nil && h.redis.SetEX != nil {
 		connID = h.instanceID + "-" + uuid.New().String()
 		if err := h.redis.SetEX(devicePresenceKey(deviceKey), connID, 90*time.Second); err != nil {
-			log.Printf("ws: failed to set device presence: %v", err)
+			redisResult(err)
+			logThrottled(throttleRedis, "ws: failed to set device presence: %v", err)
+		} else {
+			redisResult(nil)
 		}
 		presenceStop = make(chan struct{})
 		defer close(presenceStop)
@@ -641,7 +735,10 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 					return
 				case <-t.C:
 					if err := h.redis.SetEX(devicePresenceKey(deviceKey), connID, 90*time.Second); err != nil {
-						log.Printf("ws: failed to refresh device presence: %v", err)
+						redisResult(err)
+						logThrottled(throttleRedis, "ws: failed to refresh device presence: %v", err)
+					} else {
+						redisResult(nil)
 					}
 				}
 			}
@@ -666,11 +763,10 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 		// Tell the exe this server accepts binary frame messages; exes
 		// fall back to HTTP frame upload until they hear it, so a newer
 		// exe never streams into an older server that would drop frames.
+		// The drop is counted: a missed announcement is slower frames,
+		// which is otherwise invisible from outside the process.
 		if msg, err := json.Marshal(Message{Type: "binary_frames"}); err == nil {
-			select {
-			case client.SendCh <- msg:
-			default:
-			}
+			h.trySend(client, metrics.WSSendBinaryFrames, msg)
 		}
 	}
 	defer func() {
@@ -840,11 +936,7 @@ func (h *Hub) ServeHTTP(c *gin.Context, store *store.Store, jwtAuth *auth.JWTAut
 			// dashboard connections.
 			if msg.Type == "ping" {
 				if pong, err := json.Marshal(Message{Type: "pong"}); err == nil {
-					select {
-					case client.SendCh <- pong:
-					default:
-						h.dropped.Add(1)
-					}
+					h.trySend(client, metrics.WSSendPong, pong)
 				}
 			}
 		}
@@ -904,7 +996,12 @@ func (h *Hub) relayRemoteFrame(store *store.Store, sess *models.Session, fs *fra
 		"device_id":  sess.DeviceID,
 		"data":       base64.StdEncoding.EncodeToString(jpeg),
 	}); err != nil {
-		log.Printf("ws: dropping frame for session %s: %v", sess.ID, err)
+		// The frame is gone, not delayed: the owner has no connection to
+		// carry it, so the console shows a live session with a black
+		// screen. Counted per frame and logged once per window — a session
+		// at a few frames a second would otherwise write hundreds of lines
+		// a minute about one disconnected technician.
+		h.dropLogged(metrics.WSSessionFrameUnconnected, "ws: dropping frame for session %s: %v", sess.ID, err)
 	}
 	events.Publish("session_frame", map[string]interface{}{
 		"session_id": sess.ID,
@@ -1042,6 +1139,10 @@ func (h *Hub) startReaper(store *store.Store) {
 func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Store, deviceKey string) {
 	switch msg.Type {
 	case "heartbeat":
+		// The ingest counters are counts, not rates: 2.5-2 divides two
+		// snapshots by their sample times. This is the agent's primary path,
+		// so a fleet that stops heartbeating shows up here first.
+		metrics.Inc(metrics.IngestHeartbeatWS)
 		dev, err := store.Devices.GetByKey(deviceKey)
 		if err != nil {
 			return
@@ -1079,10 +1180,10 @@ func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Stor
 			"version":    config.Version,
 			"git_commit": config.GitCommit,
 		}}); err == nil {
-			select {
-			case client.SendCh <- ack:
-			default:
-			}
+			// Counted: an agent that never receives this stays on its old
+			// build for a heartbeat longer, and until now nothing in the
+			// process knew the answer had been dropped at all.
+			h.trySend(client, metrics.WSSendServerVersion, ack)
 		}
 		if wasOffline {
 			events.Publish("device_online", map[string]interface{}{
@@ -1091,6 +1192,7 @@ func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Stor
 			})
 		}
 	case "metrics":
+		metrics.Inc(metrics.IngestMetricsWS)
 		// C2: trust the connection's authenticated device key, not a key
 		// declared in the payload (any agent could otherwise push metrics
 		// for any other device).
@@ -1188,9 +1290,12 @@ func (h *Hub) handleDeviceMessage(client *Client, msg Message, store *store.Stor
 			deviceName: dev.Name,
 		}:
 		default:
-			// M10: count the drop instead of silently discarding it.
-			h.dropped.Add(1)
-			log.Printf("ws: alert evaluation queue full, dropping evaluation for device %s", dev.ID)
+			// M10: count the drop instead of silently discarding it. This
+			// one is the drop that matters most — an unmeasured sample is an
+			// alert that did not fire — and the line that used to be here
+			// was itself the log storm: a saturated queue logs for every
+			// sample, which is every metrics frame from every unit.
+			h.dropLogged(metrics.WSAlertQueueFull, "ws: alert evaluation queue full, dropping evaluation for device %s", dev.ID)
 		}
 
 		// Extract and save metrics to database

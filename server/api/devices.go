@@ -11,6 +11,7 @@ import (
 
 	"ourway/server/alerts"
 	"ourway/server/events"
+	"ourway/server/metrics"
 	"ourway/server/models"
 	"ourway/server/store"
 	"ourway/server/ws"
@@ -230,6 +231,12 @@ func (h *DeviceHandler) Heartbeat(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update heartbeat"})
 		return
 	}
+	// The ingest counters are counts, not rates: the snapshot's sample time
+	// turns two reads into a rate. This is the HTTP heartbeat path — the one
+	// an agent uses when it has no WebSocket — and it has to be counted in the
+	// same currency as the WS one or "the fleet stopped reporting" is only
+	// half a picture.
+	metrics.Inc(metrics.IngestHeartbeatHTTP)
 
 	// Broadcast heartbeat status
 	h.hub.BroadcastMessage("heartbeat", map[string]interface{}{
