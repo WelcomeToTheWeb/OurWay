@@ -127,8 +127,27 @@ task list, and features arrive in the order they are built.
       a token with `aud` = a different client, an expired token. — `testidp.Rotate`,
       `PublishOnlyCurrentKey`, `MintIDTokenWithKey`, `MintIDToken(claims, clientID, alg)`
       and `MintExpiredIDToken`, exercised in `server/sso/oidc_test.go`.
-- [ ] A macOS/Linux agent fixture emitting metric sequences that cross thresholds
-      for the precedence tests.
+- [x] A macOS/Linux agent fixture emitting metric sequences that cross thresholds
+      for the precedence tests. — `server/alerts/metric_sequence_test.go`: two
+      sequences, one labelled linux and one darwin, walked sample by sample through
+      `Engine.Evaluate` with the assertions per step rather than per end state. Each
+      crossing states which rule owns the alert, so precedence is re-read at every
+      step instead of only at the first. The sequences also cover the three
+      behaviours a single sample cannot show: a repeat inside the dedup window
+      (suppressed), a severity change inside that same window (fires, because the
+      dedup key carries the severity), and auto-resolution of the metrics that came
+      back under their own resolved warnings while the one that did not stays open.
+      Two deviations, stated rather than smoothed over. **(a) It is a Go table, not
+      a fixture file.** `server/` and `agent/` are separate Go modules, so an
+      agent-side fixture cannot be imported by these tests, and a file fixture would
+      add a parser whose first compiler is CI; the table is the same data with one
+      fewer unverifiable moving part. **(b) The sequences are hand-built to cross
+      the shipped numbers, not captured from a host.** No macOS or Linux machine
+      produced them. What the platform labels contribute is the *shape* of the
+      values — the darwin series opens with 12.5% CPU, which is one pegged core on
+      an 8-core Mac and must not alert, because that collector measures a share of
+      the whole machine — and a real captured trace would still be owed before these
+      numbers can be called typical.
 
 **Acceptance criteria**
 - The IdP fixture runs in CI (`tests` job) with no network dependency beyond the
