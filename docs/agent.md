@@ -522,10 +522,64 @@ ourway-agent --install
 ### Configuration Precedence
 
 ```
-CLI flags > Environment variables > Defaults
+CLI flags > Environment variables > Config file > Defaults
 ```
 
-Example: If `--server` is specified on the command line, it overrides `OURWAY_SERVER` environment variable.
+Example: if `--server` is given on the command line it overrides `OURWAY_SERVER`,
+which overrides `server_url` in the config file.
+
+The config file is `config/device.json` inside the install directory — beside the
+binary, which is where the installer writes it. It is read before the environment
+so that the file describes the machine and an operator can still override it for
+one run:
+
+```json
+{
+  "server_url": "wss://rmm.example.com/ws",
+  "device_key": "<device-key>",
+  "device_id": "<optional; fetched from the server when absent>",
+  "heartbeat": "15s",
+  "metrics_interval": "60s",
+  "stream_interval": "2s",
+  "log_file": "/var/log/ourway-agent.log"
+}
+```
+
+Intervals accept either a Go duration string (`"30s"`) or a whole number of
+seconds (`30`). `collect_interval` is read as `metrics_interval`: it is the name
+the installer has always written, and a number the agent ignored would leave a file
+that looks configured and is not.
+
+Use `--config` (or `OURWAY_CONFIG`) for a different file. A file named explicitly
+must exist and must parse — an agent that quietly fell back to defaults would point
+itself at `ws://localhost:8080` with no key and show up in the console as nothing
+more interesting than an offline machine.
+
+**Why the file exists.** Until it did, the only place an installed agent could put
+its device key was the service's command line, and a service command line is public
+to every account that can log in: `sc qc OurWayAgent`, `Get-CimInstance
+Win32_Service`, `systemctl cat ourway-agent`. Installs that pass `--key` keep
+working — an upgrade does not take anybody offline — but the agent now says what is
+exposed on every start:
+
+```
+config: the device key was given on the command line, where the service manager shows it
+to any local account (sc qc / Get-CimInstance on Windows, the unit file on Linux). Put it
+in /etc/ourway/device.json and drop --key from the service's path.
+```
+
+Protect the file. On Linux and macOS that is `chmod 600`, and the agent warns when a
+file holding a key is group- or world-readable. On Windows the protection is the
+NTFS ACL, which is not something the agent can read, and `Program Files` is readable
+by every local account unless it is tightened:
+
+```powershell
+icacls "C:\Program Files\OurWay\Agent\config\device.json" /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"
+```
+
+**The installer does not do this for you yet.** Until it does, a key written into a
+default `Program Files` install is readable by anyone local, which is only slightly
+better than putting it in the service path. That is the next change, not this one.
 
 ### Full CLI Reference
 
@@ -537,6 +591,7 @@ Usage: ourway-agent [flags]
 Flags:
   --server string       WebSocket server URL (default "ws://localhost:8080")
   --key string          Device key
+  --config string       Configuration file (default: config/device.json beside the agent)
   --install             Install as a service and exit
   --uninstall           Uninstall the agent (service, files, logs) and exit
   --yes                 Skip the uninstall confirmation prompt
@@ -547,10 +602,13 @@ Flags:
   -h, --help            help for ourway-agent
 
 Environment Variables:
+  OURWAY_CONFIG           Path to the configuration file (overrides the default location)
   OURWAY_SERVER           WebSocket server URL
   OURWAY_DEVICE_KEY       Device key
+  OURWAY_DEVICE_ID        Device ID (optional; fetched from the server when absent)
   OURWAY_HEARTBEAT        Heartbeat interval (default "15s")
   OURWAY_METRICS_INTERVAL Metrics interval (default "60s")
+  OURWAY_LOG_FILE         Log file path
 ```
 
 ### Troubleshooting
