@@ -4,6 +4,7 @@ import (
 	"ourway/agent/session"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -21,7 +22,21 @@ import (
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			// The flag set has already printed the usage; asking for help is not a
+			// failure worth a non-zero exit.
+			return
+		}
 		log.Fatalf("error loading config: %v", err)
+	}
+	// Config warnings are printed before anything else runs, including before the
+	// --install and --uninstall paths, so an operator sees them at the moment they
+	// can still act on them. On a Windows *service* start they go to stderr rather
+	// than the event log, because the event-log writer is only attached later; that
+	// is a known gap, and the fix for the exposure they describe is the config file
+	// itself.
+	for _, w := range cfg.Warnings {
+		log.Printf("config: %s", w)
 	}
 
 	// Handle --version
