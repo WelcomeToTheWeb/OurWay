@@ -37,9 +37,11 @@ import (
 // want is what one metric must look like after one sample: the metric, the
 // severity it raised ("" means it must have raised no alert at all), the
 // threshold that won — which is the precedence result — and whether that alert
-// has been auto-resolved. Every metric in every step is stated, including the
-// ones that must stay silent: a table where an omitted metric means "don't care"
-// is a table that quietly stops testing the cases nobody thought to write down.
+// has been auto-resolved (that is: `ResolvedAt` is set, the field both the
+// production store and this package's double write). Every metric in every step
+// is stated, including the ones that must stay silent: a table where an omitted
+// metric means "don't care" is a table that quietly stops testing the cases
+// nobody thought to write down.
 type want struct {
 	metric    string
 	severity  string
@@ -192,8 +194,18 @@ func checkMetric(t *testing.T, f *fleet, i int, note string, w want) {
 		t.Errorf("step %d (%s): %s threshold = %v, want %v — which rule wins has to be readable in the alert the operator finds",
 			i, note, w.metric, a.Threshold, w.threshold)
 	}
-	if a.Resolved != w.resolved {
-		t.Errorf("step %d (%s): %s resolved = %v, want %v", i, note, w.metric, a.Resolved, w.resolved)
+	// Resolution is read as `ResolvedAt != nil`, never as `Resolved`. This test
+	// failed in CI exactly here, and the reason is worth more than the fix: the
+	// production store's `MarkResolved` sets **both** `resolved` and `resolved_at`
+	// (`server/store/alerts.go`), while this package's test double sets **only**
+	// `ResolvedAt` — and that double's own `List(unresolvedOnly)` filter reads the
+	// field it never sets. Every other resolution assertion in this package already
+	// reads `ResolvedAt`, so the two halves agree by convention rather than because
+	// the double mirrors production. The double is corrected on its own branch; this
+	// assertion uses the one field both of them set, so it reads correctly whichever
+	// way that change lands.
+	if (a.ResolvedAt != nil) != w.resolved {
+		t.Errorf("step %d (%s): %s resolved = %v, want %v", i, note, w.metric, a.ResolvedAt != nil, w.resolved)
 	}
 }
 
