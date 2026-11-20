@@ -100,7 +100,7 @@ func (d *Dispatcher) enqueue(ctx context.Context, row *models.Webhook, event Eve
 		Event:     event.Type,
 		Status:    "pending",
 		Attempts:  0,
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
 	}
 	if err != nil {
 		// A channel that cannot be built is a configuration the operator can fix,

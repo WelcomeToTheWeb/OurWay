@@ -75,7 +75,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		Username:     req.Username,
 		Email:        req.Email,
 		PasswordHash: string(hash),
-		CreatedAt:    time.Now(),
+		CreatedAt:    time.Now().UTC(),
 	}
 
 	if err := h.store.Users.Create(user); err != nil {

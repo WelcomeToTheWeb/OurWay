@@ -314,7 +314,7 @@ func (e *Engine) checkThreshold(scope DeviceScope, metric string, value float64,
 		Value:      value,
 		Threshold:  threshold,
 		Resolved:   false,
-		CreatedAt:  now,
+		CreatedAt:  now.UTC(),
 	}
 
 	if err := e.alertStore.Create(alert); err != nil {
